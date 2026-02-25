@@ -19,7 +19,7 @@ use crate::api::AppState;
 use crate::blockchain::client::RpcClient;
 use crate::core::engine::Engine;
 use crate::core::risk::RiskManager;
-use crate::core::scheduler::Scheduler;
+use crate::core::scheduler::{ExecutionMode, Scheduler};
 use crate::features::volatility::VolatilityEstimator;
 
 #[tokio::main]
@@ -38,12 +38,21 @@ async fn main() -> anyhow::Result<()> {
     let client = Arc::new(RpcClient::new(&cfg.rpc_url)?);
 
     let risk = RiskManager::new(cfg.total_notional, cfg.max_slippage_pct, cfg.emergency_reserve_frac);
+
+    let exec_mode = match cfg.execution_mode.as_str() {
+        "optimal" => ExecutionMode::Optimal,
+        _ => ExecutionMode::Heuristic,
+    };
+
     let scheduler = Scheduler::new(
         risk,
         cfg.total_notional,
         cfg.base_chunk,
         cfg.sigma_ref,
         cfg.liquidity_ref,
+        exec_mode,
+        cfg.eta,
+        cfg.lambda,
     );
     let vol_estimator = VolatilityEstimator::new(cfg.vol_window);
 

@@ -196,6 +196,7 @@ mod tests {
     use ethers::types::{Address, U256};
 
     use crate::core::risk::RiskManager;
+    use crate::core::scheduler::ExecutionMode;
 
     /// Mock client that returns an atomically incrementing block number.
     struct MockBlockchainClient {
@@ -233,7 +234,10 @@ mod tests {
     /// Helper: build a scheduler with standard parameters.
     fn default_scheduler() -> Scheduler {
         let risk = RiskManager::new(1000.0, 0.05, 0.2);
-        Scheduler::new(risk, 1000.0, 100.0, 0.02, 500.0)
+        Scheduler::new(
+            risk, 1000.0, 100.0, 0.02, 500.0,
+            ExecutionMode::Heuristic, 0.0, 0.0,
+        )
     }
 
     /// Helper: build a dummy AppState for tests.

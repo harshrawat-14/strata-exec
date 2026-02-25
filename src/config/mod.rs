@@ -18,6 +18,10 @@ pub struct AppConfig {
     pub liquidity_ref: f64,
     pub log_level: String,
     pub http_port: u16,
+    pub execution_mode: String,
+    pub eta: f64,
+    pub lambda: f64,
+    pub horizon_blocks: Option<usize>,
 }
 
 impl AppConfig {
@@ -50,6 +54,16 @@ impl AppConfig {
         let sigma_ref = parse_env_f64("SIGMA_REF")?;
         let liquidity_ref = parse_env_f64("LIQUIDITY_REF")?;
 
+        // --- execution model ---
+        let execution_mode = env_or("EXECUTION_MODE", "heuristic").to_lowercase();
+        let eta = parse_env_or_default("ETA", 0.0)?;
+        let lambda = parse_env_or_default("LAMBDA", 0.0)?;
+        let horizon_blocks = match env::var("HORIZON_BLOCKS") {
+            Ok(v) => Some(v.parse::<usize>()
+                .with_context(|| format!("failed to parse HORIZON_BLOCKS={v}"))?),
+            Err(_) => None,
+        };
+
         // --- validation ---
         if total_notional <= 0.0 {
             bail!("TOTAL_NOTIONAL must be > 0, got {total_notional}");
@@ -69,6 +83,15 @@ impl AppConfig {
         if http_port == 0 {
             bail!("HTTP_PORT must be > 0");
         }
+        if execution_mode != "heuristic" && execution_mode != "optimal" {
+            bail!("EXECUTION_MODE must be 'heuristic' or 'optimal', got '{execution_mode}'");
+        }
+        if execution_mode == "optimal" && eta <= 0.0 {
+            bail!("ETA must be > 0 for optimal mode, got {eta}");
+        }
+        if lambda < 0.0 {
+            bail!("LAMBDA must be >= 0, got {lambda}");
+        }
 
         Ok(Self {
             rpc_url,
@@ -82,6 +105,10 @@ impl AppConfig {
             liquidity_ref,
             log_level,
             http_port,
+            execution_mode,
+            eta,
+            lambda,
+            horizon_blocks,
         })
     }
 }
@@ -114,4 +141,15 @@ where
 /// Convenience wrapper for `f64` parsing.
 fn parse_env_f64(key: &str) -> anyhow::Result<f64> {
     parse_env::<f64>(key)
+}
+
+/// Parse an env var with a fallback default value.
+fn parse_env_or_default<T>(key: &str, default: T) -> anyhow::Result<T>
+where
+    T: std::str::FromStr + std::fmt::Display,
+    T::Err: std::error::Error + Send + Sync + 'static,
+{
+    let raw = env_or(key, &default.to_string());
+    raw.parse::<T>()
+        .with_context(|| format!("failed to parse {key}={raw}"))
 }

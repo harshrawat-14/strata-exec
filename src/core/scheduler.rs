@@ -1,11 +1,31 @@
+use crate::core::optimal_execution::{AlmgrenChriss, ExecutionModel};
 use crate::core::risk::RiskManager;
 use crate::features::liquidity::LiquiditySnapshot;
 
+// ---------------------------------------------------------------------------
+// Execution mode
+// ---------------------------------------------------------------------------
+
+/// Selects between the adaptive heuristic and Almgren–Chriss optimal paths.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExecutionMode {
+    /// Volatility / liquidity–adaptive chunk sizing (original behaviour).
+    Heuristic,
+    /// Pre-computed Almgren–Chriss optimal trade schedule.
+    Optimal,
+}
+
+// ---------------------------------------------------------------------------
+// Scheduler
+// ---------------------------------------------------------------------------
+
 /// Block-driven adaptive execution scheduler.
 ///
-/// On each block, computes an adaptive chunk size based on current
-/// volatility and liquidity conditions, then gates execution through
-/// the `RiskManager` before booking the chunk.
+/// Supports two modes:
+/// * **Heuristic** — adapts chunk size each block to current volatility and
+///   liquidity conditions, then gates execution through the `RiskManager`.
+/// * **Optimal** — pre-computes a closed-form Almgren–Chriss schedule on the
+///   first block, then steps through it one trade per block.
 pub struct Scheduler {
     risk: RiskManager,
     total_notional: f64,
@@ -16,6 +36,13 @@ pub struct Scheduler {
     alpha: f64,
     beta: f64,
     completed: bool,
+
+    // ── Optimal-mode fields ────────────────────────────────────────
+    mode: ExecutionMode,
+    execution_schedule: Option<Vec<f64>>,
+    current_step: usize,
+    eta: f64,
+    lambda: f64,
 }
 
 impl Scheduler {
@@ -25,6 +52,9 @@ impl Scheduler {
         base_chunk: f64,
         sigma_ref: f64,
         liquidity_ref: f64,
+        mode: ExecutionMode,
+        eta: f64,
+        lambda: f64,
     ) -> Self {
         Self {
             risk,
@@ -36,6 +66,11 @@ impl Scheduler {
             alpha: 0.01,
             beta: 0.005,
             completed: false,
+            mode,
+            execution_schedule: None,
+            current_step: 0,
+            eta,
+            lambda,
         }
     }
 
@@ -50,10 +85,6 @@ impl Scheduler {
     }
 
     /// Process a single block.
-    ///
-    /// Adapts the chunk size to current market conditions and attempts
-    /// to book it through the risk manager.  If denied, retries once
-    /// at half size.  If still denied, the block is skipped.
     pub fn on_block(
         &mut self,
         volatility: f64,
@@ -63,6 +94,22 @@ impl Scheduler {
             return Ok(());
         }
 
+        match self.mode {
+            ExecutionMode::Heuristic => self.on_block_heuristic(volatility, liquidity),
+            ExecutionMode::Optimal => self.on_block_optimal(volatility, liquidity),
+        }
+    }
+
+    // ── Heuristic path (unchanged) ─────────────────────────────────
+
+    /// Adapts the chunk size to current market conditions and attempts
+    /// to book it through the risk manager.  If denied, retries once
+    /// at half size.  If still denied, the block is skipped.
+    fn on_block_heuristic(
+        &mut self,
+        volatility: f64,
+        liquidity: &LiquiditySnapshot,
+    ) -> Result<(), String> {
         let liq = liquidity.depth_metric();
 
         let liquidity_factor = (liq / self.liquidity_ref).clamp(0.25, 2.0);
@@ -92,6 +139,63 @@ impl Scheduler {
         Ok(())
     }
 
+    // ── Optimal path ───────────────────────────────────────────────
+
+    /// Steps through the pre-computed Almgren–Chriss schedule one
+    /// trade per block.  The schedule is lazily initialised on the
+    /// first call so that the live `sigma` value can be used.
+    fn on_block_optimal(
+        &mut self,
+        volatility: f64,
+        liquidity: &LiquiditySnapshot,
+    ) -> Result<(), String> {
+        // Lazy-init the schedule on first invocation.
+        if self.execution_schedule.is_none() {
+            let sigma = if volatility > 0.0 { volatility } else { self.sigma_ref };
+            let ac = AlmgrenChriss::new(
+                self.total_notional,
+                self.eta,
+                self.lambda,
+                sigma,
+                None,
+            )?;
+            let sched = ac.schedule();
+            tracing::info!(
+                horizon = sched.len(),
+                sigma,
+                "Almgren–Chriss schedule computed",
+            );
+            self.execution_schedule = Some(sched);
+            self.current_step = 0;
+        }
+
+        let schedule = match self.execution_schedule.as_ref() {
+            Some(s) => s,
+            None => return Ok(()), // unreachable after lazy-init above
+        };
+
+        // All steps consumed → done.
+        if self.current_step >= schedule.len() {
+            self.remaining_notional = 0.0;
+            self.completed = true;
+            return Ok(());
+        }
+
+        let proposed_chunk = schedule[self.current_step].min(self.remaining_notional);
+        let liq = liquidity.depth_metric();
+        let predicted_slippage = self.predict_slippage(proposed_chunk, liq, volatility);
+
+        if self.risk.request_execute_chunk(proposed_chunk, predicted_slippage).is_ok() {
+            self.book(proposed_chunk);
+            self.current_step += 1;
+        }
+        // If denied, do NOT increment current_step — retry next block.
+
+        Ok(())
+    }
+
+    // ── Shared helpers ─────────────────────────────────────────────
+
     /// Predict slippage for a given chunk under current conditions.
     fn predict_slippage(&self, chunk: f64, liq: f64, volatility: f64) -> f64 {
         let impact = self.alpha * (chunk / liq.max(1e-8));
@@ -113,13 +217,16 @@ impl Scheduler {
 mod tests {
     use super::*;
 
-    /// Helper: build a scheduler with standard parameters.
+    /// Helper: build a heuristic-mode scheduler with standard parameters.
     ///
     /// total_notional = 1000, base_chunk = 100, sigma_ref = 0.02,
     /// liquidity_ref = 500, max_slippage = 5%, reserve = 20%.
     fn default_scheduler() -> Scheduler {
         let risk = RiskManager::new(1000.0, 0.05, 0.2);
-        Scheduler::new(risk, 1000.0, 100.0, 0.02, 500.0)
+        Scheduler::new(
+            risk, 1000.0, 100.0, 0.02, 500.0,
+            ExecutionMode::Heuristic, 0.0, 0.0,
+        )
     }
 
     /// Helper: build a "normal" liquidity snapshot.
@@ -127,6 +234,8 @@ mod tests {
         // depth_metric = sqrt(500 * 500) = 500 — matches liquidity_ref.
         LiquiditySnapshot::new(500.0, 500.0)
     }
+
+    // ── Existing heuristic tests (unchanged behaviour) ─────────────
 
     #[test]
     fn full_completion_across_blocks() {
@@ -185,7 +294,10 @@ mod tests {
     fn risk_denial_causes_skip() {
         // Tiny budget: 0.001% slippage → budget = 0.01 — almost nothing.
         let risk = RiskManager::new(1000.0, 0.00001, 0.0);
-        let mut sched = Scheduler::new(risk, 1000.0, 100.0, 0.02, 500.0);
+        let mut sched = Scheduler::new(
+            risk, 1000.0, 100.0, 0.02, 500.0,
+            ExecutionMode::Heuristic, 0.0, 0.0,
+        );
 
         let liq = normal_liq();
         // Even the halved retry will likely exceed budget.
@@ -215,5 +327,64 @@ mod tests {
         let remaining_before = sched.remaining_notional();
         sched.on_block(vol, &liq).expect("should succeed");
         assert_eq!(sched.remaining_notional(), remaining_before);
+    }
+
+    // ── Optimal-mode tests ─────────────────────────────────────────
+
+    #[test]
+    fn optimal_mode_consumes_schedule() {
+        // Generous risk budget so every chunk is approved.
+        let risk = RiskManager::new(1000.0, 0.5, 0.0);
+        let mut sched = Scheduler::new(
+            risk, 1000.0, 100.0, 0.02, 500.0,
+            ExecutionMode::Optimal, 0.1, 0.01,
+        );
+
+        let liq = normal_liq();
+        let vol = 0.02;
+
+        for _ in 0..300 {
+            sched.on_block(vol, &liq).expect("should not fail");
+            if sched.is_completed() {
+                break;
+            }
+        }
+
+        assert!(sched.is_completed(), "optimal schedule should complete");
+        assert!(
+            sched.remaining_notional() < 1e-8,
+            "remaining {} should be ~0",
+            sched.remaining_notional(),
+        );
+    }
+
+    #[test]
+    fn heuristic_vs_optimal_differ() {
+        let liq = normal_liq();
+        let vol = 0.02;
+
+        // Heuristic
+        let risk_h = RiskManager::new(1000.0, 0.5, 0.0);
+        let mut h = Scheduler::new(
+            risk_h, 1000.0, 100.0, 0.02, 500.0,
+            ExecutionMode::Heuristic, 0.0, 0.0,
+        );
+        h.on_block(vol, &liq).expect("ok");
+        let h_first = 1000.0 - h.remaining_notional();
+
+        // Optimal
+        let risk_o = RiskManager::new(1000.0, 0.5, 0.0);
+        let mut o = Scheduler::new(
+            risk_o, 1000.0, 100.0, 0.02, 500.0,
+            ExecutionMode::Optimal, 0.1, 0.5,
+        );
+        o.on_block(vol, &liq).expect("ok");
+        let o_first = 1000.0 - o.remaining_notional();
+
+        // They should produce different first-chunk sizes.
+        assert!(
+            (h_first - o_first).abs() > 1e-6,
+            "modes should differ: heuristic={h_first}, optimal={o_first}"
+        );
     }
 }
