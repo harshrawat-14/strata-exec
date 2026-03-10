@@ -7,6 +7,10 @@ edition = "2021"
 name = "strata-exec"
 path = "src/main.rs"
 
+[[bin]]
+name = "research-sim"
+path = "src/bin/research_sim.rs"
+
 [dependencies]
 tokio = { version = "1", features = ["full"] }
 ethers = "2"
@@ -20,6 +24,9 @@ dotenvy = "0.15"
 axum = "0.7"
 tower = "0.4"
 async-trait = "0.1"
+rand = { version = "0.8", features = ["std_rng"] }
+rand_distr = "0.4"
+crossbeam-channel = "0.5"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["test-util"] }

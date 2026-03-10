@@ -6,13 +6,16 @@ use crate::features::liquidity::LiquiditySnapshot;
 // Execution mode
 // ---------------------------------------------------------------------------
 
-/// Selects between the adaptive heuristic and Almgren–Chriss optimal paths.
+/// Selects between the adaptive heuristic, static Almgren–Chriss, and
+/// receding-horizon adaptive Almgren–Chriss execution paths.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ExecutionMode {
     /// Volatility / liquidity–adaptive chunk sizing (original behaviour).
     Heuristic,
     /// Pre-computed Almgren–Chriss optimal trade schedule.
     Optimal,
+    /// Receding-horizon adaptive Almgren–Chriss — re-solves each block.
+    AdaptiveOptimal,
 }
 
 // ---------------------------------------------------------------------------
@@ -21,11 +24,13 @@ pub enum ExecutionMode {
 
 /// Block-driven adaptive execution scheduler.
 ///
-/// Supports two modes:
+/// Supports three modes:
 /// * **Heuristic** — adapts chunk size each block to current volatility and
 ///   liquidity conditions, then gates execution through the `RiskManager`.
 /// * **Optimal** — pre-computes a closed-form Almgren–Chriss schedule on the
 ///   first block, then steps through it one trade per block.
+/// * **AdaptiveOptimal** — receding-horizon Almgren–Chriss that re-solves
+///   the optimal trade each block using live volatility and liquidity.
 pub struct Scheduler {
     risk: RiskManager,
     total_notional: f64,
@@ -37,12 +42,14 @@ pub struct Scheduler {
     beta: f64,
     completed: bool,
 
-    // ── Optimal-mode fields ────────────────────────────────────────
+    // ── Optimal / AdaptiveOptimal fields ────────────────────────────
     mode: ExecutionMode,
     execution_schedule: Option<Vec<f64>>,
     current_step: usize,
     eta: f64,
     lambda: f64,
+    /// Horizon in blocks for AdaptiveOptimal (computed once at construction).
+    initial_horizon: usize,
 }
 
 impl Scheduler {
@@ -56,6 +63,19 @@ impl Scheduler {
         eta: f64,
         lambda: f64,
     ) -> Self {
+        // Compute initial_horizon for AdaptiveOptimal using the same
+        // formula as AlmgrenChriss::recommended_horizon.
+        let initial_horizon = if mode == ExecutionMode::AdaptiveOptimal && eta > 0.0 {
+            let sigma = sigma_ref.max(1e-8);
+            let kappa = ((lambda * sigma * sigma) / eta).sqrt();
+            let epsilon = 1e-12;
+            let base = 3.0;
+            let t = (base / (kappa + epsilon)).ceil() as usize;
+            t.clamp(1, 200)
+        } else {
+            0
+        };
+
         Self {
             risk,
             total_notional,
@@ -71,6 +91,7 @@ impl Scheduler {
             current_step: 0,
             eta,
             lambda,
+            initial_horizon,
         }
     }
 
@@ -97,6 +118,9 @@ impl Scheduler {
         match self.mode {
             ExecutionMode::Heuristic => self.on_block_heuristic(volatility, liquidity),
             ExecutionMode::Optimal => self.on_block_optimal(volatility, liquidity),
+            ExecutionMode::AdaptiveOptimal => {
+                self.on_block_adaptive_optimal(volatility, liquidity)
+            }
         }
     }
 
@@ -190,6 +214,56 @@ impl Scheduler {
             self.current_step += 1;
         }
         // If denied, do NOT increment current_step — retry next block.
+
+        Ok(())
+    }
+
+    // ── Adaptive-optimal path ───────────────────────────────────────
+
+    /// Receding-horizon Almgren–Chriss: re-solves the optimal first-step
+    /// trade each block using live volatility and liquidity.
+    fn on_block_adaptive_optimal(
+        &mut self,
+        volatility: f64,
+        liquidity: &LiquiditySnapshot,
+    ) -> Result<(), String> {
+        // ── 1. Adaptive parameters ─────────────────────────────────
+        let sigma_t = volatility.max(1e-8);
+        let depth_t = liquidity.depth_metric();
+        let eta_t = self.eta * (self.liquidity_ref / depth_t.max(1e-8)).clamp(0.25, 4.0);
+        let kappa_t = ((self.lambda * sigma_t * sigma_t) / eta_t).sqrt();
+
+        // ── 2. Receding horizon ────────────────────────────────────
+        let remaining_inventory = self.remaining_notional;
+        let remaining_horizon = self.initial_horizon.saturating_sub(self.current_step).max(1);
+
+        let q_t = if kappa_t < 1e-12 {
+            // Degenerate → TWAP
+            remaining_inventory / remaining_horizon as f64
+        } else {
+            let rh = remaining_horizon as f64;
+            let sinh_denom = (kappa_t * rh).sinh();
+            if !sinh_denom.is_finite() || sinh_denom.abs() < 1e-15 {
+                // Overflow / underflow guard → fall back to TWAP.
+                remaining_inventory / rh
+            } else {
+                let x1 = remaining_inventory
+                    * (kappa_t * (rh - 1.0)).sinh()
+                    / sinh_denom;
+                remaining_inventory - x1
+            }
+        };
+
+        let q_t = q_t.clamp(0.0, remaining_inventory);
+
+        // ── 3. Risk gate ───────────────────────────────────────────
+        let predicted_slippage = self.predict_slippage(q_t, depth_t, sigma_t);
+
+        if self.risk.request_execute_chunk(q_t, predicted_slippage).is_ok() {
+            self.book(q_t);
+            self.current_step += 1;
+        }
+        // If denied → do NOT increment step (retry next block).
 
         Ok(())
     }
@@ -385,6 +459,96 @@ mod tests {
         assert!(
             (h_first - o_first).abs() > 1e-6,
             "modes should differ: heuristic={h_first}, optimal={o_first}"
+        );
+    }
+
+    // ── AdaptiveOptimal-mode tests ────────────────────────────────────
+
+    /// Helper: build an AdaptiveOptimal scheduler with generous risk budget.
+    fn adaptive_scheduler() -> Scheduler {
+        let risk = RiskManager::new(1000.0, 0.5, 0.0);
+        Scheduler::new(
+            risk, 1000.0, 100.0, 0.02, 500.0,
+            ExecutionMode::AdaptiveOptimal, 0.1, 0.5,
+        )
+    }
+
+    #[test]
+    fn adaptive_low_sigma_less_aggressive() {
+        let liq = normal_liq();
+
+        // Low sigma → less urgency → smaller first chunk.
+        let mut low = adaptive_scheduler();
+        low.on_block(0.001, &liq).expect("should succeed");
+        let chunk_low = 1000.0 - low.remaining_notional();
+
+        // High sigma → more urgency → larger first chunk.
+        let mut high = adaptive_scheduler();
+        high.on_block(0.10, &liq).expect("should succeed");
+        let chunk_high = 1000.0 - high.remaining_notional();
+
+        assert!(
+            chunk_low < chunk_high,
+            "low-sigma chunk ({chunk_low}) should be < high-sigma chunk ({chunk_high})",
+        );
+    }
+
+    #[test]
+    fn adaptive_high_sigma_more_aggressive() {
+        let liq = normal_liq();
+        let mut sched = adaptive_scheduler();
+
+        // With high sigma the first chunk should be front-loaded beyond TWAP-equal.
+        sched.on_block(0.10, &liq).expect("should succeed");
+        let chunk = 1000.0 - sched.remaining_notional();
+
+        let twap_equal = 1000.0 / sched.initial_horizon as f64;
+        assert!(
+            chunk > twap_equal,
+            "high-sigma chunk ({chunk}) should exceed TWAP-equal ({twap_equal})",
+        );
+    }
+
+    #[test]
+    fn adaptive_depth_scales_eta() {
+        let vol = 0.02;
+
+        // Low depth → higher eta_t → less aggressive.
+        let low_liq = LiquiditySnapshot::new(125.0, 125.0);
+        let mut low = adaptive_scheduler();
+        low.on_block(vol, &low_liq).expect("should succeed");
+        let chunk_low_depth = 1000.0 - low.remaining_notional();
+
+        // High depth → lower eta_t → more aggressive.
+        let high_liq = LiquiditySnapshot::new(2000.0, 2000.0);
+        let mut high = adaptive_scheduler();
+        high.on_block(vol, &high_liq).expect("should succeed");
+        let chunk_high_depth = 1000.0 - high.remaining_notional();
+
+        assert!(
+            (chunk_low_depth - chunk_high_depth).abs() > 1e-6,
+            "depth should affect chunk: low_depth={chunk_low_depth}, high_depth={chunk_high_depth}",
+        );
+    }
+
+    #[test]
+    fn adaptive_full_completion() {
+        let mut sched = adaptive_scheduler();
+        let liq = normal_liq();
+        let vol = 0.02;
+
+        for _ in 0..300 {
+            sched.on_block(vol, &liq).expect("should not fail");
+            if sched.is_completed() {
+                break;
+            }
+        }
+
+        assert!(sched.is_completed(), "adaptive schedule should complete");
+        assert!(
+            sched.remaining_notional() < 1e-8,
+            "remaining {} should be ~0",
+            sched.remaining_notional(),
         );
     }
 }

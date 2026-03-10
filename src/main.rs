@@ -9,6 +9,8 @@ mod blockchain;
 mod types;
 mod utils;
 mod error;
+mod research;
+mod observability;
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -41,6 +43,7 @@ async fn main() -> anyhow::Result<()> {
 
     let exec_mode = match cfg.execution_mode.as_str() {
         "optimal" => ExecutionMode::Optimal,
+        "adaptive_optimal" => ExecutionMode::AdaptiveOptimal,
         _ => ExecutionMode::Heuristic,
     };
 
@@ -63,6 +66,7 @@ async fn main() -> anyhow::Result<()> {
         vol_estimator,
         cfg.pair_address,
         app_state.clone(),
+        exec_mode,
     );
 
     // ── HTTP server ────────────────────────────────────────────────

@@ -19,6 +19,7 @@ pub struct AppState {
     pub risk_denials: AtomicU64,
     pub last_volatility: RwLock<f64>,
     pub remaining_notional: RwLock<f64>,
+    pub performance: RwLock<Value>,
 }
 
 impl AppState {
@@ -31,6 +32,7 @@ impl AppState {
             risk_denials: AtomicU64::new(0),
             last_volatility: RwLock::new(0.0),
             remaining_notional: RwLock::new(initial_notional),
+            performance: RwLock::new(json!({})),
         }
     }
 }
@@ -45,6 +47,7 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/health", get(health))
         .route("/status", get(status))
         .route("/metrics", get(metrics))
+        .route("/performance", get(performance))
         .route("/start", post(start))
         .route("/stop", post(stop))
         .with_state(state)
@@ -90,4 +93,9 @@ async fn start(State(state): State<Arc<AppState>>) -> (StatusCode, Json<Value>) 
 async fn stop(State(state): State<Arc<AppState>>) -> (StatusCode, Json<Value>) {
     state.is_running.store(false, Ordering::Relaxed);
     (StatusCode::OK, Json(json!({ "is_running": false })))
+}
+
+async fn performance(State(state): State<Arc<AppState>>) -> Json<Value> {
+    let perf = state.performance.read().await;
+    Json(perf.clone())
 }

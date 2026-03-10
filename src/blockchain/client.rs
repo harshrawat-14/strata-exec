@@ -26,12 +26,31 @@ pub trait BlockchainClient: Send + Sync {
         &self,
         pair: Address,
     ) -> anyhow::Result<(u128, u128)>;
+
+    /// Fetch the `token0` address from a Uniswap V2 pair contract.
+    async fn get_token0(&self, pair: Address) -> anyhow::Result<Address>;
+
+    /// Fetch the `token1` address from a Uniswap V2 pair contract.
+    async fn get_token1(&self, pair: Address) -> anyhow::Result<Address>;
+
+    /// Fetch the `decimals()` value for an ERC-20 token.
+    async fn get_erc20_decimals(&self, token: Address) -> anyhow::Result<u8>;
 }
 
-// Generate a minimal ABI binding for the `getReserves()` view function.
+// Generate minimal ABI bindings for Uniswap V2 Pair view functions.
 abigen!(
     IUniswapV2Pair,
-    r#"[function getReserves() external view returns (uint112, uint112, uint32)]"#
+    r#"[
+        function getReserves() external view returns (uint112, uint112, uint32)
+        function token0() external view returns (address)
+        function token1() external view returns (address)
+    ]"#
+);
+
+// Generate minimal ABI binding for the ERC-20 `decimals()` view function.
+abigen!(
+    IERC20Metadata,
+    r#"[function decimals() external view returns (uint8)]"#
 );
 
 /// JSON-RPC based blockchain client backed by `ethers::Provider<Http>`.
@@ -76,6 +95,33 @@ impl BlockchainClient for RpcClient {
         })
         .await
     }
+
+    async fn get_token0(&self, pair: Address) -> anyhow::Result<Address> {
+        retry_with_backoff("get_token0", || async {
+            let contract = IUniswapV2Pair::new(pair, self.provider.clone().into());
+            let addr = contract.token_0().call().await?;
+            Ok(addr)
+        })
+        .await
+    }
+
+    async fn get_token1(&self, pair: Address) -> anyhow::Result<Address> {
+        retry_with_backoff("get_token1", || async {
+            let contract = IUniswapV2Pair::new(pair, self.provider.clone().into());
+            let addr = contract.token_1().call().await?;
+            Ok(addr)
+        })
+        .await
+    }
+
+    async fn get_erc20_decimals(&self, token: Address) -> anyhow::Result<u8> {
+        retry_with_backoff("get_erc20_decimals", || async {
+            let contract = IERC20Metadata::new(token, self.provider.clone().into());
+            let decimals = contract.decimals().call().await?;
+            Ok(decimals)
+        })
+        .await
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -113,12 +159,16 @@ where
         }
     }
 
-    let err = last_err.expect("loop ran at least once");
-    tracing::error!(
-        op = op_name,
-        "RPC call failed after {MAX_RETRIES} retries",
-    );
-    Err(err)
+    match last_err {
+        Some(err) => {
+            tracing::error!(
+                op = op_name,
+                "RPC call failed after {MAX_RETRIES} retries",
+            );
+            Err(err)
+        }
+        None => anyhow::bail!("{op_name}: retry loop completed with no attempts"),
+    }
 }
 
 #[cfg(test)]
@@ -154,6 +204,18 @@ mod tests {
             _pair: Address,
         ) -> anyhow::Result<(u128, u128)> {
             Ok((1_000_000, 2_000_000))
+        }
+
+        async fn get_token0(&self, _pair: Address) -> anyhow::Result<Address> {
+            Ok(Address::zero())
+        }
+
+        async fn get_token1(&self, _pair: Address) -> anyhow::Result<Address> {
+            Ok(Address::zero())
+        }
+
+        async fn get_erc20_decimals(&self, _token: Address) -> anyhow::Result<u8> {
+            Ok(18)
         }
     }
 

@@ -83,11 +83,11 @@ impl AppConfig {
         if http_port == 0 {
             bail!("HTTP_PORT must be > 0");
         }
-        if execution_mode != "heuristic" && execution_mode != "optimal" {
-            bail!("EXECUTION_MODE must be 'heuristic' or 'optimal', got '{execution_mode}'");
+        if execution_mode != "heuristic" && execution_mode != "optimal" && execution_mode != "adaptive_optimal" {
+            bail!("EXECUTION_MODE must be 'heuristic', 'optimal', or 'adaptive_optimal', got '{execution_mode}'");
         }
-        if execution_mode == "optimal" && eta <= 0.0 {
-            bail!("ETA must be > 0 for optimal mode, got {eta}");
+        if (execution_mode == "optimal" || execution_mode == "adaptive_optimal") && eta <= 0.0 {
+            bail!("ETA must be > 0 for {execution_mode} mode, got {eta}");
         }
         if lambda < 0.0 {
             bail!("LAMBDA must be >= 0, got {lambda}");
