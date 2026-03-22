@@ -1,12 +1,13 @@
 use std::fs;
 use std::io::Write;
 
-use crate::core::metrics::ExecutionMetrics;
-use crate::core::scheduler::Scheduler;
-use crate::features::liquidity::LiquiditySnapshot;
-use crate::observability::events::{DebugEvent, EventSender};
-use crate::research::amm::ConstantProductAMM;
-use crate::research::simulator::PriceSimulator;
+use crate::analytics::metrics::ExecutionMetrics;
+use crate::engine::scheduler::Scheduler;
+use crate::events::event::{Event as DebugEvent, EventSender};
+use crate::execution::impact::SquareRootImpact;
+use crate::execution::transient_impact::TransientImpactTracker;
+use crate::market::gbm::PriceSimulator;
+use crate::market::liquidity::LiquiditySnapshot;
 
 // ---------------------------------------------------------------------------
 // Strategy wrapper
@@ -17,7 +18,8 @@ pub struct StrategyInstance {
     pub name: String,
     pub scheduler: Scheduler,
     pub metrics: ExecutionMetrics,
-    pub amm: ConstantProductAMM,
+    pub impact_model: SquareRootImpact,
+    pub transient_tracker: TransientImpactTracker,
     pub completed: bool,
 }
 
@@ -92,13 +94,15 @@ impl MultiStrategyRunner {
         let mut prices: Vec<f64> = Vec::new();
 
         for step in 0..self.max_steps {
+            let current_time = step as f64; // T=1 scaling assuming 1.0 total time below. More accurately, `step / max_steps` but `step` is fine for relative decay scaling as long as rho matches.
+                                            // Using continuous step counting for the transient tracker timeline.
             let price = self.simulator.step();
             let volatility = self.simulator.volatility();
             self.vol_sum += volatility;
             self.vol_count += 1;
             prices.push(price);
 
-            emit(DebugEvent::PriceUpdate { step, price, volatility });
+            emit(DebugEvent::PriceUpdate { price, volatility });
 
             for (i, strat) in self.strategies.iter_mut().enumerate() {
                 if strat.completed {
@@ -127,39 +131,52 @@ impl MultiStrategyRunner {
 
                 // T = 1 year scaling
                 let dt = 1.0 / self.max_steps as f64;
-                strat.metrics.record_risk_step(remaining_before, volatility, dt);
+                strat
+                    .metrics
+                    .record_risk_step(remaining_before, volatility, dt);
 
                 if traded > 0.0 {
-                    emit(DebugEvent::StrategyDecision {
-                        strategy: strat.name.clone(),
-                        order_size: traded,
-                        remaining: remaining_after,
+                    // Log the strategy decision as a SubmitOrder event.
+                    emit(DebugEvent::SubmitOrder {
+                        order: crate::events::order::Order::market_sell(
+                            step as u64,
+                            strat.name.clone(),
+                            traded,
+                        ),
                     });
 
-                    // Execute through constant-product AMM.
-                    let mid_price = strat.amm.price();
-                    let exec_price = strat.amm.sell_x(traded);
-                    // Slippage = difference between execution and mid price.
-                    // exec_price is dy/dx (Y received per X sold).
-                    // mid_price is reserve_y/reserve_x.
-                    // Slippage in price terms: mid_price - exec_price (positive = adverse).
-                    let slippage = mid_price - exec_price;
-                    strat
-                        .metrics
-                        .record_trade(traded, price, slippage.max(0.0));
+                    // 1) Compute instantaneous base impact
+                    let base_impact = strat.impact_model.compute_impact(traded, volatility);
 
-                    emit(DebugEvent::TradeExecuted {
-                        strategy: strat.name.clone(),
+                    // 2) Query lingering impact from previous trades inside this simulation path
+                    let real_time = current_time * dt; // Scale actual time mapping (e.g. 0.0 to 1.0)
+                    let transient_impact = strat.transient_tracker.current_impact(real_time);
+
+                    // 3) Total impact combines both effects
+                    let total_impact_fraction = base_impact + transient_impact;
+
+                    let exec_price = price * (1.0 - total_impact_fraction);
+                    // Slippage in price terms: mid_price - exec_price (positive = adverse).
+                    let slippage = price - exec_price;
+
+                    // 4) Record this trade into history so its own base impact can decay forward
+                    strat.transient_tracker.record_trade(real_time, base_impact);
+
+                    strat.metrics.record_trade(traded, price, slippage.max(0.0));
+
+                    emit(DebugEvent::OrderFilled {
+                        order_id: step as u64,
+                        qty: traded,
                         price: exec_price,
-                        quantity: traded,
                         impact: slippage.max(0.0),
                     });
                 }
 
-                if strat.scheduler.is_completed() {
+                if strat.scheduler.remaining_notional() <= 1e-6 {
                     strat.completed = true;
                 }
 
+                // Track into history
                 history[i].push(StepRecord {
                     remaining: strat.scheduler.remaining_notional(),
                     cost: strat.metrics.implementation_shortfall(),
@@ -172,41 +189,8 @@ impl MultiStrategyRunner {
             }
         }
 
-        // ── Export CSV ──────────────────────────────────────────────────
-        self.export_csv(&prices, &history)
-    }
-
-    /// Write `results/comparison.csv`.
-    fn export_csv(
-        &self,
-        prices: &[f64],
-        history: &[Vec<StepRecord>],
-    ) -> Result<(), String> {
-        fs::create_dir_all("results").map_err(|e| format!("create results dir: {e}"))?;
-
-        let mut file = fs::File::create("results/comparison.csv")
-            .map_err(|e| format!("create CSV: {e}"))?;
-
-        // Header — dynamic based on strategy names.
-        let mut header = String::from("block,price");
-        for strat in &self.strategies {
-            let tag = strat.name.to_lowercase().replace(' ', "_");
-            header.push_str(&format!(",{tag}_remaining,{tag}_cost"));
-        }
-        writeln!(file, "{header}").map_err(|e| format!("write header: {e}"))?;
-
-        // Rows.
-        for (step, price) in prices.iter().enumerate() {
-            let mut row = format!("{},{price:.6}", step + 1);
-            for strat_history in history {
-                if let Some(rec) = strat_history.get(step) {
-                    row.push_str(&format!(",{:.6},{:.6}", rec.remaining, rec.cost));
-                } else {
-                    row.push_str(",,");
-                }
-            }
-            writeln!(file, "{row}").map_err(|e| format!("write row: {e}"))?;
-        }
+        // Export history to CSV if run successfully.
+        self.export_csv(&prices, &history)?;
 
         Ok(())
     }
@@ -219,8 +203,43 @@ impl MultiStrategyRunner {
     /// Average volatility observed across all simulation steps.
     pub fn avg_volatility(&self) -> f64 {
         if self.vol_count == 0 {
-            return 0.0;
+            0.0
+        } else {
+            self.vol_sum / self.vol_count as f64
         }
-        self.vol_sum / self.vol_count as f64
+    }
+
+    /// Internal helper to write out path results.
+    fn export_csv(&self, prices: &[f64], history: &[Vec<StepRecord>]) -> Result<(), String> {
+        let results_dir = "results";
+        if std::fs::metadata(results_dir).is_err() {
+            std::fs::create_dir(results_dir).map_err(|e| e.to_string())?;
+        }
+        let path = format!("{results_dir}/comparison.csv");
+        let mut file = std::fs::File::create(&path).map_err(|e| e.to_string())?;
+
+        let mut header = String::from("Step,Price");
+        for strat in &self.strategies {
+            let tag = strat.name.to_lowercase().replace(' ', "_");
+            header.push_str(&format!(",{tag}_remaining,{tag}_cost"));
+        }
+        header.push('\n');
+        file.write_all(header.as_bytes())
+            .map_err(|e| e.to_string())?;
+
+        for (step, price) in prices.iter().enumerate() {
+            let mut line = format!("{},{:.6}", step + 1, price);
+            for strat_hist in history {
+                if let Some(rec) = strat_hist.get(step) {
+                    line.push_str(&format!(",{:.6},{:.6}", rec.remaining, rec.cost));
+                } else {
+                    line.push_str(",,");
+                }
+            }
+            line.push('\n');
+            file.write_all(line.as_bytes()).map_err(|e| e.to_string())?;
+        }
+
+        Ok(())
     }
 }

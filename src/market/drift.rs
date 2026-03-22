@@ -54,4 +54,3 @@ mod tests {
         assert!((result - expected).abs() < 1e-12);
     }
 }
-

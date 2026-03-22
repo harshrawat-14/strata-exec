@@ -38,12 +38,7 @@ impl ExecutionMetrics {
     /// * `quantity`           — notional size of the trade.
     /// * `market_price`       — mid-price at the time of execution.
     /// * `predicted_slippage` — estimated slippage fraction (from `predict_slippage`).
-    pub fn record_trade(
-        &mut self,
-        quantity: f64,
-        market_price: f64,
-        predicted_slippage: f64,
-    ) {
+    pub fn record_trade(&mut self, quantity: f64, market_price: f64, predicted_slippage: f64) {
         let exec_price = market_price + predicted_slippage;
         let realized_cost = quantity * (exec_price - self.arrival_price);
 
@@ -184,7 +179,9 @@ impl ExecutionMetrics {
         if self.trade_count == 0 || self.initial_notional.abs() < 1e-15 {
             return None;
         }
-        Some(self.accumulated_risk_penalty / (self.initial_notional * self.initial_notional) * 100.0)
+        Some(
+            self.accumulated_risk_penalty / (self.initial_notional * self.initial_notional) * 100.0,
+        )
     }
 
     /// Portfolio-level AC objective as a percentage of initial notional.
@@ -268,10 +265,7 @@ mod tests {
         // notional_at_arrival = 10 * 100 = 1000
         // pct = 5 / 1000 * 100 = 0.5%
         let pct = m.slippage_percent().expect("should have pct");
-        assert!(
-            (pct - 0.5).abs() < 1e-10,
-            "expected 0.5%, got {pct}%",
-        );
+        assert!((pct - 0.5).abs() < 1e-10, "expected 0.5%, got {pct}%",);
     }
 
     #[test]
@@ -283,12 +277,12 @@ mod tests {
     #[test]
     fn risk_penalty_accumulation() {
         let mut m = ExecutionMetrics::new(100.0, 1000.0);
-        
+
         // arrival_price = 100.0
         // Step 1: inv = 1000.0 (dollar_inv = 100,000), sigma = 0.20, dt = 0.01
         m.record_risk_step(1000.0, 0.20, 0.01);
         // Penalty = 10^10 * 0.04 * 0.01 = 4_000_000.0
-        
+
         // Step 2: inv = 500.0 (dollar_inv = 50,000), sigma = 0.20, dt = 0.01
         m.record_risk_step(500.0, 0.20, 0.01);
         // Penalty = 2.5 * 10^9 * 0.04 * 0.01 = 1_000_000.0
@@ -329,10 +323,7 @@ mod tests {
 
         // shortfall_pct = 5.0 / 100_000 * 100 = 0.005
         let pct = m.shortfall_percent().expect("should have pct");
-        assert!(
-            (pct - 0.005).abs() < 1e-10,
-            "expected 0.005%, got {pct}%",
-        );
+        assert!((pct - 0.005).abs() < 1e-10, "expected 0.005%, got {pct}%",);
     }
 
     #[test]
@@ -345,10 +336,7 @@ mod tests {
 
         // mean_cost_pct = 10 / 100_000 * 100 = 0.01
         let pct = m.mean_cost_percent().expect("should have pct");
-        assert!(
-            (pct - 0.01).abs() < 1e-10,
-            "expected 0.01%, got {pct}%",
-        );
+        assert!((pct - 0.01).abs() < 1e-10, "expected 0.01%, got {pct}%",);
     }
 
     #[test]

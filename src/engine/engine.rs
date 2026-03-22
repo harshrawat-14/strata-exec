@@ -7,12 +7,12 @@ use serde_json::json;
 use tokio::time::interval;
 
 use super::state::EngineState;
+use crate::analytics::metrics::ExecutionMetrics;
 use crate::api::AppState;
 use crate::blockchain::client::BlockchainClient;
-use crate::core::metrics::ExecutionMetrics;
-use crate::core::scheduler::{ExecutionMode, Scheduler};
-use crate::features::liquidity::LiquiditySnapshot;
-use crate::features::volatility::VolatilityEstimator;
+use crate::engine::scheduler::{ExecutionMode, Scheduler};
+use crate::market::liquidity::LiquiditySnapshot;
+use crate::market::volatility::VolatilityEstimator;
 
 /// Slippage-prediction constants (mirrors `scheduler::predict_slippage`).
 const SLIPPAGE_ALPHA: f64 = 0.01;
@@ -212,9 +212,7 @@ impl Engine {
             }
         } else if !self.scheduler.is_completed() {
             // Neither full nor half chunk was booked → risk denial.
-            self.app_state
-                .risk_denials
-                .fetch_add(1, Ordering::Relaxed);
+            self.app_state.risk_denials.fetch_add(1, Ordering::Relaxed);
         }
 
         {
@@ -269,8 +267,8 @@ mod tests {
     use async_trait::async_trait;
     use ethers::types::{Address, U256};
 
-    use crate::core::risk::RiskManager;
-    use crate::core::scheduler::ExecutionMode;
+    use crate::engine::risk::RiskManager;
+    use crate::engine::scheduler::ExecutionMode;
 
     /// Mock client that returns an atomically incrementing block number.
     struct MockBlockchainClient {
@@ -310,10 +308,7 @@ mod tests {
             Ok(U256::zero())
         }
 
-        async fn get_uniswap_v2_reserves(
-            &self,
-            _pair: Address,
-        ) -> anyhow::Result<(u128, u128)> {
+        async fn get_uniswap_v2_reserves(&self, _pair: Address) -> anyhow::Result<(u128, u128)> {
             Ok(self.reserves)
         }
 
@@ -341,8 +336,14 @@ mod tests {
     fn default_scheduler() -> Scheduler {
         let risk = RiskManager::new(1000.0, 0.05, 0.2);
         Scheduler::new(
-            risk, 1000.0, 100.0, 0.02, 500.0,
-            ExecutionMode::Heuristic, 0.0, 0.0,
+            risk,
+            1000.0,
+            100.0,
+            0.02,
+            500.0,
+            ExecutionMode::Heuristic,
+            0.0,
+            0.0,
         )
     }
 

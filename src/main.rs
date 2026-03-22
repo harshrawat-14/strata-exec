@@ -1,16 +1,20 @@
 #![allow(dead_code)]
 
+mod analytics;
 mod api;
-mod config;
-mod core;
-mod features;
-mod ml;
 mod blockchain;
+mod config;
+mod engine;
+mod error;
+mod events;
+mod execution;
+mod market;
+mod ml;
+mod observability;
+mod research;
+mod strategies;
 mod types;
 mod utils;
-mod error;
-mod research;
-mod observability;
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -19,10 +23,10 @@ use tokio::net::TcpListener;
 
 use crate::api::AppState;
 use crate::blockchain::client::RpcClient;
-use crate::core::engine::Engine;
-use crate::core::risk::RiskManager;
-use crate::core::scheduler::{ExecutionMode, Scheduler};
-use crate::features::volatility::VolatilityEstimator;
+use crate::engine::engine::Engine;
+use crate::engine::risk::RiskManager;
+use crate::engine::scheduler::{ExecutionMode, Scheduler};
+use crate::market::volatility::VolatilityEstimator;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -39,7 +43,11 @@ async fn main() -> anyhow::Result<()> {
     // ── Core components ────────────────────────────────────────────
     let client = Arc::new(RpcClient::new(&cfg.rpc_url)?);
 
-    let risk = RiskManager::new(cfg.total_notional, cfg.max_slippage_pct, cfg.emergency_reserve_frac);
+    let risk = RiskManager::new(
+        cfg.total_notional,
+        cfg.max_slippage_pct,
+        cfg.emergency_reserve_frac,
+    );
 
     let exec_mode = match cfg.execution_mode.as_str() {
         "optimal" => ExecutionMode::Optimal,

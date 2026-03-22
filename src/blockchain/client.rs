@@ -22,10 +22,7 @@ pub trait BlockchainClient: Send + Sync {
     async fn get_gas_price(&self) -> anyhow::Result<U256>;
 
     /// Fetch Uniswap V2 pair reserves (reserve0, reserve1).
-    async fn get_uniswap_v2_reserves(
-        &self,
-        pair: Address,
-    ) -> anyhow::Result<(u128, u128)>;
+    async fn get_uniswap_v2_reserves(&self, pair: Address) -> anyhow::Result<(u128, u128)>;
 
     /// Fetch the `token0` address from a Uniswap V2 pair contract.
     async fn get_token0(&self, pair: Address) -> anyhow::Result<Address>;
@@ -84,10 +81,7 @@ impl BlockchainClient for RpcClient {
         .await
     }
 
-    async fn get_uniswap_v2_reserves(
-        &self,
-        pair: Address,
-    ) -> anyhow::Result<(u128, u128)> {
+    async fn get_uniswap_v2_reserves(&self, pair: Address) -> anyhow::Result<(u128, u128)> {
         retry_with_backoff("get_uniswap_v2_reserves", || async {
             let contract = IUniswapV2Pair::new(pair, self.provider.clone().into());
             let (r0, r1, _timestamp) = contract.get_reserves().call().await?;
@@ -161,10 +155,7 @@ where
 
     match last_err {
         Some(err) => {
-            tracing::error!(
-                op = op_name,
-                "RPC call failed after {MAX_RETRIES} retries",
-            );
+            tracing::error!(op = op_name, "RPC call failed after {MAX_RETRIES} retries",);
             Err(err)
         }
         None => anyhow::bail!("{op_name}: retry loop completed with no attempts"),
@@ -199,10 +190,7 @@ mod tests {
             Ok(U256::from(20_000_000_000u64)) // 20 gwei
         }
 
-        async fn get_uniswap_v2_reserves(
-            &self,
-            _pair: Address,
-        ) -> anyhow::Result<(u128, u128)> {
+        async fn get_uniswap_v2_reserves(&self, _pair: Address) -> anyhow::Result<(u128, u128)> {
             Ok((1_000_000, 2_000_000))
         }
 

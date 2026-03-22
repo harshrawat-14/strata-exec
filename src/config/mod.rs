@@ -42,8 +42,9 @@ impl AppConfig {
             .with_context(|| "failed to parse HTTP_PORT")?;
 
         // --- parse address ---
-        let pair_address = Address::from_str(&pair_address_raw)
-            .with_context(|| format!("PAIR_ADDRESS is not a valid Ethereum address: {pair_address_raw}"))?;
+        let pair_address = Address::from_str(&pair_address_raw).with_context(|| {
+            format!("PAIR_ADDRESS is not a valid Ethereum address: {pair_address_raw}")
+        })?;
 
         // --- parse numerics ---
         let total_notional = parse_env_f64("TOTAL_NOTIONAL")?;
@@ -59,8 +60,10 @@ impl AppConfig {
         let eta = parse_env_or_default("ETA", 0.0)?;
         let lambda = parse_env_or_default("LAMBDA", 0.0)?;
         let horizon_blocks = match env::var("HORIZON_BLOCKS") {
-            Ok(v) => Some(v.parse::<usize>()
-                .with_context(|| format!("failed to parse HORIZON_BLOCKS={v}"))?),
+            Ok(v) => Some(
+                v.parse::<usize>()
+                    .with_context(|| format!("failed to parse HORIZON_BLOCKS={v}"))?,
+            ),
             Err(_) => None,
         };
 
@@ -83,7 +86,10 @@ impl AppConfig {
         if http_port == 0 {
             bail!("HTTP_PORT must be > 0");
         }
-        if execution_mode != "heuristic" && execution_mode != "optimal" && execution_mode != "adaptive_optimal" {
+        if execution_mode != "heuristic"
+            && execution_mode != "optimal"
+            && execution_mode != "adaptive_optimal"
+        {
             bail!("EXECUTION_MODE must be 'heuristic', 'optimal', or 'adaptive_optimal', got '{execution_mode}'");
         }
         if (execution_mode == "optimal" || execution_mode == "adaptive_optimal") && eta <= 0.0 {

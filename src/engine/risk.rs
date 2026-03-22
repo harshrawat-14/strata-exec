@@ -48,7 +48,8 @@ impl RiskManager {
     /// Running-average headroom: how much slippage can be added while
     /// keeping the average rate at or below `max_slippage_pct`.
     pub fn cap_running(&self, chunk_size: f64) -> f64 {
-        let cap = self.max_slippage_pct * (self.executed_notional + chunk_size) - self.used_slippage;
+        let cap =
+            self.max_slippage_pct * (self.executed_notional + chunk_size) - self.used_slippage;
         cap.max(0.0)
     }
 
@@ -191,4 +192,3 @@ mod tests {
         assert!((rm.emergency_used - 0.0).abs() < 1e-10);
     }
 }
-

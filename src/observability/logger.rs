@@ -3,10 +3,9 @@
 /// The logger runs on its own OS thread and continuously reads events,
 /// printing them in a human-readable format.  When the sender side is
 /// dropped the channel closes and the thread exits cleanly.
-
 use std::thread::{self, JoinHandle};
 
-use super::events::{EventReceiver, EventSender, DebugEvent};
+use crate::events::event::{Event as DebugEvent, EventReceiver, EventSender};
 
 /// Channel capacity.  Bounded to prevent unbounded memory growth if the
 /// logger thread falls behind.  10 000 events is generous enough that

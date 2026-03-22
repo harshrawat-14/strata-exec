@@ -82,4 +82,3 @@ mod tests {
         assert_eq!(snap.depth_metric(), 0.0);
     }
 }
-

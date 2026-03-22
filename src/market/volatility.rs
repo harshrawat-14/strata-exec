@@ -114,4 +114,3 @@ mod tests {
         assert!((stddev2 - expected2).abs() < 1e-10);
     }
 }
-

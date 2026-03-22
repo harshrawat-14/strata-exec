@@ -190,7 +190,11 @@ mod tests {
         let stats = DistributionStats::from_samples(&samples).unwrap();
 
         assert!((stats.mean - 50.5).abs() < 1e-10, "mean = {}", stats.mean);
-        assert!((stats.median - 50.5).abs() < 1e-10, "median = {}", stats.median);
+        assert!(
+            (stats.median - 50.5).abs() < 1e-10,
+            "median = {}",
+            stats.median
+        );
         assert!((stats.min - 1.0).abs() < 1e-10);
         assert!((stats.max - 100.0).abs() < 1e-10);
         assert_eq!(stats.count, 100);
@@ -200,7 +204,11 @@ mod tests {
         assert!((stats.p90 - 90.1).abs() < 1e-10, "p90 = {}", stats.p90);
 
         // VaR 95: rank = 0.95 * 99 = 94.05 → 95 + 0.05 = 95.05
-        assert!((stats.var_95 - 95.05).abs() < 1e-10, "var_95 = {}", stats.var_95);
+        assert!(
+            (stats.var_95 - 95.05).abs() < 1e-10,
+            "var_95 = {}",
+            stats.var_95
+        );
     }
 
     #[test]
@@ -209,7 +217,11 @@ mod tests {
         let stats = DistributionStats::from_samples(&samples).unwrap();
         // mean = 5.0, variance = 4.0, std = 2.0
         assert!((stats.mean - 5.0).abs() < 1e-10);
-        assert!((stats.std_dev - 2.0).abs() < 1e-10, "std = {}", stats.std_dev);
+        assert!(
+            (stats.std_dev - 2.0).abs() < 1e-10,
+            "std = {}",
+            stats.std_dev
+        );
     }
 
     #[test]
@@ -219,7 +231,11 @@ mod tests {
         let stats = DistributionStats::from_samples(&samples).unwrap();
 
         // median: rank = 0.5 * 4 = 2.0 → sorted[2] = 30
-        assert!((stats.median - 30.0).abs() < 1e-10, "median = {}", stats.median);
+        assert!(
+            (stats.median - 30.0).abs() < 1e-10,
+            "median = {}",
+            stats.median
+        );
     }
 
     #[test]
@@ -230,7 +246,11 @@ mod tests {
         let samples: Vec<f64> = (1..=10).map(|x| x as f64).collect();
         let stats = DistributionStats::from_samples(&samples).unwrap();
 
-        assert!((stats.cvar_99 - 10.0).abs() < 1e-10, "cvar_99 = {}", stats.cvar_99);
+        assert!(
+            (stats.cvar_99 - 10.0).abs() < 1e-10,
+            "cvar_99 = {}",
+            stats.cvar_99
+        );
     }
 
     #[test]

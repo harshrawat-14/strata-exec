@@ -2,7 +2,7 @@ use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 use rand_distr::StandardNormal;
 
-use super::simulator::PriceSimulator;
+use crate::market::gbm::PriceSimulator;
 
 /// GARCH(1,1) stochastic-volatility price simulator.
 ///
@@ -70,8 +70,7 @@ impl PriceSimulator for GarchSimulator {
     fn step(&mut self) -> f64 {
         let z: f64 = self.rng.sample(StandardNormal);
 
-        let r = (self.mu - 0.5 * self.sigma2) * self.dt
-            + (self.sigma2 * self.dt).sqrt() * z;
+        let r = (self.mu - 0.5 * self.sigma2) * self.dt + (self.sigma2 * self.dt).sqrt() * z;
 
         self.price *= r.exp();
 
@@ -94,14 +93,14 @@ mod tests {
     /// Helper: build a GARCH simulator with the default example parameters.
     fn default_garch() -> GarchSimulator {
         GarchSimulator::new(
-            100.0,  // price
-            0.05,   // mu
-            0.000002, // omega
-            0.08,   // alpha
-            0.90,   // beta
-            0.04,   // sigma2_init
+            100.0,       // price
+            0.05,        // mu
+            0.000002,    // omega
+            0.08,        // alpha
+            0.90,        // beta
+            0.04,        // sigma2_init
             1.0 / 252.0, // dt
-            42,     // seed
+            42,          // seed
         )
     }
 
@@ -165,7 +164,7 @@ mod tests {
     fn price_stays_positive() {
         let mut sim = GarchSimulator::new(
             100.0,
-            -0.10,    // negative drift
+            -0.10, // negative drift
             0.000002,
             0.08,
             0.90,
