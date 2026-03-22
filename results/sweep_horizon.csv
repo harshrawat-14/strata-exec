@@ -1,0 +1,13 @@
+ParameterName,ParameterValue,Strategy,NumPaths,MeanImplementationShortfall_Pct,ImplementationShortfallVariance_Pct2,CVaR95ImplementationShortfall_Pct,MeanACObjective_Pct,ACObjectiveVariance_Pct2,CVaR95ACObjective_Pct
+ExecutionHorizonDays,0.2500,Heuristic,1,0.217880,0.000000,0.217880,0.217882,0.000000,0.217882
+ExecutionHorizonDays,0.2500,Optimal,1,0.217206,0.000000,0.217206,0.217207,0.000000,0.217207
+ExecutionHorizonDays,0.2500,AdaptiveOptimal,1,0.217206,0.000000,0.217206,0.217207,0.000000,0.217207
+ExecutionHorizonDays,0.5000,Heuristic,1,0.320649,0.000000,0.320649,0.320650,0.000000,0.320650
+ExecutionHorizonDays,0.5000,Optimal,1,0.690144,0.000000,0.690144,0.690144,0.000000,0.690144
+ExecutionHorizonDays,0.5000,AdaptiveOptimal,1,0.690144,0.000000,0.690144,0.690144,0.000000,0.690144
+ExecutionHorizonDays,1.0000,Heuristic,1,0.510537,0.000000,0.510537,0.510537,0.000000,0.510537
+ExecutionHorizonDays,1.0000,Optimal,1,0.835280,0.000000,0.835280,0.835281,0.000000,0.835281
+ExecutionHorizonDays,1.0000,AdaptiveOptimal,1,0.835280,0.000000,0.835280,0.835281,0.000000,0.835281
+ExecutionHorizonDays,2.0000,Heuristic,1,0.825000,0.000000,0.825000,0.825000,0.000000,0.825000
+ExecutionHorizonDays,2.0000,Optimal,1,1.097416,0.000000,1.097416,1.097416,0.000000,1.097416
+ExecutionHorizonDays,2.0000,AdaptiveOptimal,1,1.097416,0.000000,1.097416,1.097416,0.000000,1.097416

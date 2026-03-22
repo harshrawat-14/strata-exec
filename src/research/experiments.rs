@@ -1,17 +1,16 @@
+use std::fmt::Display;
 use std::fs;
 use std::io::Write;
 
 use crate::analytics::distribution::DistributionStats;
-use crate::events::event::{Event as DebugEvent, EventSender};
-use crate::market::gbm::GbmSimulator;
-use crate::research::multi_runner::MultiStrategyRunner;
-
 use crate::analytics::metrics::ExecutionMetrics;
 use crate::engine::risk::RiskManager;
 use crate::engine::scheduler::{ExecutionMode, Scheduler};
+use crate::events::event::{Event as DebugEvent, EventSender};
 use crate::execution::impact::SquareRootImpact;
 use crate::execution::transient_impact::TransientImpactTracker;
-use crate::research::multi_runner::StrategyInstance;
+use crate::market::gbm::GbmSimulator;
+use crate::research::multi_runner::{MultiStrategyRunner, StrategyInstance};
 
 /// Configuration for a single execution setup
 #[derive(Clone, Debug)]
@@ -51,12 +50,26 @@ impl Default for SweepConfig {
     }
 }
 
+const HORIZON_GRID_DAYS: [f64; 4] = [0.25, 0.5, 1.0, 2.0];
+const TRADE_SLICE_GRID: [usize; 4] = [25, 50, 100, 200];
+const VOLATILITY_GRID: [f64; 4] = [0.10, 0.20, 0.30, 0.40];
+const IMPACT_GRID: [f64; 4] = [0.10, 0.50, 1.00, 2.00];
+
+const STRATEGIES: [&str; 3] = ["Heuristic", "Optimal", "AdaptiveOptimal"];
+
+#[derive(Debug)]
+struct StrategySweepStats {
+    strategy: String,
+    shortfall: DistributionStats,
+    ac_objective: DistributionStats,
+}
+
 /// Helper to build strategy instances for a given configuration
 fn build_sweep_strategies(p: &SweepConfig) -> Vec<StrategyInstance> {
     let modes = [
-        ("Heuristic", ExecutionMode::Heuristic),
-        ("Optimal", ExecutionMode::Optimal),
-        ("AdaptiveOptimal", ExecutionMode::AdaptiveOptimal),
+        (STRATEGIES[0], ExecutionMode::Heuristic),
+        (STRATEGIES[1], ExecutionMode::Optimal),
+        (STRATEGIES[2], ExecutionMode::AdaptiveOptimal),
     ];
 
     modes
@@ -81,66 +94,69 @@ fn build_sweep_strategies(p: &SweepConfig) -> Vec<StrategyInstance> {
         .collect()
 }
 
-/// Helper to run a Monte Carlo block for a specific parameter `SweepConfig`
+/// Helper to run a Monte Carlo block for one parameter configuration.
 fn evaluate_config(
-    idx: usize,
-    total_configs: usize,
     params: &SweepConfig,
     num_paths: usize,
+    progress_done: usize,
+    total_paths: usize,
     event_tx: Option<&EventSender>,
-) -> Vec<(String, DistributionStats, DistributionStats, DistributionStats)> {
-    let mut shortfall_accumulators: Vec<Vec<f64>> = vec![vec![]; 3]; // For 3 strategies
-    let mut mean_cost_accumulators: Vec<Vec<f64>> = vec![vec![]; 3];
-    let mut cvar_accumulators: Vec<Vec<f64>> = vec![vec![]; 3];
-    let strategy_names = ["Heuristic", "Optimal", "AdaptiveOptimal"];
-
-    let base_seed = 42;
+) -> Result<Vec<StrategySweepStats>, String> {
+    let mut shortfall_accumulators: Vec<Vec<f64>> = vec![vec![]; STRATEGIES.len()];
+    let mut ac_accumulators: Vec<Vec<f64>> = vec![vec![]; STRATEGIES.len()];
+    let base_seed = 42_u64;
 
     for path_id in 0..num_paths {
         if let Some(tx) = event_tx {
             let _ = tx.send(DebugEvent::Progress {
-                completed: (idx * num_paths) + path_id,
-                total: total_configs * num_paths,
+                completed: progress_done + path_id + 1,
+                total: total_paths,
             });
         }
 
         let seed = base_seed + path_id as u64;
-        let steps_per_day = 500;
-        let max_steps = (params.horizon_days * steps_per_day as f64) as usize;
+        let steps_per_day = 500usize;
+        let max_steps = ((params.horizon_days * steps_per_day as f64).round() as usize).max(1);
         let dt = params.horizon_days / max_steps as f64;
-        let simulator = Box::new(GbmSimulator::new(params.arrival_price, 0.05, 0.20, dt, seed));
-        
+        let simulator = Box::new(GbmSimulator::new(
+            params.arrival_price,
+            0.05,
+            params.sigma_ref,
+            dt,
+            seed,
+        ));
+
         let strategies = build_sweep_strategies(params);
         let mut runner = MultiStrategyRunner::new(strategies, simulator, max_steps);
-        
-        // We silence the internal simulation CSV exports and event spams for grid sweeps
-        // to prevent disk IO bottlenecking.
 
         if let Err(e) = runner.run() {
-            eprintln!("ERROR during sweep eval: {e}");
-            continue;
+            return Err(format!("Sweep evaluation failed for path {path_id}: {e}"));
         }
 
         for (i, strat) in runner.strategies().iter().enumerate() {
             let sf_pct = strat.metrics.shortfall_percent().unwrap_or(0.0);
-            let mean_pct = strat.metrics.mean_cost_percent().unwrap_or(0.0);
             let ac_pct = strat.metrics.ac_objective_percent(params.lambda).unwrap_or(0.0);
-            
+
             shortfall_accumulators[i].push(sf_pct);
-            mean_cost_accumulators[i].push(mean_pct);
-            cvar_accumulators[i].push(ac_pct);
+            ac_accumulators[i].push(ac_pct);
         }
     }
 
-    let mut results = Vec::new();
-    for i in 0..3 {
-        let sf = DistributionStats::from_samples(&shortfall_accumulators[i]).unwrap();
-        let mc = DistributionStats::from_samples(&mean_cost_accumulators[i]).unwrap();
-        let ac = DistributionStats::from_samples(&cvar_accumulators[i]).unwrap();
-        results.push((strategy_names[i].to_string(), sf, mc, ac));
+    let mut results = Vec::with_capacity(STRATEGIES.len());
+    for i in 0..STRATEGIES.len() {
+        let shortfall = DistributionStats::from_samples(&shortfall_accumulators[i])
+            .ok_or_else(|| format!("No shortfall samples for strategy {}", STRATEGIES[i]))?;
+        let ac_objective = DistributionStats::from_samples(&ac_accumulators[i])
+            .ok_or_else(|| format!("No AC objective samples for strategy {}", STRATEGIES[i]))?;
+
+        results.push(StrategySweepStats {
+            strategy: STRATEGIES[i].to_string(),
+            shortfall,
+            ac_objective,
+        });
     }
-    
-    results
+
+    Ok(results)
 }
 
 // ---------------------------------------------------------------------------
@@ -153,88 +169,170 @@ pub fn run_all_sweeps(num_paths: usize, event_tx: Option<&EventSender>) -> Resul
         fs::create_dir(results_dir).map_err(|e| e.to_string())?;
     }
 
-    // 1. Trade Count Sweep
-    run_trade_count_sweep(num_paths, event_tx)?;
+    let total_configs = HORIZON_GRID_DAYS.len()
+        + TRADE_SLICE_GRID.len()
+        + VOLATILITY_GRID.len()
+        + IMPACT_GRID.len();
+    let total_paths = total_configs * num_paths;
+    let mut progress_done = 0usize;
 
-    // 2. Volatility Sweep
-    run_volatility_sweep(num_paths, event_tx)?;
+    // 1. Execution Horizon Sweep
+    run_horizon_sweep(num_paths, total_paths, &mut progress_done, event_tx)?;
 
-    // 3. Impact Coefficient Sweep
-    run_impact_sweep(num_paths, event_tx)?;
+    // 2. Trade Slice Sweep
+    run_trade_count_sweep(num_paths, total_paths, &mut progress_done, event_tx)?;
+
+    // 3. Volatility Sweep
+    run_volatility_sweep(num_paths, total_paths, &mut progress_done, event_tx)?;
+
+    // 4. Impact Coefficient Sweep
+    run_impact_sweep(num_paths, total_paths, &mut progress_done, event_tx)?;
 
     Ok(())
 }
 
-fn run_trade_count_sweep(num_paths: usize, event_tx: Option<&EventSender>) -> Result<(), String> {
-    let slices = [50.0, 100.0, 200.0, 400.0];
-    let path = "results/sweep_trade_chunks.csv";
-    let mut file = fs::File::create(path).map_err(|e| e.to_string())?;
-    
-    writeln!(file, "TradeSlices,Strategy,MeanShortfall_Pct,Shortfall_Variance,CVaR_95_Pct")
+fn write_sweep_header(file: &mut fs::File, parameter_name: &str) -> Result<(), String> {
+    writeln!(
+        file,
+        "ParameterName,ParameterValue,Strategy,NumPaths,MeanImplementationShortfall_Pct,ImplementationShortfallVariance_Pct2,CVaR95ImplementationShortfall_Pct,MeanACObjective_Pct,ACObjectiveVariance_Pct2,CVaR95ACObjective_Pct"
+    )
+    .map_err(|e| format!("Failed to write header for {parameter_name}: {e}"))
+}
+
+fn write_sweep_rows<T: Display>(
+    file: &mut fs::File,
+    parameter_name: &str,
+    parameter_value: T,
+    num_paths: usize,
+    strategy_stats: &[StrategySweepStats],
+) -> Result<(), String> {
+    for stats in strategy_stats {
+        let sf_var = stats.shortfall.std_dev * stats.shortfall.std_dev;
+        let ac_var = stats.ac_objective.std_dev * stats.ac_objective.std_dev;
+        writeln!(
+            file,
+            "{},{},{},{},{:.6},{:.6},{:.6},{:.6},{:.6},{:.6}",
+            parameter_name,
+            parameter_value,
+            stats.strategy,
+            num_paths,
+            stats.shortfall.mean,
+            sf_var,
+            stats.shortfall.cvar_95,
+            stats.ac_objective.mean,
+            ac_var,
+            stats.ac_objective.cvar_95,
+        )
         .map_err(|e| e.to_string())?;
+    }
 
-    for (idx, &target_slices) in slices.iter().enumerate() {
+    Ok(())
+}
+
+fn run_horizon_sweep(
+    num_paths: usize,
+    total_paths: usize,
+    progress_done: &mut usize,
+    event_tx: Option<&EventSender>,
+) -> Result<(), String> {
+    let path = "results/sweep_horizon.csv";
+    let mut file = fs::File::create(path).map_err(|e| e.to_string())?;
+    write_sweep_header(&mut file, "ExecutionHorizonDays")?;
+
+    for horizon_days in HORIZON_GRID_DAYS {
         let mut params = SweepConfig::default();
-        params.base_chunk = params.total_notional / target_slices;
+        params.horizon_days = horizon_days;
 
-        let evals = evaluate_config(idx, slices.len(), &params, num_paths, event_tx);
-        
-        for (strategy, sf_stats, _) in evals {
-            // Write parameter, Strategy name, Mean, Variance (std_dev^2), and CVaR95
-            let var = sf_stats.std_dev * sf_stats.std_dev;
-            writeln!(file, "{},{},{:.6},{:.6},{:.6}", target_slices, strategy, sf_stats.mean, var, sf_stats.cvar_95)
-                .map_err(|e| e.to_string())?;
-        }
+        let stats = evaluate_config(&params, num_paths, *progress_done, total_paths, event_tx)?;
+        *progress_done += num_paths;
+        write_sweep_rows(
+            &mut file,
+            "ExecutionHorizonDays",
+            format!("{horizon_days:.4}"),
+            num_paths,
+            &stats,
+        )?;
     }
 
     println!("Exported {}", path);
     Ok(())
 }
 
-fn run_volatility_sweep(num_paths: usize, event_tx: Option<&EventSender>) -> Result<(), String> {
-    let volatilities = [0.01, 0.02, 0.05, 0.10];
+fn run_trade_count_sweep(
+    num_paths: usize,
+    total_paths: usize,
+    progress_done: &mut usize,
+    event_tx: Option<&EventSender>,
+) -> Result<(), String> {
+    let path = "results/sweep_trade_chunks.csv";
+    let mut file = fs::File::create(path).map_err(|e| e.to_string())?;
+    write_sweep_header(&mut file, "TradeSlices")?;
+
+    for slices in TRADE_SLICE_GRID {
+        let mut params = SweepConfig::default();
+        params.base_chunk = params.total_notional / slices as f64;
+
+        let stats = evaluate_config(&params, num_paths, *progress_done, total_paths, event_tx)?;
+        *progress_done += num_paths;
+        write_sweep_rows(&mut file, "TradeSlices", slices, num_paths, &stats)?;
+    }
+
+    println!("Exported {}", path);
+    Ok(())
+}
+
+fn run_volatility_sweep(
+    num_paths: usize,
+    total_paths: usize,
+    progress_done: &mut usize,
+    event_tx: Option<&EventSender>,
+) -> Result<(), String> {
     let path = "results/sweep_volatility.csv";
     let mut file = fs::File::create(path).map_err(|e| e.to_string())?;
-    
-    writeln!(file, "Volatility,Strategy,MeanShortfall_Pct,Shortfall_Variance,CVaR_95_Pct")
-        .map_err(|e| e.to_string())?;
+    write_sweep_header(&mut file, "Volatility")?;
 
-    for (idx, &vol) in volatilities.iter().enumerate() {
+    for vol in VOLATILITY_GRID {
         let mut params = SweepConfig::default();
         params.sigma_ref = vol;
 
-        let evals = evaluate_config(idx, volatilities.len(), &params, num_paths, event_tx);
-        
-        for (strategy, sf_stats, _) in evals {
-            let var = sf_stats.std_dev * sf_stats.std_dev;
-            writeln!(file, "{:.2},{},{:.6},{:.6},{:.6}", vol, strategy, sf_stats.mean, var, sf_stats.cvar_95)
-                .map_err(|e| e.to_string())?;
-        }
+        let stats = evaluate_config(&params, num_paths, *progress_done, total_paths, event_tx)?;
+        *progress_done += num_paths;
+        write_sweep_rows(
+            &mut file,
+            "Volatility",
+            format!("{vol:.4}"),
+            num_paths,
+            &stats,
+        )?;
     }
 
     println!("Exported {}", path);
     Ok(())
 }
 
-fn run_impact_sweep(num_paths: usize, event_tx: Option<&EventSender>) -> Result<(), String> {
-    let impacts = [0.1, 0.5, 1.0, 2.0];
+fn run_impact_sweep(
+    num_paths: usize,
+    total_paths: usize,
+    progress_done: &mut usize,
+    event_tx: Option<&EventSender>,
+) -> Result<(), String> {
     let path = "results/sweep_impact.csv";
     let mut file = fs::File::create(path).map_err(|e| e.to_string())?;
-    
-    writeln!(file, "ImpactCoefficient,Strategy,MeanShortfall_Pct,Shortfall_Variance,CVaR_95_Pct")
-        .map_err(|e| e.to_string())?;
+    write_sweep_header(&mut file, "ImpactCoefficient")?;
 
-    for (idx, &impact) in impacts.iter().enumerate() {
+    for impact in IMPACT_GRID {
         let mut params = SweepConfig::default();
         params.impact_coefficient = impact;
 
-        let evals = evaluate_config(idx, impacts.len(), &params, num_paths, event_tx);
-        
-        for (strategy, sf_stats, _) in evals {
-            let var = sf_stats.std_dev * sf_stats.std_dev;
-            writeln!(file, "{:.2},{},{:.6},{:.6},{:.6}", impact, strategy, sf_stats.mean, var, sf_stats.cvar_95)
-                .map_err(|e| e.to_string())?;
-        }
+        let stats = evaluate_config(&params, num_paths, *progress_done, total_paths, event_tx)?;
+        *progress_done += num_paths;
+        write_sweep_rows(
+            &mut file,
+            "ImpactCoefficient",
+            format!("{impact:.4}"),
+            num_paths,
+            &stats,
+        )?;
     }
 
     println!("Exported {}", path);
