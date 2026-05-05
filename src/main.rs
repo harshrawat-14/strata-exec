@@ -9,7 +9,6 @@ mod error;
 mod events;
 mod execution;
 mod market;
-mod ml;
 mod observability;
 mod research;
 mod strategies;
@@ -64,6 +63,7 @@ async fn main() -> anyhow::Result<()> {
         exec_mode,
         cfg.eta,
         cfg.lambda,
+        None, // horizon determined by AC formula — live trading has no fixed step count
     );
     let vol_estimator = VolatilityEstimator::new(cfg.vol_window);
 

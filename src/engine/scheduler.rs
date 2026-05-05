@@ -10,6 +10,9 @@ use crate::strategies::optimal::{AlmgrenChriss, ExecutionModel};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ExecutionMode {
+    /// Equal-slice execution — no market-condition adjustments.
+    /// The canonical cost-of-doing-nothing baseline.
+    Twap,
     Heuristic,
     Optimal,
     AdaptiveOptimal,
@@ -31,6 +34,8 @@ pub struct Scheduler {
     // Strategy helpers
     heuristic: HeuristicStrategy,
     adaptive: AdaptiveOptimalStrategy,
+    /// Fixed slice size for TWAP mode (= total_notional / horizon_steps).
+    twap_qty_per_step: f64,
 
     eta: f64,
     lambda: f64,
@@ -48,8 +53,11 @@ impl Scheduler {
         mode: ExecutionMode,
         eta: f64,
         lambda: f64,
+        horizon_override: Option<usize>,
     ) -> Self {
-        let initial_horizon = if mode == ExecutionMode::AdaptiveOptimal && eta > 0.0 {
+        let initial_horizon = if let Some(h) = horizon_override {
+            h.max(1)
+        } else if mode == ExecutionMode::AdaptiveOptimal && eta > 0.0 {
             let sigma = sigma_ref.max(1e-8);
             let kappa = ((lambda * sigma * sigma) / eta).sqrt();
             let epsilon = 1e-12;
@@ -76,6 +84,8 @@ impl Scheduler {
                 sigma_ref,
                 total_notional,
             ),
+            // For TWAP, base_chunk = total_notional / horizon_steps is set by the caller.
+            twap_qty_per_step: base_chunk,
             eta,
             lambda,
             sigma_ref,
@@ -101,10 +111,21 @@ impl Scheduler {
         }
 
         match self.mode {
+            ExecutionMode::Twap => self.on_block_twap(),
             ExecutionMode::Heuristic => self.on_block_heuristic(volatility, liquidity),
             ExecutionMode::Optimal => self.on_block_optimal(volatility, liquidity),
             ExecutionMode::AdaptiveOptimal => self.on_block_adaptive_optimal(volatility, liquidity),
         }
+    }
+
+    fn on_block_twap(&mut self) -> Result<(), String> {
+        // TWAP executes exactly one fixed slice per step, with no slippage
+        // budget check — TWAP is the unconditional baseline that always trades.
+        let chunk = self.twap_qty_per_step.min(self.remaining_notional);
+        if chunk > 1e-10 {
+            self.book(chunk);
+        }
+        Ok(())
     }
 
     fn on_block_heuristic(
@@ -158,7 +179,14 @@ impl Scheduler {
             } else {
                 self.sigma_ref
             };
-            let ac = AlmgrenChriss::new(self.total_notional, self.eta, self.lambda, sigma, None)?;
+            // Use initial_horizon as the schedule horizon when it was set via
+            // horizon_override (i.e. > 0), so AC spans the same steps as the runner.
+            let h_override = if self.initial_horizon > 0 {
+                Some(self.initial_horizon)
+            } else {
+                None
+            };
+            let ac = AlmgrenChriss::new(self.total_notional, self.eta, self.lambda, sigma, h_override)?;
             self.execution_schedule = Some(ac.schedule());
             self.current_step = 0;
         }

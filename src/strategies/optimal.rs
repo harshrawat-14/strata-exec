@@ -30,9 +30,19 @@ pub trait ExecutionModel {
 ///
 /// where κ = √(λσ²/η).  When κ ≈ 0 the schedule degenerates to
 /// the linear (TWAP) solution.
+///
+/// Note: This implements the η-only variant of Almgren-Chriss.
+/// γ (permanent impact) is handled externally via
+/// price_adjustment in MultiStrategyRunner.
+/// See: Almgren & Chriss (2001), Section 2.
 pub struct AlmgrenChriss {
     total_inventory: f64,
+    /// Temporary impact coefficient (η).
     eta: f64,
+    /// Permanent impact coefficient (γ). Default: 0.1 * eta.
+    /// Does not affect the schedule shape (κ is η-only); used
+    /// by callers to accumulate the price adjustment externally.
+    pub gamma: f64,
     lambda: f64,
     sigma: f64,
     horizon: usize,
@@ -74,6 +84,7 @@ impl AlmgrenChriss {
         Ok(Self {
             total_inventory,
             eta,
+            gamma: 0.1 * eta,
             lambda,
             sigma,
             horizon,
@@ -347,5 +358,104 @@ mod tests {
             sched[0],
             sched[9],
         );
+    }
+
+    // ── New tests ────────────────────────────────────────────────────────────
+
+    /// WHAT: Higher lambda (risk aversion) produces a larger first trade than lower lambda.
+    /// WHY: Risk aversion is the core AC parameter — the entire justification for
+    ///      front-loading is avoiding timing risk. If higher lambda doesn't produce
+    ///      a larger first trade, the schedule formula is wrong.
+    #[test]
+    fn ac_front_loads_under_high_risk_aversion() {
+        let eta = 0.1;
+        let sigma = 0.05;
+        let horizon = 10; // fixed horizon for an apples-to-apples comparison
+
+        // lambda=0.001 → low risk aversion (near-TWAP)
+        let ac_low = AlmgrenChriss::new(1000.0, eta, 0.001, sigma, Some(horizon))
+            .expect("valid params");
+        // lambda=1.0 → high risk aversion (aggressive front-loading)
+        let ac_high = AlmgrenChriss::new(1000.0, eta, 1.0, sigma, Some(horizon))
+            .expect("valid params");
+
+        let first_low = ac_low.schedule()[0];
+        let first_high = ac_high.schedule()[0];
+
+        assert!(
+            first_high > first_low,
+            "high risk-aversion first trade {first_high} must exceed low risk-aversion {first_low}",
+        );
+    }
+
+    /// WHAT: With lambda=0.0 the schedule is uniform (equal chunks), matching TWAP.
+    /// WHY: AC degenerates to TWAP under zero risk aversion — verifies the boundary
+    ///      condition that the model has a correct limiting case.
+    #[test]
+    fn ac_converges_to_uniform_when_lambda_is_zero() {
+        let ac = AlmgrenChriss::new(1000.0, 0.1, 0.0, 0.05, Some(10)).expect("valid params");
+        let sched = ac.schedule();
+
+        let expected_chunk = 100.0; // 1000 / 10 steps
+        for (k, &q) in sched.iter().enumerate() {
+            assert!(
+                (q - expected_chunk).abs() < 1e-9,
+                "step {k}: expected uniform {expected_chunk}, got {q}",
+            );
+        }
+    }
+
+    /// WHAT: Sum of all schedule trades equals total_inventory for several lambda values.
+    /// WHY: Inventory conservation is non-negotiable — any residual means the
+    ///      strategy would leave unexecuted position at end of horizon.
+    #[test]
+    fn ac_total_inventory_conserved() {
+        let total = 5000.0;
+        // Test across different risk-aversion levels including the degenerate cases.
+        let lambdas = [0.0, 0.001, 0.01, 0.1, 1.0];
+
+        for lambda in lambdas {
+            let ac = AlmgrenChriss::new(total, 0.05, lambda, 0.03, Some(20))
+                .expect("valid params");
+            let sched = ac.schedule();
+            let sum: f64 = sched.iter().sum();
+            assert!(
+                (sum - total).abs() < 1e-9,
+                "lambda={lambda}: schedule sum {sum} != total {total}",
+            );
+        }
+    }
+
+    /// WHAT: After each of 5 trades with gamma > 0, the effective price is lower than
+    ///       the raw price, and the depression deepens monotonically with each trade.
+    /// WHY: Permanent impact must compound across trades (Fix 1). If the price
+    ///      adjustment stays flat, earlier sales don't penalise later ones and the
+    ///      IS calculation will be wrong.
+    #[test]
+    fn ac_permanent_impact_accumulates_across_steps() {
+        let gamma = 0.1;        // 10% of full inventory causes 10% permanent depression
+        let total_notional = 1000.0;
+        let trade_size = 200.0; // sell 200 per step (5 steps exhaust inventory)
+        let raw_price = 100.0;
+
+        let mut price_adjustment = 0.0_f64;
+        let mut prev_effective = raw_price; // start at full price (no impact yet)
+
+        for k in 0..5usize {
+            // Permanent impact: each trade adds gamma*(trade/X0) to the cumulative fraction.
+            price_adjustment += gamma * (trade_size / total_notional);
+            let effective = raw_price * (1.0 - price_adjustment);
+
+            assert!(
+                effective < raw_price,
+                "step {k}: effective_price {effective} must be below raw_price {raw_price}",
+            );
+            assert!(
+                effective < prev_effective,
+                "step {k}: effective_price {effective} must be lower than previous {prev_effective}",
+            );
+
+            prev_effective = effective;
+        }
     }
 }

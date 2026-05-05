@@ -204,11 +204,18 @@ impl Engine {
             // ── 8b. Record trade in execution metrics ──────────────
             let chunk = remaining_before - remaining_after;
             let liq_depth = liq.depth_metric().max(1e-8);
-            let predicted_slippage =
+            // predicted_slippage_frac is a dimensionless fraction (e.g. 0.0015 = 15 bps).
+            // record_trade expects a price-delta, so multiply by price to convert.
+            let predicted_slippage_frac =
                 SLIPPAGE_ALPHA * (chunk / liq_depth) + SLIPPAGE_BETA * volatility;
+            let slippage_cost = -predicted_slippage_frac * price; // sell depresses price
 
             if let Some(ref mut m) = self.metrics {
-                m.record_trade(chunk, price, predicted_slippage);
+                // Live engine: transient/permanent impact fractions and spread proxy
+                // are not yet wired here. Pass zeros so decompose() is available but
+                // all IS appears as timing_cost until Phase 2 Track B wires this up.
+                // TODO Phase 2 Track B — wire up real impact fractions and LOB spread.
+                m.record_trade(chunk, price, slippage_cost, 0.0, 0.0, 0.0, 0.0);
             }
         } else if !self.scheduler.is_completed() {
             // Neither full nor half chunk was booked → risk denial.
@@ -227,6 +234,7 @@ impl Engine {
         // ── 8c. Publish performance snapshot ───────────────────────
         if let Some(ref m) = self.metrics {
             let mode_label = match self.mode {
+                ExecutionMode::Twap => "twap",
                 ExecutionMode::Heuristic => "heuristic",
                 ExecutionMode::Optimal => "optimal",
                 ExecutionMode::AdaptiveOptimal => "adaptive_optimal",
@@ -344,6 +352,7 @@ mod tests {
             ExecutionMode::Heuristic,
             0.0,
             0.0,
+            None,
         )
     }
 

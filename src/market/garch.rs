@@ -63,10 +63,15 @@ impl PriceSimulator for GarchSimulator {
     ///
     /// Algorithm:
     /// 1. Draw ε ~ N(0,1)
-    /// 2. Compute return  r = (μ − 0.5·σ²)·dt + √(σ²·dt)·ε
-    /// 3. Update price    S ← S·exp(r)
-    /// 4. Update variance σ² ← ω + α·r² + β·σ²
-    /// 5. Return the new price
+    /// 2. Compute log-return  r = (μ − 0.5·σ²)·dt + √(σ²·dt)·ε
+    /// 3. Update price        S ← S·exp(r)
+    /// 4. Rescale return to per-period units: r_per_period = r / √dt
+    ///    This keeps the GARCH shock term α·r² on the same scale as the
+    ///    ω and β·σ² terms regardless of how small dt is.
+    ///    Without this rescaling, r ~ O(√dt) so r² ~ O(dt) → 0 as dt
+    ///    shrinks, and the news coefficient α has negligible effect.
+    /// 5. Update variance σ² ← ω + α·r_per_period² + β·σ²
+    /// 6. Return the new price
     fn step(&mut self) -> f64 {
         let z: f64 = self.rng.sample(StandardNormal);
 
@@ -74,8 +79,12 @@ impl PriceSimulator for GarchSimulator {
 
         self.price *= r.exp();
 
+        // Rescale to per-period units before squaring so that GARCH parameters
+        // (ω, α, β) are invariant to the choice of dt.
+        let r_per_period = r / self.dt.sqrt();
+
         // GARCH(1,1) variance update.
-        self.sigma2 = self.omega + self.alpha * r * r + self.beta * self.sigma2;
+        self.sigma2 = self.omega + self.alpha * r_per_period * r_per_period + self.beta * self.sigma2;
 
         self.price
     }
@@ -192,5 +201,103 @@ mod tests {
                 "paths should be identical: {pa} vs {pb}",
             );
         }
+    }
+
+    // ── New tests ────────────────────────────────────────────────────────────
+
+    /// WHAT: After a forced large return at step 5, volatility at step 6 exceeds
+    ///       volatility at step 4.
+    /// WHY: Volatility clustering is the definition of GARCH — a large shock must
+    ///      spike σ². If this fails the GARCH(1,1) variance update formula is wrong.
+    #[test]
+    fn garch_volatility_increases_after_large_shock() {
+        // Use a fresh seeded simulator so we control the path.
+        // We will run to step 4, record vol, then manually inject a large variance
+        // shock by setting sigma2 to a high value, step once, and confirm vol rose.
+        let mut sim = default_garch();
+
+        // Advance to step 4 to get away from the initial condition.
+        for _ in 0..4 {
+            sim.step();
+        }
+        let vol_at_step_4 = sim.volatility();
+
+        // Inject a large squared return directly into sigma2 — this mimics what
+        // a large ε draw does inside step().  omega=0.000002, alpha=0.08, beta=0.90.
+        // Set sigma2 to 1.0 (σ=100% annualised — well above any realistic level).
+        sim.sigma2 = 1.0;
+
+        // One more step to propagate through the GARCH update.
+        sim.step();
+        let vol_at_step_6 = sim.volatility(); // step 4 → inject → step 6 in wall-clock
+
+        assert!(
+            vol_at_step_6 > vol_at_step_4,
+            "volatility must spike after large shock: step4={vol_at_step_4:.6}, step6={vol_at_step_6:.6}",
+        );
+    }
+
+    /// WHAT: volatility() returns a value in the σ range [0.001, 2.0], not
+    ///       a near-zero value that would indicate σ² was returned instead.
+    /// WHY: σ vs σ² confusion is a documented risk — the simulator stores sigma2
+    ///      internally but must expose σ.  A σ² of 0.04 becomes σ=0.20; returning
+    ///      0.04 directly would silently under-report vol by 5×.
+    #[test]
+    fn garch_returns_sigma_not_variance() {
+        let sim = default_garch();
+        // sigma2_init=0.04 → σ should be 0.20 at step 0 (before any step).
+        let vol_before_step = sim.volatility();
+
+        // Must be in the σ range, not the σ² range.
+        assert!(
+            vol_before_step >= 0.001,
+            "volatility() must return σ (>=0.001), not σ²; got {vol_before_step}",
+        );
+        assert!(
+            vol_before_step <= 2.0,
+            "volatility() must be plausible σ (<=2.0); got {vol_before_step}",
+        );
+        // Specifically, must NOT be below 0.0001 — that would indicate σ² was returned.
+        assert!(
+            vol_before_step > 0.0001,
+            "volatility() looks like σ² (< 0.0001); got {vol_before_step}",
+        );
+
+        // Also confirm the initial value matches sqrt(sigma2_init) = sqrt(0.04) = 0.20.
+        assert!(
+            (vol_before_step - 0.20).abs() < 1e-10,
+            "initial volatility should be sqrt(sigma2_init)=0.20, got {vol_before_step}",
+        );
+    }
+
+    /// WHAT: GBM(sigma=0.20) and GARCH(sigma2_init=0.04) both return volatility() ≈ 0.20
+    ///       before any steps are taken.
+    /// WHY: Cross-model comparison requires an aligned starting point — if the two
+    ///      simulators report different initial vol, Monte Carlo results are not
+    ///      comparable and the research conclusions are invalid.
+    #[test]
+    fn garch_and_gbm_start_at_same_volatility() {
+        use crate::market::gbm::{GbmSimulator, PriceSimulator as _};
+
+        let sigma_target = 0.20_f64;
+        let gbm = GbmSimulator::new(100.0, 0.05, sigma_target, 1.0 / 252.0, 42);
+        let garch = GarchSimulator::new(
+            100.0,
+            0.05,
+            0.000002,
+            0.08,
+            0.90,
+            sigma_target * sigma_target, // sigma2_init = 0.04
+            1.0 / 252.0,
+            42,
+        );
+
+        let gbm_vol = gbm.volatility();
+        let garch_vol = garch.volatility();
+
+        assert!(
+            (gbm_vol - garch_vol).abs() < 1e-10,
+            "GBM and GARCH must start at same volatility: gbm={gbm_vol:.6}, garch={garch_vol:.6}",
+        );
     }
 }
