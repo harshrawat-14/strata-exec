@@ -59,6 +59,19 @@ pub struct ExecutionMetrics {
     temporary_impact_acc: f64,
     permanent_impact_acc: f64,
     timing_cost_acc: f64,
+
+    // ── VPIN observation (Phase 3 Track A) ───────────────────────────
+    /// VPIN estimate sampled at the time of each recorded trade.
+    /// Populated by `record_vpin`; length == `trade_count` after a full run.
+    pub vpin_at_execution: Vec<f64>,
+    /// Per-trade realised IS cost (`qty × (exec_price − arrival_price)`).
+    /// Populated by `record_trade`; used for conditional IS analysis by VPIN.
+    per_trade_cost: Vec<f64>,
+
+    // ── Regime tracking (Phase 3 Track B) ────────────────────────────
+    /// Regime label recorded at the time of each trade (Phase 3 Track B).
+    /// Populated by `record_regime`; aligned with `per_trade_cost` by index.
+    pub regime_at_execution: Vec<String>,
 }
 
 impl ExecutionMetrics {
@@ -82,6 +95,9 @@ impl ExecutionMetrics {
             temporary_impact_acc: 0.0,
             permanent_impact_acc: 0.0,
             timing_cost_acc: 0.0,
+            vpin_at_execution: Vec::new(),
+            per_trade_cost: Vec::new(),
+            regime_at_execution: Vec::new(),
         }
     }
 
@@ -124,6 +140,7 @@ impl ExecutionMetrics {
         self.vwap_numerator += quantity * exec_price;
         self.cumulative_cost += realized_cost;
         self.cost_sq_accumulator += realized_cost * realized_cost;
+        self.per_trade_cost.push(realized_cost);
         self.trade_count += 1;
 
         // ── Cost decomposition ────────────────────────────────────────────
@@ -313,6 +330,125 @@ impl ExecutionMetrics {
     /// Number of trades recorded so far.
     pub fn trade_count(&self) -> usize {
         self.trade_count
+    }
+
+    // ── VPIN observation (Phase 3 Track A) ───────────────────────────
+
+    /// Record the VPIN estimate at the time of the most recently recorded trade.
+    ///
+    /// Call this immediately after `record_trade` so the indices stay aligned.
+    /// If called more times than `record_trade`, the excess entries are ignored
+    /// in conditional analysis (length mismatch guard is applied at query time).
+    pub fn record_vpin(&mut self, vpin: f64) {
+        self.vpin_at_execution.push(vpin);
+    }
+
+    /// Compute conditional IS % split by VPIN threshold.
+    ///
+    /// Returns `(low_vpin_is_pct, high_vpin_is_pct)` where each is the total
+    /// realised cost for trades in that VPIN regime divided by `initial_notional`.
+    /// Returns `None` for a bucket if no trades fall into it.
+    pub fn conditional_shortfall_percent(
+        &self,
+        threshold: f64,
+    ) -> (Option<f64>, Option<f64>) {
+        if self.vpin_at_execution.is_empty() || self.initial_notional.abs() < 1e-15 {
+            return (None, None);
+        }
+        let n = self.vpin_at_execution.len().min(self.per_trade_cost.len());
+        let (mut low_cost, mut high_cost) = (0.0_f64, 0.0_f64);
+        let (mut low_count, mut high_count) = (0usize, 0usize);
+
+        for i in 0..n {
+            if self.vpin_at_execution[i] > threshold {
+                high_cost += self.per_trade_cost[i];
+                high_count += 1;
+            } else {
+                low_cost += self.per_trade_cost[i];
+                low_count += 1;
+            }
+        }
+
+        let low_pct = if low_count > 0 {
+            Some(low_cost / self.initial_notional * 100.0)
+        } else {
+            None
+        };
+        let high_pct = if high_count > 0 {
+            Some(high_cost / self.initial_notional * 100.0)
+        } else {
+            None
+        };
+        (low_pct, high_pct)
+    }
+
+    /// Fraction of recorded trades executed when VPIN exceeded `threshold`.
+    pub fn high_vpin_trade_fraction(&self, threshold: f64) -> f64 {
+        let n = self.vpin_at_execution.len();
+        if n == 0 {
+            return 0.0;
+        }
+        let high = self.vpin_at_execution.iter().filter(|&&v| v > threshold).count();
+        high as f64 / n as f64
+    }
+
+    // ── Regime tracking (Phase 3 Track B) ────────────────────────────
+
+    /// Record the market regime label at the time of the most recently recorded trade.
+    ///
+    /// Call immediately after `record_trade` so indices align with `per_trade_cost`.
+    pub fn record_regime(&mut self, label: &str) {
+        self.regime_at_execution.push(label.to_string());
+    }
+
+    /// Compute the distribution of regime labels across all recorded trades.
+    ///
+    /// Returns a vector of `(label, count, fraction)` tuples sorted by count descending.
+    /// Returns an empty vector when no regimes have been recorded.
+    pub fn regime_distribution(&self) -> Vec<(String, usize, f64)> {
+        if self.regime_at_execution.is_empty() {
+            return Vec::new();
+        }
+        let total = self.regime_at_execution.len();
+        let mut counts: std::collections::HashMap<&str, usize> = std::collections::HashMap::new();
+        for label in &self.regime_at_execution {
+            *counts.entry(label.as_str()).or_insert(0) += 1;
+        }
+        let mut result: Vec<(String, usize, f64)> = counts
+            .into_iter()
+            .map(|(label, count)| (label.to_string(), count, count as f64 / total as f64))
+            .collect();
+        result.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
+        result
+    }
+
+    /// Compute mean IS% broken down by regime label.
+    ///
+    /// Returns `Vec<(label, mean_is_pct, fill_count)>` sorted by fill_count descending.
+    /// Requires `regime_at_execution` and `per_trade_cost` to be co-populated.
+    pub fn is_by_regime(&self) -> Vec<(String, f64, usize)> {
+        let n = self.regime_at_execution.len().min(self.per_trade_cost.len());
+        if n == 0 || self.initial_notional.abs() < 1e-15 {
+            return Vec::new();
+        }
+        let mut cost_map: std::collections::HashMap<&str, (f64, usize)> =
+            std::collections::HashMap::new();
+        for i in 0..n {
+            let label = self.regime_at_execution[i].as_str();
+            let e = cost_map.entry(label).or_insert((0.0, 0));
+            e.0 += self.per_trade_cost[i];
+            e.1 += 1;
+        }
+        let notional = self.initial_notional;
+        let mut result: Vec<(String, f64, usize)> = cost_map
+            .into_iter()
+            .map(|(label, (cost, count))| {
+                let is_pct = cost / notional * 100.0;
+                (label.to_string(), is_pct, count)
+            })
+            .collect();
+        result.sort_by(|a, b| b.2.cmp(&a.2).then(a.0.cmp(&b.0)));
+        result
     }
 
     // ── Percentage-of-notional metrics ──────────────────────────────
@@ -706,6 +842,68 @@ mod tests {
             prev_permanent > 0.0,
             "cumulative permanent_impact must be positive after all sells, got {prev_permanent}",
         );
+    }
+
+    // ── Regime tracking tests (Phase 3 Track B) ──────────────────────────────
+
+    /// Sum of all regime fill counts must equal total recorded trade count.
+    #[test]
+    fn regime_distribution_sums_to_total_fill_count() {
+        let mut m = ExecutionMetrics::new(100.0, 1000.0);
+        for _ in 0..5 {
+            m.record_trade(10.0, 100.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+            m.record_regime("normal/normal");
+        }
+        for _ in 0..3 {
+            m.record_trade(10.0, 100.0, -0.5, 0.0, 0.0, 0.0, 0.0);
+            m.record_regime("high-vol/thin");
+        }
+        let dist = m.regime_distribution();
+        let total: usize = dist.iter().map(|(_, c, _)| c).sum();
+        assert_eq!(total, 8, "regime distribution must sum to total trade count");
+        // Fractions must sum to 1.0
+        let frac_sum: f64 = dist.iter().map(|(_, _, f)| f).sum();
+        assert!((frac_sum - 1.0).abs() < 1e-12, "fractions must sum to 1.0, got {frac_sum}");
+    }
+
+    /// IS by regime: trades in high-vol/thin regime with negative slippage must produce
+    /// negative IS%; normal regime with zero slippage must produce zero IS%.
+    #[test]
+    fn is_by_regime_computed_correctly() {
+        let mut m = ExecutionMetrics::new(100.0, 1000.0);
+        // 4 normal/normal trades at arrival → zero IS
+        for _ in 0..4 {
+            m.record_trade(10.0, 100.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+            m.record_regime("normal/normal");
+        }
+        // 2 high-vol/thin trades at exec=99 → IS = 2×10×(99−100) = −20
+        for _ in 0..2 {
+            m.record_trade(10.0, 100.0, -1.0, 0.0, 0.0, 0.0, 0.0);
+            m.record_regime("high-vol/thin");
+        }
+        let by_regime = m.is_by_regime();
+        let normal = by_regime.iter().find(|(l, _, _)| l == "normal/normal");
+        let hv_thin = by_regime.iter().find(|(l, _, _)| l == "high-vol/thin");
+
+        let (_, normal_is, _) = normal.expect("normal/normal must be present");
+        let (_, hv_is, _) = hv_thin.expect("high-vol/thin must be present");
+
+        assert!(
+            normal_is.abs() < 1e-12,
+            "normal/normal IS% must be zero, got {normal_is}"
+        );
+        assert!(
+            *hv_is < 0.0,
+            "high-vol/thin IS% must be negative (adverse sell), got {hv_is}"
+        );
+    }
+
+    /// Empty regime_history returns an empty distribution.
+    #[test]
+    fn empty_regime_history_returns_empty_distribution() {
+        let m = ExecutionMetrics::new(100.0, 1000.0);
+        assert!(m.regime_distribution().is_empty());
+        assert!(m.is_by_regime().is_empty());
     }
 
     /// Spread cost proxy scales with volatility.

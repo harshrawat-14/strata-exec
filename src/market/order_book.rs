@@ -98,6 +98,49 @@ impl OrderBook {
         }
     }
 
+    /// Return a new `OrderBook` with prices and quantities rescaled independently.
+    ///
+    /// `price_factor`: multiply every price (e.g. 100.0 / real_btc_mid).
+    /// `qty_factor`:   multiply every quantity (e.g. 1.0 / btc_scale to convert
+    ///                 BTC → simulation units).
+    pub fn rescale_full(&self, price_factor: f64, qty_factor: f64) -> OrderBook {
+        let scale_level = |l: &PriceLevel| PriceLevel {
+            price: l.price * price_factor,
+            quantity: l.quantity * qty_factor,
+        };
+        OrderBook {
+            asks: self.asks.iter().map(scale_level).collect(),
+            bids: self.bids.iter().map(scale_level).collect(),
+            timestamp: self.timestamp,
+        }
+    }
+
+    /// Read-only view of the bid ladder (descending by price).
+    /// Intended for adversarial agents that need per-level inspection.
+    pub fn bid_levels(&self) -> &[PriceLevel] {
+        &self.bids
+    }
+
+    /// Mutable view of the bid ladder (descending by price).
+    /// Adversarial agents use this to withdraw or restore liquidity per level.
+    pub fn bid_levels_mut(&mut self) -> &mut [PriceLevel] {
+        &mut self.bids
+    }
+
+    /// Sum of all bid quantities across the ladder.
+    pub fn total_bid_depth(&self) -> f64 {
+        self.bids.iter().map(|l| l.quantity).sum()
+    }
+
+    /// Scale all bid quantities by `factor` (clamped to [0.05, 1.0]).
+    /// Used by CounterfactualLob to model depth withdrawal due to market impact.
+    pub fn scale_bid_depth(&mut self, factor: f64) {
+        let factor = factor.clamp(0.05, 1.0);
+        for level in self.bids.iter_mut() {
+            level.quantity *= factor;
+        }
+    }
+
     /// Total ask quantity available at prices ≤ `price` (inclusive).
     pub fn ask_depth_up_to(&self, price: f64) -> f64 {
         self.asks

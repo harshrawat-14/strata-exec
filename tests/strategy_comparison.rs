@@ -657,8 +657,11 @@ timestamp,b0_p,b0_q,b1_p,b1_q,a0_p,a0_q,a1_p,a1_q
 ";
 
 fn write_fixture() -> String {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+    let id = COUNTER.fetch_add(1, Ordering::Relaxed);
     let path = std::env::temp_dir()
-        .join(format!("lob_integ_{}.csv", std::process::id()))
+        .join(format!("lob_integ_{}_{}.csv", std::process::id(), id))
         .to_str()
         .unwrap()
         .to_string();

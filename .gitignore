@@ -2,4 +2,23 @@
 Cargo.lock
 .env
 .env.local
+
+# macOS
 .DS_Store
+**/.DS_Store
+
+# Raw market data (too large for git — source from Binance Vision)
+TradeData/
+BTCUSDT-*.csv
+
+# Python
+rl/.venv/
+__pycache__/
+**/__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# RL training artifacts (model weights + TensorBoard events)
+rl/models/
+rl/logs/

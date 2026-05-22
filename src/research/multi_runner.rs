@@ -12,8 +12,10 @@ use crate::execution::transient_impact::TransientImpactTracker;
 use crate::market::gbm::PriceSimulator;
 use crate::market::liquidity::LiquiditySnapshot;
 use crate::market::lob_generator::{generate_lob, LobGeneratorParams};
+use crate::market::agg_trades::AggTradesDay;
 use crate::market::lob_replay::LobReplay;
 use crate::market::order_book::OrderBook;
+use crate::market::vpin::VpinCalculator;
 
 // ---------------------------------------------------------------------------
 // Fill mode
@@ -72,6 +74,29 @@ pub struct MultiStrategyRunner {
     /// Historical LOB replay used when `fill_mode == FillMode::HistoricalLob`.
     /// When the replay is exhausted, falls back to `generate_lob()`.
     pub lob_replay: Option<LobReplay>,
+    /// Optional VPIN estimator (Phase 3 Track A).
+    /// When present, updated each step and observed at every trade.
+    /// Does NOT alter execution decisions in Track A.
+    ///
+    /// VPIN FINDING — Phase 3 Track A
+    /// Synthetic volume: VPIN range 0.09-0.20, threshold 0.3 never reached.
+    ///   No discrimination power confirmed at threshold=0.15 (Task 1 diagnostic,
+    ///   threshold lowered to 0.15; synthetic VPIN still borderline at that level).
+    /// Real LOB depth-change VPIN: range 0.35-0.65, P75 threshold ≈ 0.44-0.56,
+    ///   toxicity premium = +0.12% to +1.30% across strategies (Task 2 results).
+    /// Execution decisions use real LOB VPIN only.
+    pub vpin: Option<VpinCalculator>,
+    /// Pre-computed VPIN series from real LOB depth-change data.
+    /// Populated by `with_historical_lob`; indexed by replay snapshot position.
+    /// When non-empty, overrides synthetic VpinCalculator output during HistoricalLob runs.
+    pub lob_vpin_series: Vec<(u64, f64)>,
+    /// Real aggTrades data for the same day (optional).
+    /// When present alongside `lob_replay`, overrides `lob_vpin_series` with
+    /// a per-snapshot VPIN derived from real trade volume rather than depth change.
+    pub agg_trades: Option<AggTradesDay>,
+    /// Per-snapshot VPIN series built from `agg_trades` on the first `run()` call.
+    /// Indexed by `replay_step` — one value per bookDepth snapshot.
+    pub real_vpin_series: Vec<f64>,
 }
 
 /// Per-step snapshot for one strategy (used during CSV export).
@@ -96,6 +121,10 @@ impl MultiStrategyRunner {
             force_complete: false,
             fill_mode: FillMode::Formula,
             lob_replay: None,
+            vpin: None,
+            lob_vpin_series: Vec::new(),
+            agg_trades: None,
+            real_vpin_series: Vec::new(),
         }
     }
 
@@ -113,11 +142,49 @@ impl MultiStrategyRunner {
     }
 
     /// Use historical L2 replay as the fill mechanism.
-    /// Sets `FillMode::HistoricalLob` and stores the replay.
+    /// Sets `FillMode::HistoricalLob`, pre-computes the LOB VPIN series, and stores the replay.
+    ///
+    /// Bucket size 500 BTC matches the median depth-change magnitude in Binance bookDepth
+    /// data, yielding ~1700 buckets from a 2880-snapshot day — enough for a meaningful
+    /// VPIN distribution.  The synthetic path uses 50_000 USDT but that unit does not
+    /// apply here (depth proxy is in BTC qty, not USDT notional).
     pub fn with_historical_lob(mut self, replay: LobReplay) -> Self {
         self.fill_mode = FillMode::HistoricalLob;
+        self.lob_vpin_series = replay.compute_vpin_series(500.0, 50);
         self.lob_replay = Some(replay);
         self
+    }
+
+    /// Attach a VPIN estimator (Phase 3 Track A).
+    ///
+    /// When attached, VPIN is updated each step from the simulator's price path
+    /// and recorded at every trade. Does NOT change execution decisions.
+    pub fn with_vpin(mut self, bucket_size: f64, window_buckets: usize) -> Self {
+        self.vpin = Some(VpinCalculator::new(bucket_size, window_buckets));
+        self
+    }
+
+    /// Attach real aggTrades data for this simulation day.
+    ///
+    /// When both `lob_replay` and `agg_trades` are present, `run()` will compute
+    /// a per-snapshot VPIN series from real trade volume on the first call,
+    /// replacing the depth-change proxy used by `lob_vpin_series`.
+    pub fn with_agg_trades(mut self, trades: AggTradesDay) -> Self {
+        self.agg_trades = Some(trades);
+        self
+    }
+
+    /// Print the VPIN source that will be used in `run()`.
+    /// Called from research_sim.rs at startup so the user sees the source before
+    /// the simulation begins.
+    pub fn vpin_source_label(&self) -> String {
+        if let (Some(lob), Some(agg)) = (&self.lob_replay, &self.agg_trades) {
+            let bucket = agg.calibrated_bucket_size(50);
+            let _ = lob; // accessed only for the condition
+            format!("real aggTrades ({:.1} BTC/bucket, 50 buckets)", bucket)
+        } else {
+            "synthetic (depth-change proxy)".to_string()
+        }
     }
 
     /// Helper: send an event if the debug channel is active.
@@ -152,10 +219,21 @@ impl MultiStrategyRunner {
             }
         };
 
+        // If both lob_replay and agg_trades are present, build the real VPIN series
+        // from actual trade volume on the first run() call (series is empty initially).
+        if self.real_vpin_series.is_empty() {
+            if let (Some(lob), Some(agg)) = (&self.lob_replay, &self.agg_trades) {
+                let ts = lob.snapshot_timestamps();
+                let bucket_size = agg.calibrated_bucket_size(50);
+                self.real_vpin_series = agg.build_vpin_series(&ts, bucket_size, 50);
+            }
+        }
+
         // Accumulator: one vec per strategy, each vec holds per-step records.
         let n = self.strategies.len();
         let mut history: Vec<Vec<StepRecord>> = (0..n).map(|_| Vec::new()).collect();
         let mut prices: Vec<f64> = Vec::new();
+        let mut prev_price_for_vpin: Option<f64> = None;
 
         // Per-strategy permanent price adjustment (γ accumulator).
         // Accumulates as a dimensionless fraction: gamma * (traded / total_notional).
@@ -170,6 +248,8 @@ impl MultiStrategyRunner {
             .max(1.0);
         let mut price_adjustment: Vec<f64> = vec![0.0; n];
         let fill_mode = self.fill_mode; // Copy — extracted to avoid borrow conflicts below.
+        // Counts how many LOB snapshots have been consumed so far (= lob_replay cursor).
+        let mut replay_step: usize = 0;
 
         for step in 0..self.max_steps {
             let current_time = step as f64; // T=1 scaling assuming 1.0 total time below. More accurately, `step / max_steps` but `step` is fine for relative decay scaling as long as rho matches.
@@ -193,15 +273,60 @@ impl MultiStrategyRunner {
             self.vol_count += 1;
             prices.push(price);
 
+            // VPIN update (Phase 3 Track A).
+            // Priority: real aggTrades series > LOB depth-change series > synthetic.
+            let current_vpin = if fill_mode == FillMode::HistoricalLob {
+                if !self.real_vpin_series.is_empty() {
+                    // Real aggTrades VPIN: indexed directly by snapshot position.
+                    let idx = replay_step.min(self.real_vpin_series.len() - 1);
+                    self.real_vpin_series[idx]
+                } else if !self.lob_vpin_series.is_empty() {
+                    // Fallback: LOB depth-change proxy. lob_vpin_series has one entry per
+                    // bucket completion (not per snapshot), so clamp to last available.
+                    let idx = replay_step.min(self.lob_vpin_series.len() - 1);
+                    self.lob_vpin_series.get(idx).map(|(_, v)| *v).unwrap_or(0.0)
+                } else {
+                    0.0
+                }
+            } else {
+                if let Some(ref mut vpin_calc) = self.vpin {
+                    if let Some(pp) = prev_price_for_vpin {
+                        let volume_proxy = total_notional_ref / self.max_steps as f64;
+                        vpin_calc.add_trade(price, volume_proxy, pp);
+                    }
+                }
+                self.vpin.as_ref().and_then(|v| v.current_vpin()).unwrap_or(0.0)
+            };
+            prev_price_for_vpin = Some(price);
+
             emit(DebugEvent::PriceUpdate { price, volatility });
 
             // For HistoricalLob: advance the replay cursor once per time step so
             // all strategies in this step share the same L2 snapshot. The snapshot
             // is cloned per-strategy because fill_market_sell is destructive.
             let step_snapshot: Option<OrderBook> = if fill_mode == FillMode::HistoricalLob {
-                self.lob_replay.as_mut().and_then(|r| r.next_snapshot())
+                let snap = self.lob_replay.as_mut().and_then(|r| r.next_snapshot());
+                replay_step += 1;
+                snap
             } else {
                 None
+            };
+
+            // Pre-compute the LOB half-spread for this step (used by RegimeAc).
+            // For HistoricalLob we use the raw book spread scaled to simulation price.
+            // For other modes we use the volatility-based proxy.
+            let dt_for_spread = 1.0 / self.max_steps as f64;
+            let step_half_spread: f64 = if fill_mode == FillMode::HistoricalLob {
+                if let Some(ref book) = step_snapshot {
+                    let adjusted_mid_est = price; // pre-trade mid (close enough for classification)
+                    let scale = adjusted_mid_est / book.mid_price().unwrap_or(adjusted_mid_est);
+                    let scaled_book = book.rescale(scale);
+                    scaled_book.half_spread().unwrap_or(0.5 * volatility * dt_for_spread.sqrt() * price)
+                } else {
+                    0.5 * volatility * dt_for_spread.sqrt() * price
+                }
+            } else {
+                0.5 * volatility * dt_for_spread.sqrt() * price
             };
 
             for (i, strat) in self.strategies.iter_mut().enumerate() {
@@ -227,6 +352,8 @@ impl MultiStrategyRunner {
                 let effective_price = price * (1.0 - price_adjustment[i]);
 
                 let remaining_before = strat.scheduler.remaining_notional();
+                // Feed current LOB half-spread to RegimeAc before it decides trade size.
+                strat.scheduler.set_half_spread(step_half_spread);
                 strat
                     .scheduler
                     .on_block(volatility, &liquidity)
@@ -336,6 +463,17 @@ impl MultiStrategyRunner {
                         price,
                         half_spread,
                     );
+                    // Observe VPIN at trade time (Track A: record only, no decision change).
+                    // HistoricalLob uses LOB depth-change VPIN; other modes use synthetic VPIN.
+                    if fill_mode == FillMode::HistoricalLob || self.vpin.is_some() {
+                        strat.metrics.record_vpin(current_vpin);
+                    }
+                    // Record regime label for RegimeAc strategy (Track B).
+                    if let Some(ref rac) = strat.scheduler.regime_ac {
+                        if let Some(ref regime) = rac.current_regime {
+                            strat.metrics.record_regime(regime.label());
+                        }
+                    }
 
                     emit(DebugEvent::OrderFilled {
                         order_id: step as u64,

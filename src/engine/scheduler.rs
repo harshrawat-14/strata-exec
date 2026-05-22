@@ -3,6 +3,7 @@ use crate::market::liquidity::LiquiditySnapshot;
 use crate::strategies::adaptive::AdaptiveOptimalStrategy;
 use crate::strategies::heuristic::HeuristicStrategy;
 use crate::strategies::optimal::{AlmgrenChriss, ExecutionModel};
+use crate::strategies::regime_ac::RegimeAcStrategy;
 
 // ---------------------------------------------------------------------------
 // Execution mode
@@ -16,6 +17,11 @@ pub enum ExecutionMode {
     Heuristic,
     Optimal,
     AdaptiveOptimal,
+    /// Regime-conditional Almgren–Chriss (Phase 3 Track B).
+    /// Re-solves the AC formula each step with a λ selected by the joint
+    /// (vol × liquidity) regime.  Requires `set_half_spread` to be called
+    /// before each `on_block` when the LOB spread is available.
+    RegimeAc,
 }
 
 // ---------------------------------------------------------------------------
@@ -34,6 +40,8 @@ pub struct Scheduler {
     // Strategy helpers
     heuristic: HeuristicStrategy,
     adaptive: AdaptiveOptimalStrategy,
+    /// Regime-conditional AC strategy (Phase 3 Track B).
+    pub regime_ac: Option<RegimeAcStrategy>,
     /// Fixed slice size for TWAP mode (= total_notional / horizon_steps).
     twap_qty_per_step: f64,
 
@@ -41,6 +49,10 @@ pub struct Scheduler {
     lambda: f64,
     sigma_ref: f64,
     initial_horizon: usize,
+
+    /// Current LOB half-spread, set by `set_half_spread` before each `on_block`.
+    /// Used by RegimeAc mode; ignored by all other modes.
+    current_half_spread: f64,
 }
 
 impl Scheduler {
@@ -68,6 +80,21 @@ impl Scheduler {
             0
         };
 
+        // Build RegimeAcStrategy when mode == RegimeAc.
+        // spread_ref is initialised to sigma_ref as a placeholder; the runner
+        // will overwrite it via set_half_spread on the very first step.
+        let regime_ac = if mode == ExecutionMode::RegimeAc {
+            Some(RegimeAcStrategy::new(
+                total_notional,
+                initial_horizon.max(1),
+                eta,
+                sigma_ref,
+                sigma_ref * 0.5, // placeholder; overwritten on first on_block call
+            ))
+        } else {
+            None
+        };
+
         Self {
             risk,
             total_notional,
@@ -84,12 +111,28 @@ impl Scheduler {
                 sigma_ref,
                 total_notional,
             ),
+            regime_ac,
             // For TWAP, base_chunk = total_notional / horizon_steps is set by the caller.
             twap_qty_per_step: base_chunk,
             eta,
             lambda,
             sigma_ref,
             initial_horizon,
+            current_half_spread: 0.0,
+        }
+    }
+
+    /// Set the current LOB half-spread before calling `on_block` for RegimeAc mode.
+    ///
+    /// The first call also initialises `spread_ref` on the underlying `RegimeAcStrategy`
+    /// so that regime boundaries are anchored to the first observed spread.
+    pub fn set_half_spread(&mut self, half_spread: f64) {
+        self.current_half_spread = half_spread;
+        if let Some(ref mut rac) = self.regime_ac {
+            // Anchor spread_ref to the first non-zero observation.
+            if rac.spread_ref <= 1e-15 || rac.spread_ref == rac.sigma_ref * 0.5 {
+                rac.spread_ref = half_spread.max(1e-15);
+            }
         }
     }
 
@@ -115,6 +158,7 @@ impl Scheduler {
             ExecutionMode::Heuristic => self.on_block_heuristic(volatility, liquidity),
             ExecutionMode::Optimal => self.on_block_optimal(volatility, liquidity),
             ExecutionMode::AdaptiveOptimal => self.on_block_adaptive_optimal(volatility, liquidity),
+            ExecutionMode::RegimeAc => self.on_block_regime_ac(volatility),
         }
     }
 
@@ -247,6 +291,24 @@ impl Scheduler {
             self.current_step += 1;
         }
 
+        Ok(())
+    }
+
+    fn on_block_regime_ac(&mut self, volatility: f64) -> Result<(), String> {
+        let half_spread = self.current_half_spread;
+        let qty = match self.regime_ac.as_mut() {
+            Some(rac) => rac.on_block(volatility, half_spread),
+            None => return Ok(()),
+        };
+        if qty > 1e-10 {
+            // RegimeAc bypasses the RiskManager slippage check — urgency is already
+            // encoded in λ selection; blocking here would distort the regime signal.
+            self.remaining_notional -= qty;
+            if self.remaining_notional <= 1e-8 {
+                self.remaining_notional = 0.0;
+                self.completed = true;
+            }
+        }
         Ok(())
     }
 

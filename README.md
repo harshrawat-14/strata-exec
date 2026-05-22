@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  Institutional-grade optimal execution engine with discrete event simulation, on-chain liquidity monitoring, and Monte Carlo research tooling — built in Rust.
+  Institutional-grade optimal execution engine with discrete event simulation, on-chain liquidity monitoring, Monte Carlo research tooling, and a recurrent RL agent — built in Rust + Python.
 </p>
 
 <p align="center">
@@ -14,11 +14,13 @@
 
 ## Overview
 
-StrataExec is a dual-mode system:
+StrataExec is a three-mode system:
 
 1. **Live Engine** (`strata-exec`) — Polls on-chain Uniswap V2 reserves in real time, derives mid-price and volatility, then feeds a risk-gated scheduler that decides chunk sizes across three execution strategies.
 
 2. **Research Simulator** (`research-sim`) — Runs Monte Carlo simulations over GBM/GARCH price paths with square-root market impact + transient decay, comparing Heuristic, Optimal, and Adaptive execution. Includes a full parameter sweep framework exporting structured CSV results.
+
+3. **RL Agent** (`rl-env` + Python) — A RecurrentPPO (LSTM) agent trained with `sb3-contrib` against the same Rust simulation engine. The Rust binary exposes a line-delimited JSON interface; `rl/environment.py` wraps it as a Gymnasium env. Supports three training modes: synthetic (GBM/GARCH), historical (real Binance LOB replay), and counterfactual (real LOB adjusted for own-impact via Obizhaeva-Wang).
 
 ---
 
@@ -31,6 +33,7 @@ StrataExec is a dual-mode system:
 - [Research Simulator](#research-simulator)
 - [Experiment Framework](#experiment-framework)
 - [Calibration](#calibration)
+- [RL Agent](#rl-agent)
 - [HTTP API](#http-api)
 - [Configuration](#configuration)
 - [Mathematical Models](#mathematical-models)
@@ -112,8 +115,8 @@ Config (seed, σ, η, λ)  →  GBM/GARCH Simulator
 | Module | Purpose |
 |--------|---------|
 | `engine/` | Block-polling orchestrator, scheduler, risk manager, state machine |
-| `strategies/` | Heuristic (TWAP-like), Almgren–Chriss Optimal, Adaptive Optimal |
-| `market/` | GBM + GARCH price simulators, volatility estimator, liquidity, drift |
+| `strategies/` | Heuristic (TWAP-like), Almgren–Chriss Optimal, Adaptive Optimal, Regime-aware A-C |
+| `market/` | GBM + GARCH simulators, LOB replay, counterfactual LOB, adversarial agents, VPIN, regime classifier, agg-trades reader |
 | `execution/` | DES execution engine, square-root impact model, transient impact decay |
 | `events/` | `SimEvent` enum, priority queue, order types |
 | `analytics/` | `ExecutionMetrics` (VWAP, shortfall, variance, AC objective), `DistributionStats` (VaR, CVaR, skewness, kurtosis) |
@@ -124,6 +127,7 @@ Config (seed, σ, η, λ)  →  GBM/GARCH Simulator
 | `config/` | Environment-variable based configuration with validation |
 | `observability/` | Non-blocking `crossbeam-channel` logging thread |
 | `ml/` | _(Placeholder)_ Future ML-based residual predictions |
+| `bin/rl_env` | Long-running RL environment server — JSON-over-stdin/stdout interface for Python |
 
 ---
 
@@ -305,6 +309,119 @@ and averages across all valid observations. The calibrated Y then overrides the 
 
 ---
 
+## RL Agent
+
+The RL layer trains a RecurrentPPO (LSTM) agent to learn execution timing against the same Rust engine used for research simulations.
+
+### Architecture
+
+```
+Python (sb3-contrib RecurrentPPO)
+       │  line-delimited JSON via stdin/stdout
+       ▼
+./target/debug/rl-env   (Rust — src/bin/rl_env.rs)
+       │
+       ├── synthetic mode  →  GBM / GARCH price path
+       ├── historical mode →  LobReplay (real Binance snapshots)
+       └── counterfactual  →  CounterfactualLob (real LOB + Obizhaeva-Wang impact)
+              ├── AggTradesDay  (VPIN / order-flow toxicity)
+              ├── MarketRegime  (vol × liq 3×3 classification)
+              └── AdversarialBook (FrontRunner + LiquidityWithdrawer)
+```
+
+### Protocol
+
+The `rl-env` binary communicates over stdin/stdout with newline-delimited JSON:
+
+```
+→ reset:  {"reset": true, "seed": 42}
+→ step:   {"action": 7}          # integer 0–19 (fraction of remaining inventory)
+
+← response: {"state": [...], "reward": -0.0023, "done": false, "info": {...}}
+```
+
+### Training Modes
+
+| Mode | `--rl-mode` flag | Price source | Observations |
+|------|-----------------|--------------|--------------|
+| Synthetic | `synthetic` | GBM / GARCH | 8-dim state |
+| Historical | `historical` | Binance LOB replay | 8-dim state |
+| Counterfactual | `counterfactual` | Real LOB + own-impact correction | 10-dim state (+ VPIN + regime) |
+
+### Prerequisites
+
+```bash
+# Build the Rust RL environment binary first
+cargo build --bin rl-env
+
+# Set up the Python environment
+cd rl
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+pip install sb3-contrib
+```
+
+### Train
+
+```bash
+# Counterfactual mode (recommended) — requires Binance BookDepth + AggTrades CSVs
+python rl/train.py \
+  --mode counterfactual \
+  --lob-date 2024-01-15 \
+  --agg-date 2024-01-15 \
+  --btc-target 50000 \
+  --timesteps 500000 \
+  --lr-schedule linear \
+  --name ppo_lstm_counterfactual
+
+# Synthetic mode (no data files needed)
+python rl/train.py --mode synthetic --timesteps 500000
+
+# Adversarial mode (FrontRunner + LiquidityWithdrawer active)
+python rl/train.py --mode counterfactual --adversarial --timesteps 500000
+```
+
+### Evaluate
+
+```bash
+python rl/evaluate.py --model rl/models/ppo_lstm_counterfactual_final \
+  --mode counterfactual \
+  --lob-date 2024-01-15 \
+  --agg-date 2024-01-15 \
+  --episodes 50
+```
+
+### Model Architecture
+
+| Component | Value |
+|-----------|-------|
+| Algorithm | RecurrentPPO (`sb3-contrib`) |
+| Policy | `MlpLstmPolicy` |
+| LSTM hidden size | 64 |
+| LSTM layers | 1 |
+| Critic LSTM | enabled |
+| Actor/Critic heads | `[64, 64]` each |
+| Activation | `Tanh` |
+| Clip range | 0.2 |
+| Entropy coef | 0.005 |
+
+### Market Microstructure Modules
+
+**VPIN** (`market/vpin.rs`) — Easley-López de Prado-O'Hara order-flow toxicity. Classifies trades into buy/sell-initiated via the tick rule, accumulates fixed-size volume buckets, and returns a rolling imbalance signal used as an RL observation.
+
+**Regime** (`market/regime.rs`) — 3×3 vol × liquidity regime classifier. Vol regimes (Low / Normal / High) are relative to σ_ref; liquidity regimes (Deep / Normal / Thin) are relative to the LOB half-spread at episode start.
+
+**Adversarial** (`market/adversarial.rs`) — Two counter-parties that react to observed flow:
+- `LiquidityWithdrawer` — pulls bid depth after a large fill, restores it gradually
+- `FrontRunner` — detects sustained sell pressure and front-runs a fraction of our order
+
+**CounterfactualLob** (`market/counterfactual_lob.rs`) — Real Binance snapshots adjusted for own-impact using Obizhaeva-Wang (2013): 30% permanent impact + 70% temporary with exponential decay (ρ = 5, half-life ≈ 3.3 h).
+
+**RegimeAC** (`strategies/regime_ac.rs`) — Almgren–Chriss strategy with per-regime λ overrides. Urgency escalates from λ = 10⁻⁵ (low vol + deep book) to λ = 5×10⁻² (high vol + thin book simultaneously).
+
+---
+
 ## HTTP API
 
 The live engine exposes an Axum HTTP control plane:
@@ -479,7 +596,8 @@ StrataExec/
 │   ├── lib.rs                  # Library crate root
 │   │
 │   ├── bin/
-│   │   └── research_sim.rs     # Research simulator entry point
+│   │   ├── research_sim.rs     # Research simulator entry point
+│   │   └── rl_env.rs           # RL environment server (JSON over stdin/stdout)
 │   │
 │   ├── engine/                 # Core orchestration
 │   │   ├── engine.rs           # Block-polling loop + Scheduler integration
@@ -492,7 +610,8 @@ StrataExec/
 │   │   ├── trait_def.rs        # Strategy trait (event-reactive interface)
 │   │   ├── heuristic.rs        # Adaptive TWAP with vol/liq scaling
 │   │   ├── optimal.rs          # Almgren–Chriss closed-form + DES wrapper
-│   │   └── adaptive.rs         # Receding-horizon adaptive A-C
+│   │   ├── adaptive.rs         # Receding-horizon adaptive A-C
+│   │   └── regime_ac.rs        # Regime-aware A-C (per-regime λ overrides)
 │   │
 │   ├── market/                 # Price models & market data
 │   │   ├── gbm.rs              # Geometric Brownian Motion + PriceSimulator trait
@@ -500,7 +619,14 @@ StrataExec/
 │   │   ├── volatility.rs       # Rolling-window volatility estimator
 │   │   ├── liquidity.rs        # LiquiditySnapshot (depth, mid-price)
 │   │   ├── drift.rs            # Drift estimator
-│   │   └── state.rs            # MarketState (DES-observable)
+│   │   ├── state.rs            # MarketState (DES-observable)
+│   │   ├── lob_replay.rs       # Real Binance LOB snapshot replay
+│   │   ├── order_book.rs       # In-memory limit order book
+│   │   ├── agg_trades.rs       # Binance aggTrades CSV reader
+│   │   ├── counterfactual_lob.rs # LOB + Obizhaeva-Wang own-impact correction
+│   │   ├── adversarial.rs      # FrontRunner + LiquidityWithdrawer agents
+│   │   ├── vpin.rs             # VPIN order-flow toxicity (Easley et al. 2012)
+│   │   └── regime.rs           # Vol × liquidity 3×3 regime classifier
 │   │
 │   ├── execution/              # Order execution mechanics
 │   │   ├── engine.rs           # DES execution engine (submit/fill/cancel)
@@ -546,12 +672,24 @@ StrataExec/
 │   ├── utils/                  # Logging init
 │   └── error.rs                # Error types
 │
-└── results/                    # Generated output
-    ├── comparison.csv          # Per-step multi-strategy trajectory
-    ├── sweep_horizon.csv       # Horizon sweep results
-    ├── sweep_trade_chunks.csv  # Trade slice sweep results
-    ├── sweep_volatility.csv    # Volatility sweep results
-    └── sweep_impact.csv        # Impact coefficient sweep results
+├── rl/                         # Python RL layer
+│   ├── requirements.txt        # Python dependencies (pinned)
+│   ├── environment.py          # Gymnasium wrapper around rl-env binary
+│   ├── train.py                # RecurrentPPO (LSTM) training script
+│   └── evaluate.py             # Policy evaluation + CSV export
+│
+├── results/                    # Rust research output (CSV)
+│   ├── comparison.csv
+│   ├── sweep_horizon.csv
+│   ├── sweep_trade_chunks.csv
+│   ├── sweep_volatility.csv
+│   ├── sweep_impact.csv
+│   ├── garch_sweep_*.csv
+│   └── gbm_sweep_*.csv
+│
+└── TradeData/                  # Raw Binance data (not committed — source locally)
+    ├── BookDepth/              # BTCUSDT-bookDepth-<date>.csv
+    └── AggTrades/              # BTCUSDT-aggTrades-<date>.csv
 ```
 
 ---

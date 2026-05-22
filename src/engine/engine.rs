@@ -238,6 +238,7 @@ impl Engine {
                 ExecutionMode::Heuristic => "heuristic",
                 ExecutionMode::Optimal => "optimal",
                 ExecutionMode::AdaptiveOptimal => "adaptive_optimal",
+                ExecutionMode::RegimeAc => "regime_ac",
             };
             let perf = json!({
                 "mode": mode_label,

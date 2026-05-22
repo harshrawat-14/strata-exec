@@ -21,6 +21,7 @@
 
 use std::error::Error;
 
+use chrono::NaiveDateTime;
 use crate::market::order_book::{OrderBook, PriceLevel};
 
 // ---------------------------------------------------------------------------
@@ -98,6 +99,16 @@ impl LobReplay {
         self.cursor = 0;
     }
 
+    /// Advance the cursor to the given snapshot index.
+    /// Clamps to the last valid index if `offset` exceeds the snapshot count.
+    pub fn seek(&mut self, offset: usize) {
+        if self.snapshots.is_empty() {
+            self.cursor = 0;
+        } else {
+            self.cursor = offset.min(self.snapshots.len() - 1);
+        }
+    }
+
     /// Number of snapshots loaded.
     pub fn len(&self) -> usize {
         self.snapshots.len()
@@ -106,6 +117,64 @@ impl LobReplay {
     /// True if no snapshots were loaded.
     pub fn is_empty(&self) -> bool {
         self.snapshots.is_empty()
+    }
+
+    /// Return the unix-millisecond timestamp of every loaded snapshot, in order.
+    /// Used by `AggTradesDay::build_vpin_series` to align aggTrades windows with
+    /// bookDepth snapshot boundaries.
+    pub fn snapshot_timestamps(&self) -> Vec<u64> {
+        self.snapshots.iter().map(|s| s.timestamp).collect()
+    }
+
+    /// Compute a time series of VPIN estimates from the loaded L2 snapshots.
+    ///
+    /// Uses midprice changes between consecutive snapshots as the tick-rule
+    /// direction signal, and the absolute change in total book depth as a
+    /// proxy for traded volume (consuming depth ≈ aggressive order flow).
+    ///
+    /// Returns a vector of `(timestamp_ms, vpin)` pairs, one per bucket
+    /// completion.  May be shorter than `self.len()` when depth changes are
+    /// too small to fill many buckets.
+    pub fn compute_vpin_series(
+        &self,
+        bucket_size: f64,
+        window_buckets: usize,
+    ) -> Vec<(u64, f64)> {
+        use crate::market::vpin::VpinCalculator;
+
+        let mut calc = VpinCalculator::new(bucket_size, window_buckets);
+        let mut results: Vec<(u64, f64)> = Vec::new();
+
+        for i in 1..self.snapshots.len() {
+            let prev = &self.snapshots[i - 1];
+            let curr = &self.snapshots[i];
+
+            // Midprice direction via tick rule.
+            let prev_mid = {
+                let b = prev.to_order_book();
+                b.mid_price().unwrap_or(0.0)
+            };
+            let curr_mid = {
+                let b = curr.to_order_book();
+                b.mid_price().unwrap_or(0.0)
+            };
+
+            // Volume proxy: absolute change in total book depth.
+            // Depth consumed from either side approximates aggressive trade flow.
+            let prev_depth: f64 = prev.bids.iter().map(|l| l.quantity).sum::<f64>()
+                + prev.asks.iter().map(|l| l.quantity).sum::<f64>();
+            let curr_depth: f64 = curr.bids.iter().map(|l| l.quantity).sum::<f64>()
+                + curr.asks.iter().map(|l| l.quantity).sum::<f64>();
+            let volume_proxy = (curr_depth - prev_depth).abs();
+
+            if volume_proxy > 1e-12 && prev_mid > 1e-15 {
+                if let Some(vpin) = calc.add_trade(curr_mid, volume_proxy, prev_mid) {
+                    results.push((curr.timestamp, vpin));
+                }
+            }
+        }
+
+        results
     }
 }
 
@@ -219,11 +288,7 @@ fn parse_binance_tall(path: &str) -> Result<Vec<LobSnapshot>, Box<dyn Error>> {
             continue;
         }
 
-        // Convert timestamp string to u64 (unix ms if numeric, else use a hash).
-        let timestamp = ts_str.trim().parse::<u64>().unwrap_or_else(|_| {
-            // For "YYYY-MM-DD HH:MM:SS" strings, use stable ordering via byte hash.
-            ts_str.bytes().fold(0u64, |acc, b| acc.wrapping_mul(31).wrapping_add(b as u64))
-        });
+        let timestamp = parse_timestamp_ms(ts_str.trim())?;
 
         snapshots.push(LobSnapshot { timestamp, bids, asks });
     }
@@ -345,11 +410,25 @@ fn parse_wide_levels(record: &csv::StringRecord, pairs: &[LevelCols]) -> Vec<Pri
 }
 
 // ---------------------------------------------------------------------------
-// Shared helper
+// Shared helpers
 // ---------------------------------------------------------------------------
 
 fn col_idx(headers: &[String], name: &str) -> Option<usize> {
     headers.iter().position(|h| h == name)
+}
+
+/// Parse a timestamp string to unix milliseconds.
+///
+/// Tries unix-ms integer first (some files use numeric timestamps).
+/// Falls back to ISO "YYYY-MM-DD HH:MM:SS" (Binance bookDepth format).
+/// Returns an error rather than silently producing garbage via byte-hash.
+pub fn parse_timestamp_ms(s: &str) -> Result<u64, Box<dyn std::error::Error>> {
+    if let Ok(ms) = s.parse::<u64>() {
+        return Ok(ms);
+    }
+    let dt = NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M:%S")
+        .map_err(|e| format!("unrecognised timestamp '{s}': {e}"))?;
+    Ok(dt.and_utc().timestamp_millis() as u64)
 }
 
 // ---------------------------------------------------------------------------
@@ -389,11 +468,18 @@ timestamp,percentage,depth,notional
 ";
 
     /// Write fixture content to a temp file; return the path.
+    ///
+    /// Uses a monotonic counter so parallel test threads each get a unique path,
+    /// preventing the race condition where two threads truncate and write the same file.
     pub fn write_fixture(content: &str) -> String {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static COUNTER: AtomicU64 = AtomicU64::new(0);
+        let id = COUNTER.fetch_add(1, Ordering::Relaxed);
         let path = std::env::temp_dir()
-            .join(format!("lob_fixture_{}_{}.csv",
+            .join(format!("lob_fixture_{}_{}_{}.csv",
                 std::process::id(),
-                content.len())) // vary by content so parallel tests don't collide
+                id,
+                content.len()))
             .to_str()
             .unwrap()
             .to_string();
@@ -553,5 +639,49 @@ timestamp,percentage,depth,notional
             let a2 = book.ask_depth_up_to(best_ask + 1000.0);
             assert!(a2 >= a1, "ask depth must grow as price limit rises");
         }
+    }
+
+    #[test]
+    fn seek_advances_cursor_to_correct_position() {
+        let path = write_fixture(FIXTURE_CSV);
+        let mut replay = LobReplay::from_csv(&path).expect("must load");
+        // Seek to index 2; row 2 is: 1002,99.8,8.0,...
+        replay.seek(2);
+        let book = replay.next_snapshot().expect("must return snapshot at index 2");
+        let best_bid = book.best_bid().expect("must have best bid");
+        assert!(
+            (best_bid - 99.8).abs() < 1e-9,
+            "after seek(2), best_bid expected 99.8, got {best_bid}"
+        );
+    }
+
+    #[test]
+    fn seek_clamps_to_last_valid_position() {
+        let path = write_fixture(FIXTURE_CSV);
+        let mut replay = LobReplay::from_csv(&path).expect("must load");
+        // Seek far beyond the 5-snapshot replay — cursor should land at index 4.
+        replay.seek(9999);
+        let book = replay.next_snapshot().expect("must return last snapshot");
+        // Row 4: 1004,99.88,9.0,...
+        let best_bid = book.best_bid().expect("must have best bid");
+        assert!(
+            (best_bid - 99.88).abs() < 1e-9,
+            "after seek(9999), best_bid expected 99.88, got {best_bid}"
+        );
+        assert!(
+            replay.next_snapshot().is_none(),
+            "after consuming last snapshot, replay must be exhausted"
+        );
+    }
+
+    #[test]
+    fn bookdepth_iso_timestamp_parses_to_unix_ms() {
+        // "2024-01-15 00:00:12" UTC = 1705276800000 + 12000 = 1705276812000 ms
+        let result = parse_timestamp_ms("2024-01-15 00:00:12")
+            .expect("ISO timestamp must parse without error");
+        assert_eq!(
+            result, 1_705_276_812_000,
+            "ISO timestamp must convert to unix ms: expected 1705276812000, got {result}"
+        );
     }
 }

@@ -1,8 +1,13 @@
+pub mod adversarial;
+pub mod agg_trades;
+pub mod counterfactual_lob;
 pub mod garch;
 pub mod gbm;
 pub mod liquidity;
 pub mod lob_generator;
 pub mod lob_replay;
 pub mod order_book;
+pub mod regime;
 pub mod state;
 pub mod volatility;
+pub mod vpin;
