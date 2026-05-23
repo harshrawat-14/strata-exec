@@ -28,7 +28,7 @@ class StrataExecEnv(gym.Env):
         super().__init__()
 
         self.cmd = [
-            "./target/debug/rl-env",
+            "./target/release/rl-env",
             "--rl-mode", mode,
         ]
         if adversarial:
@@ -36,7 +36,8 @@ class StrataExecEnv(gym.Env):
         if lob_date and mode != "counterfactual":
             self.cmd.extend([
                 "--lob-data",
-                f"TradeData/BookDepth/BTCUSDT-bookDepth-{lob_date}.csv"
+                f"TradeData/BookDepth/BTCUSDT-bookDepth-{lob_date}.csv",
+                "--btc-target", str(btc_target),
             ])
         if mode == "counterfactual":
             assert lob_date is not None, "counterfactual mode requires lob_date"

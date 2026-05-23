@@ -3,12 +3,126 @@
 </p>
 
 <p align="center">
-  Institutional-grade optimal execution engine with discrete event simulation, on-chain liquidity monitoring, Monte Carlo research tooling, and a recurrent RL agent — built in Rust + Python.
+  Quantitative execution research system for large-order crypto trading.<br>
+  Measures the true cost of executing a large order in a real market — and finds which strategy minimises it.
 </p>
 
 <p align="center">
-  <code>163 tests</code> · <code>zero warnings</code> · <code>zero unwrap() in production code</code>
+  <code>Rust + Python</code> · <code>389 tests</code> · <code>zero warnings</code> · <code>zero unwrap() in production code</code>
 </p>
+
+---
+
+## What This Is
+
+When an institution needs to sell a large position in BTC, doing it all at once collapses the price against them. Splitting it over time reduces market impact but introduces timing risk — prices may move adversely while they wait. The optimal tradeoff is a solved mathematical problem (Almgren-Chriss 2001), but the real-world gap between theory and live market data is not.
+
+StrataExec answers: **how large is that gap, and can a learned policy close it?**
+
+The system has three layers:
+- A **Rust simulation engine** implementing five execution strategies with full discrete-event simulation
+- A **research pipeline** running Monte Carlo experiments on real Binance order book data (11 dates, 1M+ trades per day)
+- A **Python RL agent** (RecurrentPPO with LSTM) trained on a counterfactual LOB environment and evaluated against the closed-form AC optimal
+
+---
+
+## Key Research Findings
+
+All results use BTC-USDT perpetual futures, Binance, 2024. Order size: 50,000 BTC notional (~$2.1B at execution prices).
+
+### Phase 1–2: Strategy Comparison
+
+| Finding | Result |
+|---------|--------|
+| AC vs TWAP variance reduction | **7.8× lower variance** at σ=40% (500-path GBM sweep) |
+| AC in trending market | Pays drift opportunity cost — TWAP outperforms when μ=5% |
+| AdaptiveOptimal vs Optimal | AdaptiveOptimal **over-trades** during GARCH volatility clustering (+1.22% IS vs +0.76%) |
+| Slice sensitivity | TWAP IS swings 1.07pp across slice counts; AC is slice-invariant |
+| VPIN premium | Positive for AC strategies; negative for TWAP — informed flow hurts patient strategies |
+
+### Phase 2B: Calibration Gap (Synthetic vs Real Binance L2)
+
+| Metric | Synthetic Model | Real Binance L2 |
+|--------|----------------|----------------|
+| Temporary impact | Baseline | **~10× larger** |
+| Bid-ask spread | Baseline | **~95× wider** |
+| Permanent impact | Strategy-dependent | Strategy-invariant at full liquidation (~0.1–1.7% of IS) |
+
+The synthetic square-root impact model used in the AC derivation significantly understates real market costs. This is the central quantitative finding of Phase 2.
+
+### Phase 3: Null Results (Documented Honestly)
+
+**VPIN as execution signal** — Real aggTrades VPIN ranges 0.05–0.12 with insufficient discrimination to trigger regime-conditional execution. The signal exists but is too weak at daily granularity to improve on static AC.
+
+**Regime-conditional AC** — Greedy receding-horizon regime-switching underperforms the global optimum. The myopic update diverges from the AC solution the longer the horizon.
+
+Both are genuine null results and are reported as such.
+
+### Phase 4: RL Agent Results
+
+The core RL question: can a learned policy outperform the closed-form AC optimal on real market data?
+
+**Final results — RL (LSTM, counterfactual training) vs Static Optimal AC:**
+
+| Date | Regime | AC Optimal | RL Agent | RL wins by |
+|------|--------|-----------|---------|-----------|
+| 2024-01-15 | calm bull | -0.990% | -0.430% | +0.560pp |
+| 2024-03-05 | BTC breakout | -1.228% | -0.459% | +0.769pp |
+| 2024-06-10 | quiet consolidation | -0.868% | -0.454% | +0.414pp |
+| 2024-08-05 | crash — Yen unwind | -1.071% | -0.482% | +0.589pp |
+| 2024-11-06 | post-election surge | -1.212% | -0.478% | +0.734pp |
+| **2024-04-15** | BTC correction *(test)* | -1.311% | -0.465% | +0.846pp |
+| **2024-07-10** | mid-summer sideways *(test)* | -1.057% | -0.427% | +0.630pp |
+| **2024-12-10** | December bull run *(test)* | -1.442% | -0.430% | +1.012pp |
+
+**Bold dates are out-of-sample test dates never used during training.**
+
+Mean sim-to-real degradation: **-0.56pp** (vs synthetic baseline of +0.10%). The RL agent outperforms static AC across all 8 dates including the held-out test set.
+
+---
+
+## Critical Engineering Decisions
+
+The path from first implementation to a working RL agent involved several non-obvious problems. These are documented because the solutions are the technically interesting parts of the project.
+
+### 1. Reward Function Design
+
+**Problem:** The first reward formulation used raw bps slippage without quantity weighting. This made instant liquidation mathematically optimal — selling 245,000 units at 224 bps produced the same reward magnitude as selling 50,000 units at 43 bps, despite the actual dollar cost being 25× larger. The agent learned to dump everything in 7 steps.
+
+**Fix:** Quantity-weighted IS contribution:
+```
+reward = -(exec_price - mid_price) × fill_qty / (arrival_price × total_inventory)
+```
+This makes the total episode reward equal to negative IS percentage — bounded, dimensionless, and directly comparable across market conditions. Episode length grew from 7 steps to 1,287+ steps at eval after this fix.
+
+### 2. Book Depth Calibration
+
+**Problem:** Initial `btc_scale=0.0005` gave `qty_factor=2000`, rescaling 2,692 BTC of real depth to 5.3M simulation units. Every action, regardless of size, filled entirely within level 0 at the same price. Fill prices were flat across all action sizes — zero price-impact incentive.
+
+**Fix:** `btc_scale=0.05` (`qty_factor=20`). Level 0 now holds ~53,841 simulation units. Actions up to 5% of inventory fill in level 0; larger actions walk into progressively worse price levels. The 11.4× reward ratio between large and small actions creates a meaningful incentive to spread execution.
+
+### 3. MPS LSTM Crash (PyTorch 2.1)
+
+**Problem:** RecurrentPPO training on Apple MPS crashed consistently at ~500k steps:
+```
+MPSNDArrayDescriptor sliceDimension error: subRange.start (63)
+is not less than length of dimension[2] (1)
+```
+The Metal LSTM backward kernel allocates a workspace buffer indexed by sequence position. When `episode_length >= lstm_hidden_size` (64), it tries to slice index 63 from a buffer with dimension size 1. `PYTORCH_ENABLE_MPS_FALLBACK=1` did not fix it. Reducing `lstm_hidden_size` to 32 only deferred the crash to `ep_len >= 32`.
+
+**Fix:** `_CPULSTMWrapper` pins the two LSTM submodules (`lstm_actor`, `lstm_critic`) to CPU while all MLP layers stay on MPS. MPS→CPU→MPS transfers are differentiable so gradients flow correctly. The wrapper also proxies all `nn.LSTM` attributes that `sb3-contrib` reads directly (`input_size`, `hidden_size`, `num_layers`, etc.). Throughput: ~49 fps vs ~35 fps CPU-only baseline.
+
+### 4. stdout Pollution in the JSON Wire Protocol
+
+**Problem:** The Rust `rl-env` binary communicates with Python over stdin/stdout as newline-delimited JSON. `AggTradesDay::from_csv` used `println!` for load diagnostics, which wrote to stdout and was read by Python as the reset response, causing `JSONDecodeError` on every episode reset.
+
+**Fix:** Changed all diagnostic output in the rl-env binary from `println!` to `eprintln!` (stderr). This is a subtle class of bug — the protocol and the logging share the same file descriptor, and any stray print breaks the framing.
+
+### 5. Degenerate Policy in Synthetic LOB
+
+**Problem:** Training on an unlimited-depth synthetic LOB, the agent immediately learned to sell everything in one step regardless of reward function. Square-root impact has concavity that makes instant liquidation locally optimal in any LOB with sufficient depth — the agent exploited this in iteration 1 and never escaped.
+
+**Fix:** CounterfactualLob with Obizhaeva-Wang accumulated depth impact. Selling aggressively depletes the visible book across steps, making future fills worse. The agent is forced to consider the sequential consequences of each trade. This was the single most important architectural change — without it, no reward shaping produced meaningful learning.
 
 ---
 
@@ -26,6 +140,9 @@ StrataExec is a three-mode system:
 
 ## Table of Contents
 
+- [What This Is](#what-this-is)
+- [Key Research Findings](#key-research-findings)
+- [Critical Engineering Decisions](#critical-engineering-decisions)
 - [Architecture](#architecture)
 - [Module Reference](#module-reference)
 - [Getting Started](#getting-started)
@@ -126,7 +243,6 @@ Config (seed, σ, η, λ)  →  GBM/GARCH Simulator
 | `blockchain/` | `BlockchainClient` trait + `RpcClient` with exponential backoff retry |
 | `config/` | Environment-variable based configuration with validation |
 | `observability/` | Non-blocking `crossbeam-channel` logging thread |
-| `ml/` | _(Placeholder)_ Future ML-based residual predictions |
 | `bin/rl_env` | Long-running RL environment server — JSON-over-stdin/stdout interface for Python |
 
 ---
@@ -141,14 +257,14 @@ Config (seed, σ, η, λ)  →  GBM/GARCH Simulator
 ### Build
 
 ```bash
-git clone <repo-url> && cd StrataExec
+git clone https://github.com/harshrawat-14/strata-exec && cd strata-exec
 cargo build --release
 ```
 
 ### Quick Smoke Test
 
 ```bash
-# Run all 163 tests (no RPC / network needed)
+# Run all 389 tests (no RPC / network needed)
 cargo test
 
 # Run a quick research simulation (no .env needed)
@@ -198,7 +314,7 @@ The engine:
 
 ## Research Simulator
 
-The `research-sim` binary runs offline Monte Carlo simulations comparing all three execution strategies against shared price paths.
+The `research-sim` binary runs offline Monte Carlo simulations comparing all execution strategies against shared price paths.
 
 ### Basic Usage
 
@@ -209,8 +325,10 @@ cargo run --bin research-sim
 # 500 Monte Carlo paths
 cargo run --bin research-sim -- --paths 500
 
-# GARCH(1,1) price model
-cargo run --bin research-sim -- --paths 100 --model garch
+# GARCH(1,1) price model with real Binance LOB
+cargo run --bin research-sim -- --paths 100 --model garch \
+  --lob-data TradeData/BookDepth/BTCUSDT-bookDepth-2024-01-15.csv \
+  --agg-trades TradeData/AggTrades/BTCUSDT-aggTrades-2024-01-15.csv
 
 # With progress reporting
 cargo run --bin research-sim -- --paths 500 --progress
@@ -225,7 +343,9 @@ cargo run --bin research-sim -- --paths 100 --debug --debug-paths 2
 |------|---------|-------------|
 | `--paths N` | `1` | Number of Monte Carlo paths |
 | `--model gbm\|garch` | `gbm` | Price dynamics model |
-| `--experiments` | off | Run parameter sweep framework (see [below](#experiment-framework)) |
+| `--lob-data <file>` | — | Real Binance bookDepth CSV for LOB replay |
+| `--agg-trades <file>` | — | Real Binance aggTrades CSV for OFI / VPIN |
+| `--experiments` | off | Run parameter sweep framework |
 | `--calibrate <file>` | — | Calibrate impact coefficient Y from historical CSV |
 | `--debug` | off | Enable event logging |
 | `--debug-paths N` | all | Limit event logging to first N paths |
@@ -267,15 +387,6 @@ cargo run --bin research-sim -- --experiments --paths 100
 | Mean AC Objective | `MeanACObjective_Pct` | `shortfall% + λ · risk_penalty%` |
 | AC Objective Variance | `ACObjectiveVariance_Pct2` | `σ²` of AC objective across MC paths |
 | CVaR 95% (AC) | `CVaR95ACObjective_Pct` | Tail risk of AC objective |
-
-### CSV Format
-
-```csv
-ParameterName,ParameterValue,Strategy,NumPaths,MeanImplementationShortfall_Pct,...
-ExecutionHorizonDays,0.2500,Heuristic,100,0.001234,...
-ExecutionHorizonDays,0.2500,Optimal,100,0.000987,...
-ExecutionHorizonDays,0.2500,AdaptiveOptimal,100,0.001012,...
-```
 
 ### Design Principles
 
@@ -319,12 +430,12 @@ The RL layer trains a RecurrentPPO (LSTM) agent to learn execution timing agains
 Python (sb3-contrib RecurrentPPO)
        │  line-delimited JSON via stdin/stdout
        ▼
-./target/debug/rl-env   (Rust — src/bin/rl_env.rs)
+./target/release/rl-env   (Rust — src/bin/rl_env.rs)
        │
        ├── synthetic mode  →  GBM / GARCH price path
        ├── historical mode →  LobReplay (real Binance snapshots)
        └── counterfactual  →  CounterfactualLob (real LOB + Obizhaeva-Wang impact)
-              ├── AggTradesDay  (VPIN / order-flow toxicity)
+              ├── AggTradesDay  (OFI per 30-second window)
               ├── MarketRegime  (vol × liq 3×3 classification)
               └── AdversarialBook (FrontRunner + LiquidityWithdrawer)
 ```
@@ -342,17 +453,32 @@ The `rl-env` binary communicates over stdin/stdout with newline-delimited JSON:
 
 ### Training Modes
 
-| Mode | `--rl-mode` flag | Price source | Observations |
-|------|-----------------|--------------|--------------|
-| Synthetic | `synthetic` | GBM / GARCH | 8-dim state |
-| Historical | `historical` | Binance LOB replay | 8-dim state |
-| Counterfactual | `counterfactual` | Real LOB + own-impact correction | 10-dim state (+ VPIN + regime) |
+| Mode | `--rl-mode` flag | Price source | State dims |
+|------|-----------------|--------------|------------|
+| Synthetic | `synthetic` | GBM / GARCH | 8 |
+| Historical | `historical` | Binance LOB replay | 8 |
+| Counterfactual | `counterfactual` | Real LOB + own-impact correction | 10 |
+
+### State Vector (Counterfactual Mode — 10 dimensions)
+
+| Dim | Signal | Source |
+|-----|--------|--------|
+| [0] | remaining_inventory / total | rl-env |
+| [1] | steps_remaining / total | rl-env |
+| [2] | tanh(vol_ratio) | GARCH estimator |
+| [3] | tanh(spread_ratio) | Real LOB |
+| [4] | tanh(depth_ratio) | Real LOB |
+| [5] | OFI — (buy_vol − sell_vol) / total_vol | aggTrades 30s window |
+| [6] | tanh(price_drift_10steps) | LOB mid |
+| [7] | tanh(last_fill_slippage) | Execution |
+| [8] | tanh(permanent_impact_fraction) | OW model |
+| [9] | tanh(temporary_impact_fraction) | OW model |
 
 ### Prerequisites
 
 ```bash
 # Build the Rust RL environment binary first
-cargo build --bin rl-env
+cargo build --release --bin rl-env
 
 # Set up the Python environment
 cd rl
@@ -365,15 +491,14 @@ pip install sb3-contrib
 ### Train
 
 ```bash
-# Counterfactual mode (recommended) — requires Binance BookDepth + AggTrades CSVs
+# Full training run — 8 dates, 3M steps, linear lr decay (~17 hours on M4)
 python rl/train.py \
+  --timesteps 3000000 \
   --mode counterfactual \
-  --lob-date 2024-01-15 \
-  --agg-date 2024-01-15 \
-  --btc-target 50000 \
-  --timesteps 500000 \
-  --lr-schedule linear \
-  --name ppo_lstm_counterfactual
+  --multi-date 2024-01-15,2024-02-20,2024-03-05,2024-06-10,2024-08-05,2024-09-15,2024-10-15,2024-11-06 \
+  --btc-target 50000.0 \
+  --name ppo_lstm_v4 \
+  --lr-schedule linear
 
 # Synthetic mode (no data files needed)
 python rl/train.py --mode synthetic --timesteps 500000
@@ -385,11 +510,11 @@ python rl/train.py --mode counterfactual --adversarial --timesteps 500000
 ### Evaluate
 
 ```bash
-python rl/evaluate.py --model rl/models/ppo_lstm_counterfactual_final \
-  --mode counterfactual \
-  --lob-date 2024-01-15 \
-  --agg-date 2024-01-15 \
-  --episodes 50
+python rl/evaluate.py \
+  --passive-model rl/models/ppo_lstm_v4_best/best_model \
+  --episodes 50 \
+  --n-state-dims 10 \
+  --include-test-dates
 ```
 
 ### Model Architecture
@@ -399,26 +524,38 @@ python rl/evaluate.py --model rl/models/ppo_lstm_counterfactual_final \
 | Algorithm | RecurrentPPO (`sb3-contrib`) |
 | Policy | `MlpLstmPolicy` |
 | LSTM hidden size | 64 |
+| LSTM execution | CPU (`_CPULSTMWrapper` — PyTorch 2.1 MPS fix) |
 | LSTM layers | 1 |
 | Critic LSTM | enabled |
-| Actor/Critic heads | `[64, 64]` each |
+| Actor/Critic heads | `[64, 64]` each (MPS) |
 | Activation | `Tanh` |
-| Clip range | 0.2 |
+| Batch size | 256 |
+| Learning rate | 3e-4 → 0 (linear decay) |
 | Entropy coef | 0.005 |
+| Parallel envs | 8 (SubprocVecEnv) |
+| Training device | Apple MPS + CPU LSTM |
+
+### Training Data
+
+| Split | Dates | Purpose |
+|-------|-------|---------|
+| Training | Jan 15, Feb 20, Mar 05, Jun 10, Aug 05, Sep 15, Oct 15, Nov 06 | Agent training |
+| Validation | Jan 15, Mar 05, Jun 10, Aug 05, Nov 06 | Model selection |
+| **Test** | **Apr 15, Jul 10, Dec 10** | **Final evaluation only — never seen during training** |
 
 ### Market Microstructure Modules
 
-**VPIN** (`market/vpin.rs`) — Easley-López de Prado-O'Hara order-flow toxicity. Classifies trades into buy/sell-initiated via the tick rule, accumulates fixed-size volume buckets, and returns a rolling imbalance signal used as an RL observation.
+**VPIN** (`market/vpin.rs`) — Easley-López de Prado-O'Hara order-flow toxicity. Classifies trades into buy/sell-initiated via the tick rule, accumulates fixed-size volume buckets, and returns a rolling imbalance signal. Implemented and validated; found to have insufficient discrimination at daily granularity for regime-conditional execution (documented null result, Phase 3).
 
-**Regime** (`market/regime.rs`) — 3×3 vol × liquidity regime classifier. Vol regimes (Low / Normal / High) are relative to σ_ref; liquidity regimes (Deep / Normal / Thin) are relative to the LOB half-spread at episode start.
+**Regime** (`market/regime.rs`) — 3×3 vol × liquidity regime classifier. Vol regimes (Low / Normal / High) relative to σ_ref; liquidity regimes (Deep / Normal / Thin) relative to the LOB half-spread at episode start.
 
 **Adversarial** (`market/adversarial.rs`) — Two counter-parties that react to observed flow:
 - `LiquidityWithdrawer` — pulls bid depth after a large fill, restores it gradually
 - `FrontRunner` — detects sustained sell pressure and front-runs a fraction of our order
 
-**CounterfactualLob** (`market/counterfactual_lob.rs`) — Real Binance snapshots adjusted for own-impact using Obizhaeva-Wang (2013): 30% permanent impact + 70% temporary with exponential decay (ρ = 5, half-life ≈ 3.3 h).
+**CounterfactualLob** (`market/counterfactual_lob.rs`) — Real Binance snapshots adjusted for own-impact using Obizhaeva-Wang (2013): 30% permanent impact + 70% temporary with exponential decay (ρ = 5, half-life ≈ 200 minutes). This is the training environment that eliminated degenerate instant-liquidation policies.
 
-**RegimeAC** (`strategies/regime_ac.rs`) — Almgren–Chriss strategy with per-regime λ overrides. Urgency escalates from λ = 10⁻⁵ (low vol + deep book) to λ = 5×10⁻² (high vol + thin book simultaneously).
+**RegimeAC** (`strategies/regime_ac.rs`) — Almgren–Chriss strategy with per-regime λ overrides. Urgency escalates from λ = 10⁻⁵ (low vol + deep book) to λ = 5×10⁻² (high vol + thin book). Greedy receding-horizon update diverges from global optimum (documented null result, Phase 3).
 
 ---
 
@@ -498,7 +635,7 @@ S(t+dt) = S(t) · exp((μ − ½σ²)dt + σ√dt · Z),    Z ~ N(0,1)
 r(t) = (μ − ½σ²(t))·dt + √(σ²(t)·dt) · Z
 σ²(t+1) = ω + α·r²(t) + β·σ²(t)
 ```
-Produces volatility clustering.
+Produces volatility clustering; used for crash and surge regime simulation.
 
 ### Market Impact
 
@@ -506,13 +643,14 @@ Produces volatility clustering.
 ```
 Impact = Y · σ · √(Q / V)
 ```
-Where Y = impact coefficient, Q = trade quantity, V = daily volume.
+Where Y = impact coefficient, Q = trade quantity, V = daily volume. Real Binance calibration shows Y ≈ 10× larger than synthetic model assumptions.
 
-**Transient Impact Decay**:
+**Obizhaeva-Wang Transient Impact**:
 ```
-I(t) = Σᵢ base_impact_i · exp(−ρ · (t − tᵢ))
+permanent_reduction += 0.30 × base_impact
+temporary_reduction(t) = 0.70 × base_impact × exp(−ρ × steps_elapsed)
+ρ = 5,  half-life ≈ 399 steps (200 minutes)
 ```
-Automatic memory pruning when `exp(−ρ · dt) < 10⁻⁸`.
 
 ### Almgren–Chriss Optimal Execution
 
@@ -522,6 +660,16 @@ x(k) = X₀ · sinh(κ(T−k)) / sinh(κT)
 κ = √(λσ² / η)
 ```
 When `κ → 0` (no risk aversion), degenerates to TWAP.
+
+### RL Reward Function
+
+Dimensionless IS contribution per step:
+```
+reward = -(exec_price - mid_price) × fill_qty / (arrival_price × total_inventory)
+       - 0.0002 × (remaining / total)²        [inventory pressure]
+       - 0.00005 × vol_ratio² × q_frac²       [variance penalty]
+```
+Total episode reward ≈ negative IS percentage. Bounded in [-0.05, 0.0] for realistic execution.
 
 ### Risk Manager (4-Constraint Gate)
 
@@ -537,14 +685,14 @@ Every chunk must satisfy **all four** constraints:
 - **Variance** = population variance of per-trade realized costs
 - **VaR α** = α-th percentile of the cost distribution
 - **CVaR α** = mean of all values ≥ VaR α (expected tail loss)
-- **AC Objective** = `E[cost] + λ · Σ(inventory² · σ² · dt)` — the discrete Almgren–Chriss objective
+- **AC Objective** = `E[cost] + λ · Σ(inventory² · σ² · dt)`
 
 ---
 
 ## Testing
 
 ```bash
-# Run all 163 tests
+# Run all 389 tests
 cargo test
 
 # Run only experiment tests
@@ -575,6 +723,7 @@ cargo test -- --nocapture
 | `market::drift` | 5 | Edge cases, numerical correctness |
 | `market::liquidity` | 4 | Reserve validation, mid-price, depth metric |
 | `market::volatility` | 3 | Rolling window, eviction, edge cases |
+| `market::counterfactual_lob` | 4 | Reset clears impact, depth depletion, OW decay |
 | `strategies::optimal` | 7 | Horizon computation, schedule sum, front-loading, invalid inputs |
 | `research::experiments` | 8 | Config validation, determinism, sensitivity, CSV format |
 | `calibration` | 3 | Y-coefficient algebra, zero-trade filtering, multi-trade averaging |
@@ -589,7 +738,7 @@ StrataExec/
 ├── Cargo.toml
 ├── .env.example
 ├── historical_trades.csv       # Sample calibration data
-├── README.md                   # ← You are here
+├── README.md
 │
 ├── src/
 │   ├── main.rs                 # Live engine entry point (tokio async)
@@ -622,7 +771,7 @@ StrataExec/
 │   │   ├── state.rs            # MarketState (DES-observable)
 │   │   ├── lob_replay.rs       # Real Binance LOB snapshot replay
 │   │   ├── order_book.rs       # In-memory limit order book
-│   │   ├── agg_trades.rs       # Binance aggTrades CSV reader
+│   │   ├── agg_trades.rs       # Binance aggTrades CSV reader + OFI series
 │   │   ├── counterfactual_lob.rs # LOB + Obizhaeva-Wang own-impact correction
 │   │   ├── adversarial.rs      # FrontRunner + LiquidityWithdrawer agents
 │   │   ├── vpin.rs             # VPIN order-flow toxicity (Easley et al. 2012)
@@ -662,15 +811,8 @@ StrataExec/
 │   ├── config/                 # Configuration
 │   │   └── mod.rs              # Env-var loading with validation
 │   │
-│   ├── observability/          # Logging & diagnostics
-│   │   └── logger.rs           # Non-blocking crossbeam-channel logger thread
-│   │
-│   ├── ml/                     # ML (placeholder)
-│   │   └── residual.rs
-│   │
-│   ├── types/                  # Shared type definitions
-│   ├── utils/                  # Logging init
-│   └── error.rs                # Error types
+│   └── observability/          # Logging & diagnostics
+│       └── logger.rs           # Non-blocking crossbeam-channel logger thread
 │
 ├── rl/                         # Python RL layer
 │   ├── requirements.txt        # Python dependencies (pinned)
@@ -683,9 +825,7 @@ StrataExec/
 │   ├── sweep_horizon.csv
 │   ├── sweep_trade_chunks.csv
 │   ├── sweep_volatility.csv
-│   ├── sweep_impact.csv
-│   ├── garch_sweep_*.csv
-│   └── gbm_sweep_*.csv
+│   └── sweep_impact.csv
 │
 └── TradeData/                  # Raw Binance data (not committed — source locally)
     ├── BookDepth/              # BTCUSDT-bookDepth-<date>.csv

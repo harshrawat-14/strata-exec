@@ -1,12 +1,55 @@
 from sb3_contrib import RecurrentPPO
 from stable_baselines3.common.env_util import make_vec_env
+from stable_baselines3.common.vec_env import SubprocVecEnv, DummyVecEnv
 from stable_baselines3.common.callbacks import (
     EvalCallback, CheckpointCallback)
 from stable_baselines3.common.monitor import Monitor
 from environment import StrataExecEnv
 import torch
+import torch.nn as nn
 import argparse
 import os
+
+
+def get_device() -> str:
+    if torch.backends.mps.is_available():
+        print("Device: Apple MPS (GPU) + CPU LSTM")
+        return "mps"
+    print("Device: CPU")
+    return "cpu"
+
+
+class _CPULSTMWrapper(nn.Module):
+    """
+    Forces an nn.LSTM to run on CPU while the surrounding model lives on MPS.
+
+    PyTorch 2.1 MPS LSTM kernel crashes with MPSNDArrayDescriptor
+    sliceDimension error when sequence_length >= lstm_hidden_size.  Moving
+    only the LSTM to CPU sidesteps the broken Metal kernel; the MLP layers
+    stay on MPS and dominate compute, so throughput loss is small.
+
+    SB3's _process_sequence reads lstm.input_size, which we proxy here.
+    """
+    def __init__(self, lstm: nn.LSTM):
+        super().__init__()
+        self.lstm = lstm.cpu()
+        self.input_size = lstm.input_size
+
+    def forward(self, x, hx=None):
+        dev = x.device
+        x_cpu = x.cpu()
+        hx_cpu = (hx[0].cpu(), hx[1].cpu()) if hx is not None else None
+        out, (h_n, c_n) = self.lstm(x_cpu, hx_cpu)
+        return out.to(dev), (h_n.to(dev), c_n.to(dev))
+
+
+def _patch_mps_lstm(policy) -> None:
+    """Replace LSTM submodules with CPU wrappers (no-op when already wrapped)."""
+    for attr in ("lstm_actor", "lstm_critic"):
+        lstm = getattr(policy, attr, None)
+        if lstm is not None and isinstance(lstm, nn.LSTM):
+            setattr(policy, attr, _CPULSTMWrapper(lstm))
+            print(f"  [MPS fix] {attr} → CPU")
 
 def make_env(
     mode="synthetic",
@@ -84,10 +127,9 @@ def train(
         n_state_dims=n_state_dims,
     )
 
-    train_env = make_vec_env(
-        make_env(**env_kwargs),
-        n_envs=4,
-    )
+    n_envs = 8
+    env_fns = [make_env(**env_kwargs) for _ in range(n_envs)]
+    train_env = SubprocVecEnv(env_fns)
 
     # For counterfactual mode, eval env needs a lob_date.
     # Use the first date from multi_dates list, or lob_date directly.
@@ -101,7 +143,7 @@ def train(
             eval_lob_date = lob_date
             eval_agg_date = agg_date
 
-    eval_env = Monitor(StrataExecEnv(
+    eval_env = DummyVecEnv([lambda: Monitor(StrataExecEnv(
         mode=mode,
         adversarial=adversarial,
         lob_date=eval_lob_date,
@@ -109,17 +151,19 @@ def train(
         btc_target=btc_target,
         n_state_dims=n_state_dims,
         seed=9999,
-    ))
+    ))])
 
     # Infer obs size from training env.
     n_obs = train_env.observation_space.shape[0]
 
+    device = get_device()
     model = RecurrentPPO(
         policy="MlpLstmPolicy",
         env=train_env,
+        device=device,
         learning_rate=get_lr_schedule(lr_schedule, 3e-4, total_timesteps),
         n_steps=2048,
-        batch_size=128,
+        batch_size=256,
         n_epochs=10,
         gamma=0.99,
         gae_lambda=0.95,
@@ -136,6 +180,11 @@ def train(
         tensorboard_log=f"rl/logs/{run_name}",
         seed=42,
     )
+
+    # PyTorch 2.1 MPS LSTM crashes when sequence_length >= lstm_hidden_size.
+    # Move only the LSTM submodules to CPU; MLP layers remain on MPS.
+    if device == "mps":
+        _patch_mps_lstm(model.policy)
 
     callbacks = [
         EvalCallback(

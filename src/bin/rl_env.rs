@@ -360,6 +360,11 @@ impl RlEnv {
             self.cfg.total_steps = n;
         }
 
+        // Rescaling factors: same logic as counterfactual mode so fill prices and
+        // state observations are in simulation scale (~100) rather than raw BTC (~42000).
+        let btc_scale = (self.cfg.btc_target / self.cfg.total_inventory).max(1e-12);
+        let qty_factor = 1.0 / btc_scale;
+
         // Compute depth_ref from the first DEPTH_REF_SAMPLES snapshots (cheap, non-destructive).
         let timestamps = replay.snapshot_timestamps();
         let _ = timestamps; // currently unused; reserved for future agg-trades alignment
@@ -381,7 +386,8 @@ impl RlEnv {
             }
         }
         replay.reset();
-        self.depth_ref = (depth_sum / count.max(1) as f64).max(1.0);
+        // Scale depth_ref to simulation units (raw BTC depth × qty_factor).
+        self.depth_ref = ((depth_sum / count.max(1) as f64) * qty_factor).max(1.0);
 
         // Random start within the first third of the day.
         // Different seeds → different arrival prices → non-zero IS variance across episodes.
@@ -392,11 +398,15 @@ impl RlEnv {
         // Pull the snapshot at start_offset as the initial book.
         let first = replay.next_snapshot().expect("LobReplay must yield ≥1 snapshot");
         let raw_btc_mid = first.mid_price().unwrap_or(100.0);
-        self.spread_ref = first.half_spread().unwrap_or(0.01).max(1e-9);
+        let price_factor = 100.0 / raw_btc_mid;
+        let scaled_first = first.rescale_full(price_factor, qty_factor);
+
+        self.spread_ref = scaled_first.half_spread().unwrap_or(0.01).max(1e-9);
         // current_mid stays at the raw BTC price so log-returns between consecutive
         // raw-BTC snapshots are computed correctly for the volatility estimator.
         self.current_mid = raw_btc_mid;
-        self.current_book = Some(first);
+        // Store the rescaled book so fills and state observations use simulation scale.
+        self.current_book = Some(scaled_first);
         self.price_history.push_back(self.current_mid);
         // FIX A: IS reward formula uses arrival_price as the normalisation denominator.
         // Set to simulation scale (100.0) so reward magnitudes are mode-independent.
@@ -644,8 +654,14 @@ impl RlEnv {
 
         if time_done && self.remaining > 0.001 * self.cfg.total_inventory {
             // Forced liquidation at last mid price; cost = permanent impact only.
+            // Use book mid_price() so historical mode (which stores a rescaled book) uses
+            // simulation-scale price rather than the raw BTC current_mid (~42000).
             forced_liq_qty = self.remaining;
-            let liquidated_at = self.current_mid;
+            let liquidated_at = self
+                .current_book
+                .as_ref()
+                .and_then(|b| b.mid_price())
+                .unwrap_or(self.arrival_price);
             self.total_filled += forced_liq_qty;
             self.total_notional_received += forced_liq_qty * liquidated_at;
             let forced_perm = self.cfg.gamma * (forced_liq_qty / total);
@@ -879,14 +895,20 @@ impl RlEnv {
             RlMode::Historical => {
                 let snap = self.lob_replay.as_mut().and_then(|r| r.next_snapshot());
                 if let Some(mut book) = snap {
-                    let new_mid = book.mid_price().unwrap_or(self.current_mid);
+                    let new_raw_mid = book.mid_price().unwrap_or(self.current_mid);
+                    // Log-returns computed from raw BTC prices so vol estimate is correct.
                     let prev_mid = self.current_mid.max(1e-12);
-                    let log_ret = (new_mid / prev_mid).ln();
+                    let log_ret = (new_raw_mid / prev_mid).ln();
                     self.push_return(log_ret);
-                    self.current_mid = new_mid;
+                    self.current_mid = new_raw_mid;
+                    // Apply adversarial deficit before rescaling (deficit is in raw qty units).
                     apply_adversarial_deficit(&mut book, self.adversarial.as_ref());
-                    self.current_book = Some(book);
-                    self.price_history.push_back(new_mid);
+                    // Rescale to simulation scale so fills and state dims are mode-consistent.
+                    let btc_scale = (self.cfg.btc_target / self.cfg.total_inventory).max(1e-12);
+                    let price_factor = 100.0 / new_raw_mid;
+                    let qty_factor = 1.0 / btc_scale;
+                    self.current_book = Some(book.rescale_full(price_factor, qty_factor));
+                    self.price_history.push_back(new_raw_mid);
                     self.current_sigma = self.realised_vol();
                 }
                 // else: replay exhausted — keep current book (final step will force liquidate)

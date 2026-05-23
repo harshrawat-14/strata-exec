@@ -3,11 +3,10 @@ THE HONEST FAILURE ANALYSIS.
 This is the core research deliverable of Phase 4.
 """
 
-from stable_baselines3 import PPO
+from sb3_contrib import RecurrentPPO
 from environment import StrataExecEnv
 import numpy as np
 import pandas as pd
-import json
 import argparse
 import os
 
@@ -40,6 +39,52 @@ ADAPTIVE_OPTIMAL_IS = {
     "2024-11-06": -0.582,
 }
 
+
+def _run_episode(model, env, seed: int):
+    """
+    Run one episode with correct RecurrentPPO LSTM state tracking.
+    Returns (is_pct, episode_reward, forced_liquidation).
+    """
+    obs, info = env.reset(seed=seed)
+    arrival_price = info.get("arrival_price", 100.0)
+
+    # LSTM state must be reset at episode start and carried between steps
+    lstm_states = None
+    episode_start = np.ones((1,), dtype=bool)
+
+    done = False
+    ep_reward = 0.0
+    fill_qtys = []
+    fill_prices = []
+
+    while not done:
+        action, lstm_states = model.predict(
+            obs,
+            state=lstm_states,
+            episode_start=episode_start,
+            deterministic=True,
+        )
+        # After first step, episode_start is False
+        episode_start = np.zeros((1,), dtype=bool)
+
+        obs, reward, done, _, info = env.step(int(action))
+        ep_reward += reward
+
+        if info.get("fill_qty", 0) > 0:
+            fill_qtys.append(info["fill_qty"])
+            fill_prices.append(info["fill_price"])
+
+    forced = info.get("forced_liquidation_qty", 0) > 0
+
+    is_pct = None
+    if fill_qtys:
+        total_qty = sum(fill_qtys)
+        vwap = sum(q * p for q, p in zip(fill_qtys, fill_prices)) / total_qty
+        is_pct = (vwap - arrival_price) / arrival_price * 100
+
+    return is_pct, ep_reward, forced
+
+
 def evaluate_model_on_date(
     model,
     date: str,
@@ -61,32 +106,11 @@ def evaluate_model_on_date(
     forced_liquidations = 0
 
     for ep in range(n_episodes):
-        obs, info = env.reset(seed=ep)
-        arrival_price = info.get("arrival_price", 100.0)
-        done = False
-        ep_reward = 0.0
-        fill_qtys = []
-        fill_prices = []
-
-        while not done:
-            action, _ = model.predict(obs, deterministic=True)
-            obs, reward, done, _, info = env.step(int(action))
-            ep_reward += reward
-
-            if info.get("fill_qty", 0) > 0:
-                fill_qtys.append(info["fill_qty"])
-                fill_prices.append(info["fill_price"])
-
-        if info.get("forced_liquidation_qty", 0) > 0:
+        is_pct, ep_reward, forced = _run_episode(model, env, seed=ep)
+        if forced:
             forced_liquidations += 1
-
-        if fill_qtys:
-            total_qty = sum(fill_qtys)
-            vwap = sum(q * p for q, p in
-                      zip(fill_qtys, fill_prices)) / total_qty
-            is_pct = (vwap - arrival_price) / arrival_price * 100
+        if is_pct is not None:
             all_is.append(is_pct)
-
         all_rewards.append(ep_reward)
 
     env.close()
@@ -102,6 +126,7 @@ def evaluate_model_on_date(
         "forced_liquidation_rate": forced_liquidations / n_episodes,
         "n_episodes": n_episodes,
     }
+
 
 def evaluate_model_counterfactual(
     model,
@@ -128,27 +153,10 @@ def evaluate_model_counterfactual(
     forced_liquidations = 0
 
     for ep in range(n_episodes):
-        obs, info = env.reset(seed=ep)
-        arrival_price = info.get("arrival_price", 100.0)
-        done = False
-        ep_reward = 0.0
-        fill_qtys, fill_prices = [], []
-
-        while not done:
-            action, _ = model.predict(obs, deterministic=True)
-            obs, reward, done, _, info = env.step(int(action))
-            ep_reward += reward
-            if info.get("fill_qty", 0) > 0:
-                fill_qtys.append(info["fill_qty"])
-                fill_prices.append(info["fill_price"])
-
-        if info.get("forced_liquidation_qty", 0) > 0:
+        is_pct, ep_reward, forced = _run_episode(model, env, seed=ep)
+        if forced:
             forced_liquidations += 1
-
-        if fill_qtys:
-            total = sum(fill_qtys)
-            vwap = sum(q * p for q, p in zip(fill_qtys, fill_prices)) / total
-            is_pct = (vwap - arrival_price) / arrival_price * 100
+        if is_pct is not None:
             all_is.append(is_pct)
         all_rewards.append(ep_reward)
 
@@ -172,25 +180,9 @@ def evaluate_on_synthetic(model, n_episodes=200, n_state_dims=8) -> dict:
     all_rewards = []
 
     for ep in range(n_episodes):
-        obs, info = env.reset(seed=ep + 10000)
-        arrival_price = info.get("arrival_price", 100.0)
-        done = False
-        ep_reward = 0.0
-        fill_qtys, fill_prices = [], []
-
-        while not done:
-            action, _ = model.predict(obs, deterministic=True)
-            obs, reward, done, _, info = env.step(int(action))
-            ep_reward += reward
-            if info.get("fill_qty", 0) > 0:
-                fill_qtys.append(info["fill_qty"])
-                fill_prices.append(info["fill_price"])
-
-        if fill_qtys:
-            total = sum(fill_qtys)
-            vwap = sum(q*p for q,p in
-                      zip(fill_qtys, fill_prices)) / total
-            all_is.append((vwap - arrival_price) / arrival_price * 100)
+        is_pct, ep_reward, _ = _run_episode(model, env, seed=ep + 10000)
+        if is_pct is not None:
+            all_is.append(is_pct)
         all_rewards.append(ep_reward)
 
     env.close()
@@ -200,6 +192,7 @@ def evaluate_on_synthetic(model, n_episodes=200, n_state_dims=8) -> dict:
         "var_IS": float(np.var(arr)),
         "cvar95": float(np.percentile(arr, 5)),
     }
+
 
 def run_full_analysis(
     passive_model_path: str,
@@ -213,8 +206,8 @@ def run_full_analysis(
 ):
     os.makedirs(output_dir, exist_ok=True)
 
-    passive_model = PPO.load(passive_model_path)
-    adv_model = PPO.load(adversarial_model_path) \
+    passive_model = RecurrentPPO.load(passive_model_path)
+    adv_model = RecurrentPPO.load(adversarial_model_path) \
                 if adversarial_model_path else None
 
     print("\n" + "=" * 70)
@@ -352,7 +345,8 @@ def run_full_analysis(
 
         test_results = []
         for date, regime in TEST_DATES.items():
-            lob_path = f"TradeData/BookDepth/BTCUSDT-bookDepth-{date}.csv"
+            lob_path = (f"TradeData/BookDepth/"
+                        f"BTCUSDT-bookDepth-{date}.csv")
             if not os.path.exists(lob_path):
                 print(f"  SKIPPING {date} — file not found")
                 continue
@@ -386,7 +380,8 @@ def run_full_analysis(
     print(f"Mean sim-to-real degradation: {avg_degradation:+.4f}pp")
     print(f"Worst date: {worst_date} ({worst_regime})")
     print(f"  This regime differs most from GARCH training data.")
-    print(f"  Likely cause: {'jump events' if 'crash' in worst_regime else 'vol regime mismatch'}")
+    print(f"  Likely cause: "
+          f"{'jump events' if 'crash' in worst_regime else 'vol regime mismatch'}")
 
     if adv_model:
         avg_adv_deg = df['rl_adv_degradation'].mean()
@@ -397,6 +392,7 @@ def run_full_analysis(
         else:
             print("  Adversarial training did not reduce gap on passive book.")
             print("  Likely cause: adversarial agents don't match real market.")
+
 
 if __name__ == "__main__":
     p = argparse.ArgumentParser()
