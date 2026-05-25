@@ -9,6 +9,10 @@ import numpy as np
 import pandas as pd
 import argparse
 import os
+import io
+import zipfile
+import tempfile
+import torch
 
 TEST_DATES = {
     "2024-04-15": "BTC correction",
@@ -40,6 +44,40 @@ ADAPTIVE_OPTIMAL_IS = {
 }
 
 
+def load_model(path: str) -> RecurrentPPO:
+    """
+    Load a RecurrentPPO model saved with _CPULSTMWrapper.
+    Remaps lstm_actor.lstm.* -> lstm_actor.* in policy.pth.
+    """
+    zip_path = path if path.endswith('.zip') else path + '.zip'
+
+    all_files = {}
+    with zipfile.ZipFile(zip_path, 'r') as zf:
+        for name in zf.namelist():
+            all_files[name] = zf.read(name)
+
+    # Target policy.pth explicitly — not pytorch_variables.pth
+    sd = torch.load(
+        io.BytesIO(all_files['policy.pth']), map_location='cpu')
+
+    new_sd = {}
+    for k, v in sd.items():
+        nk = (k
+              .replace('lstm_actor.lstm.', 'lstm_actor.')
+              .replace('lstm_critic.lstm.', 'lstm_critic.'))
+        new_sd[nk] = v
+
+    buf = io.BytesIO()
+    torch.save(new_sd, buf)
+    all_files['policy.pth'] = buf.getvalue()
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        patched = os.path.join(tmpdir, 'model.zip')
+        with zipfile.ZipFile(patched, 'w', zipfile.ZIP_DEFLATED) as zf_out:
+            for name, data in all_files.items():
+                zf_out.writestr(name, data)
+        return RecurrentPPO.load(patched, device='cpu')
+
 def _run_episode(model, env, seed: int):
     """
     Run one episode with correct RecurrentPPO LSTM state tracking.
@@ -48,7 +86,6 @@ def _run_episode(model, env, seed: int):
     obs, info = env.reset(seed=seed)
     arrival_price = info.get("arrival_price", 100.0)
 
-    # LSTM state must be reset at episode start and carried between steps
     lstm_states = None
     episode_start = np.ones((1,), dtype=bool)
 
@@ -64,7 +101,6 @@ def _run_episode(model, env, seed: int):
             episode_start=episode_start,
             deterministic=True,
         )
-        # After first step, episode_start is False
         episode_start = np.zeros((1,), dtype=bool)
 
         obs, reward, done, _, info = env.step(int(action))
@@ -135,11 +171,6 @@ def evaluate_model_counterfactual(
     btc_target: float = 50000.0,
     n_state_dims: int = 10,
 ) -> dict:
-    """
-    Evaluate RL agent in counterfactual LOB environment.
-    This is the FAIR comparison — same environment as training.
-    Non-zero variance because random start positions.
-    """
     env = StrataExecEnv(
         mode="counterfactual",
         lob_date=date,
@@ -206,8 +237,8 @@ def run_full_analysis(
 ):
     os.makedirs(output_dir, exist_ok=True)
 
-    passive_model = RecurrentPPO.load(passive_model_path)
-    adv_model = RecurrentPPO.load(adversarial_model_path) \
+    passive_model = load_model(passive_model_path)
+    adv_model = load_model(adversarial_model_path) \
                 if adversarial_model_path else None
 
     print("\n" + "=" * 70)
@@ -331,7 +362,7 @@ def run_full_analysis(
                 "cf_std": r["std_IS"],
             })
             print(f"{date} ({regime}):")
-            print(f"  IS: {r['mean_IS']:.4f}% ± {r['std_IS']:.4f}%")
+            print(f"  IS: {r['mean_IS']:.4f}% +/- {r['std_IS']:.4f}%")
             print(f"  Variance: {r['var_IS']:.6f}")
             print(f"  CVaR95: {r['cvar95']:.4f}%")
 
@@ -348,7 +379,7 @@ def run_full_analysis(
             lob_path = (f"TradeData/BookDepth/"
                         f"BTCUSDT-bookDepth-{date}.csv")
             if not os.path.exists(lob_path):
-                print(f"  SKIPPING {date} — file not found")
+                print(f"  SKIPPING {date} -- file not found")
                 continue
 
             r = evaluate_model_on_date(

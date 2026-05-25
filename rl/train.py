@@ -24,16 +24,27 @@ class _CPULSTMWrapper(nn.Module):
     Forces an nn.LSTM to run on CPU while the surrounding model lives on MPS.
 
     PyTorch 2.1 MPS LSTM kernel crashes with MPSNDArrayDescriptor
-    sliceDimension error when sequence_length >= lstm_hidden_size.  Moving
+    sliceDimension error when sequence_length >= lstm_hidden_size. Moving
     only the LSTM to CPU sidesteps the broken Metal kernel; the MLP layers
     stay on MPS and dominate compute, so throughput loss is small.
 
-    SB3's _process_sequence reads lstm.input_size, which we proxy here.
+    Exposes all nn.LSTM attributes that sb3-contrib reads directly so the
+    policy code sees a transparent drop-in replacement.
+
+    Permanent fix: upgrade to PyTorch >= 2.3 where the MPS LSTM kernel was
+    rewritten. This wrapper is safe to leave in place after upgrading — it
+    just adds negligible CPU<->MPS transfer overhead.
     """
     def __init__(self, lstm: nn.LSTM):
         super().__init__()
         self.lstm = lstm.cpu()
-        self.input_size = lstm.input_size
+        # Proxy every attribute sb3-contrib / PyTorch may read directly
+        self.input_size    = lstm.input_size
+        self.hidden_size   = lstm.hidden_size
+        self.num_layers    = lstm.num_layers
+        self.batch_first   = lstm.batch_first
+        self.dropout       = lstm.dropout
+        self.bidirectional = lstm.bidirectional
 
     def forward(self, x, hx=None):
         dev = x.device
@@ -44,12 +55,17 @@ class _CPULSTMWrapper(nn.Module):
 
 
 def _patch_mps_lstm(policy) -> None:
-    """Replace LSTM submodules with CPU wrappers (no-op when already wrapped)."""
+    """
+    Replace lstm_actor and lstm_critic with _CPULSTMWrapper instances.
+    No-op if the attributes are already wrapped or do not exist.
+    Only called when device == 'mps'.
+    """
     for attr in ("lstm_actor", "lstm_critic"):
         lstm = getattr(policy, attr, None)
         if lstm is not None and isinstance(lstm, nn.LSTM):
             setattr(policy, attr, _CPULSTMWrapper(lstm))
             print(f"  [MPS fix] {attr} → CPU")
+
 
 def make_env(
     mode="synthetic",
@@ -68,7 +84,7 @@ def make_env(
         agg = agg_date
         if multi_dates:
             date = random.choice(multi_dates)
-            agg = date  # assume agg-trades file has the same date name
+            agg = date
         env = StrataExecEnv(
             mode=mode,
             adversarial=adversarial,
@@ -81,13 +97,14 @@ def make_env(
         return Monitor(env)
     return _init
 
+
 def get_lr_schedule(schedule, initial_lr, total_timesteps):
     if schedule == "linear":
-        # Returns a function that decays lr linearly to 0
         def lr_fn(progress_remaining: float) -> float:
             return progress_remaining * initial_lr
         return lr_fn
-    return initial_lr  # constant
+    return initial_lr
+
 
 def train(
     total_timesteps: int = 500_000,
@@ -131,8 +148,6 @@ def train(
     env_fns = [make_env(**env_kwargs) for _ in range(n_envs)]
     train_env = SubprocVecEnv(env_fns)
 
-    # For counterfactual mode, eval env needs a lob_date.
-    # Use the first date from multi_dates list, or lob_date directly.
     eval_lob_date = None
     eval_agg_date = None
     if mode == "counterfactual":
@@ -153,10 +168,8 @@ def train(
         seed=9999,
     ))])
 
-    # Infer obs size from training env.
-    n_obs = train_env.observation_space.shape[0]
-
     device = get_device()
+
     model = RecurrentPPO(
         policy="MlpLstmPolicy",
         env=train_env,
@@ -182,7 +195,7 @@ def train(
     )
 
     # PyTorch 2.1 MPS LSTM crashes when sequence_length >= lstm_hidden_size.
-    # Move only the LSTM submodules to CPU; MLP layers remain on MPS.
+    # Pin only the LSTM submodules to CPU; all MLP layers stay on MPS.
     if device == "mps":
         _patch_mps_lstm(model.policy)
 
@@ -217,8 +230,8 @@ def train(
 if __name__ == "__main__":
     p = argparse.ArgumentParser()
     p.add_argument("--lr-schedule", type=str, default="constant",
-    choices=["constant", "linear"],
-    help="Learning rate schedule. linear decays to 0 by end of training.")
+                   choices=["constant", "linear"],
+                   help="Learning rate schedule. linear decays lr to 0.")
     p.add_argument("--adversarial", action="store_true")
     p.add_argument("--timesteps", type=int, default=500_000)
     p.add_argument("--name", type=str, default=None)
