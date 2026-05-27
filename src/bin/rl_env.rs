@@ -11,6 +11,8 @@
 use std::collections::VecDeque;
 use std::io::{self, BufRead, Write};
 
+use rand::rngs::StdRng;
+use rand::{Rng, SeedableRng};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
@@ -57,6 +59,17 @@ const SYNTHETIC_DEPTH_SCALE: f64 = 5.0;
 /// Number of levels per side in the synthetic LOB (deeper than the default 10).
 const SYNTHETIC_NUM_LEVELS: usize = 20;
 
+// ── Per-episode randomization ranges (Changes 1 & 4) ───────────────────────
+/// Minimum random execution horizon (steps). At 200, action 9 (5%) still leaves
+/// most inventory if used naively — the agent has to escalate to larger actions.
+const RANDOM_HORIZON_MIN: usize = 200;
+/// Maximum random execution horizon (steps).
+const RANDOM_HORIZON_MAX: usize = 1_440;
+/// Minimum random order size as a fraction of the configured `total_inventory`.
+const RANDOM_SIZE_MIN: f64 = 0.1;
+/// Maximum random order size as a fraction of the configured `total_inventory`.
+const RANDOM_SIZE_MAX: f64 = 1.0;
+
 /// Build a synthetic LOB whose total depth is sized to the configured inventory.
 fn synthetic_book(mid: f64, sigma: f64, total_inventory: f64) -> OrderBook {
     let params = LobGeneratorParams {
@@ -93,6 +106,12 @@ pub struct EnvConfig {
     /// ADV in BTC; 0.0 means use the default (240_000.0).
     pub adv_btc: f64,
     pub agg_trades_path: Option<String>,
+    /// When true, use the configured `total_steps` every episode (eval mode).
+    /// When false (default), draw a fresh random horizon per episode in replay modes.
+    pub fixed_steps: bool,
+    /// When true, use the configured `total_inventory` every episode (eval mode).
+    /// When false (default), draw a fresh random order size per episode in replay modes.
+    pub fixed_size: bool,
 }
 
 impl Default for EnvConfig {
@@ -109,6 +128,8 @@ impl Default for EnvConfig {
             btc_target: 500.0,
             adv_btc: 0.0,
             agg_trades_path: None,
+            fixed_steps: false,
+            fixed_size: false,
         }
     }
 }
@@ -189,6 +210,16 @@ pub struct RlEnv {
     ofi_series: Vec<f64>,
     /// Snapshot index of episode start; ofi_series[ofi_start + step_idx] = OFI at step.
     ofi_start: usize,
+
+    /// Snapshot of `cfg.total_steps` at construction time. The per-episode
+    /// `cfg.total_steps` is rebuilt from this each reset (random or fixed).
+    base_total_steps: usize,
+    /// Snapshot of `cfg.total_inventory` at construction time. The per-episode
+    /// `cfg.total_inventory` is rebuilt from this each reset (random or fixed).
+    base_total_inventory: f64,
+    /// Per-episode order size as a fraction of `base_total_inventory` (1.0 = full).
+    /// Exposed in the reset info JSON for diagnostics.
+    episode_size_fraction: f64,
 }
 
 /// Persistent adversarial-agent state attached to the environment.
@@ -234,6 +265,8 @@ impl RlEnv {
         } else {
             None
         };
+        let base_total_steps = cfg.total_steps;
+        let base_total_inventory = cfg.total_inventory;
         Self {
             cfg,
             sim: None,
@@ -256,12 +289,38 @@ impl RlEnv {
             agg_trades: None,
             ofi_series: Vec::new(),
             ofi_start: 0,
+            base_total_steps,
+            base_total_inventory,
+            episode_size_fraction: 1.0,
         }
     }
 
     /// Reset the environment for a new episode.
     pub fn reset(&mut self, seed_override: Option<u64>) -> StepResult {
         let seed = seed_override.unwrap_or(self.cfg.seed);
+
+        // Restore per-episode-overridable values from the construction-time snapshot
+        // so randomisation does not drift across repeated resets.
+        self.cfg.total_steps = self.base_total_steps;
+        self.cfg.total_inventory = self.base_total_inventory;
+        self.episode_size_fraction = 1.0;
+
+        // Replay modes: randomise execution horizon and order size per episode.
+        // Eval can opt out via --fixed-steps and --fixed-size.
+        if matches!(self.cfg.mode, RlMode::Historical | RlMode::Counterfactual) {
+            let mut rng = StdRng::seed_from_u64(seed);
+            if !self.cfg.fixed_steps {
+                self.cfg.total_steps =
+                    rng.gen_range(RANDOM_HORIZON_MIN..=RANDOM_HORIZON_MAX);
+            }
+            if !self.cfg.fixed_size {
+                let size_fraction: f64 = rng.gen_range(RANDOM_SIZE_MIN..=RANDOM_SIZE_MAX);
+                self.episode_size_fraction = size_fraction;
+                self.cfg.total_inventory =
+                    (self.base_total_inventory * size_fraction).max(1.0);
+            }
+        }
+
         self.step_idx = 0;
         self.remaining = self.cfg.total_inventory;
         self.price_history.clear();
@@ -283,14 +342,21 @@ impl RlEnv {
         eprintln!("Reward scale (new): wait_at_full_inv={:.2e}", wait_at_full);
 
         let state = self.build_state();
+        let (vol_regime, liq_regime) = self.regime_dims();
         let mut info = json!({
             "step": 0_usize,
             "remaining": self.remaining,
             "arrival_price": self.arrival_price,
             "action_9_fraction": ACTION_FRACTIONS[9],
+            "episode_horizon": self.cfg.total_steps,
+            "total_inventory": self.cfg.total_inventory,
+            "size_fraction": self.episode_size_fraction,
+            "n_state_dims": state.len(),
+            "vol_regime": vol_regime,
+            "liq_regime": liq_regime,
         });
         if let Some(cf) = &self.cf_lob {
-            let btc_scale = self.cfg.btc_target / self.cfg.total_inventory;
+            let btc_scale = self.cfg.btc_target / self.cfg.total_inventory.max(1.0);
             let adv_btc = if self.cfg.adv_btc > 0.0 { self.cfg.adv_btc } else { 240_000.0 };
             if let Some(obj) = info.as_object_mut() {
                 obj.insert("btc_scale".to_string(), json!(btc_scale));
@@ -551,6 +617,9 @@ impl RlEnv {
         }
         let cf = self.cf_lob.as_mut().unwrap();
         cf.reset();
+        // Variable per-episode inventory changes btc_scale; push the fresh value
+        // so the impact model converts trade-units → BTC with the right ratio.
+        cf.set_btc_scale(btc_scale);
         cf.seek(start_offset);
     }
 
@@ -987,7 +1056,45 @@ impl RlEnv {
             state.push(0.0); // [8] permanent impact fraction — zero in non-counterfactual modes
             state.push(0.0); // [9] temporary impact fraction — zero in non-counterfactual modes
         }
+        // [10] vol regime: 0.0=low, 0.5=normal, 1.0=high
+        // [11] liq regime: 0.0=thin, 0.5=normal, 1.0=deep
+        let (vol_regime, liq_regime) = self.regime_dims();
+        state.push(vol_regime);
+        state.push(liq_regime);
         state
+    }
+
+    /// Discrete-bucketed (vol_regime, liq_regime) used as state dims [10] and [11].
+    ///
+    /// vol_regime ∈ {0.0, 0.5, 1.0} via current_sigma vs sigma_ref (×0.7, ×1.3)
+    /// liq_regime ∈ {0.0, 0.5, 1.0} via current_half_spread / spread_ref (>2.0, <0.5)
+    fn regime_dims(&self) -> (f64, f64) {
+        let sigma_ref = self.cfg.sigma_ref.max(1e-9);
+        let vol_regime = if self.current_sigma < sigma_ref * 0.7 {
+            0.0
+        } else if self.current_sigma > sigma_ref * 1.3 {
+            1.0
+        } else {
+            0.5
+        };
+
+        let spread_ref = self.spread_ref.max(1e-9);
+        let half_spread = self
+            .current_book
+            .as_ref()
+            .and_then(|b| b.half_spread())
+            .unwrap_or(spread_ref);
+        let spread_ratio = half_spread / spread_ref;
+        // Larger spread = thinner book.
+        let liq_regime = if spread_ratio > 2.0 {
+            0.0 // thin
+        } else if spread_ratio < 0.5 {
+            1.0 // deep
+        } else {
+            0.5 // normal
+        };
+
+        (vol_regime, liq_regime)
     }
 
     fn regime_label(&self) -> String {
@@ -1081,6 +1188,8 @@ fn parse_cli() -> EnvConfig {
                     i += 1;
                 }
             }
+            "--fixed-steps" => cfg.fixed_steps = true,
+            "--fixed-size" => cfg.fixed_size = true,
             _ => {}
         }
         i += 1;
@@ -1180,15 +1289,21 @@ mod tests {
             btc_target: 500.0,
             adv_btc: 0.0,
             agg_trades_path: None,
+            fixed_steps: false,
+            fixed_size: false,
         };
         RlEnv::new(cfg)
     }
 
     #[test]
-    fn rl_env_reset_returns_ten_dimensional_state() {
+    fn rl_env_reset_returns_twelve_dimensional_state() {
         let mut env = make_env();
         let r = env.reset(Some(42));
-        assert_eq!(r.state.len(), 10, "state vector must have exactly 10 dimensions");
+        assert_eq!(
+            r.state.len(),
+            12,
+            "state vector must have exactly 12 dimensions (8 base + 2 impact + 2 regime)"
+        );
         assert!(!r.done);
         assert_eq!(r.reward, 0.0);
     }
@@ -1249,6 +1364,8 @@ mod tests {
             btc_target: 500.0,
             adv_btc: 0.0,
             agg_trades_path: None,
+            fixed_steps: false,
+            fixed_size: false,
         };
         let mut env = RlEnv::new(cfg);
         env.reset(None);
@@ -1292,7 +1409,7 @@ mod tests {
         let actions = [0, 9, 0, 5, 1, 0, 12, 3, 0, 7, 11, 0, 2, 6, 0, 8, 0, 4, 10, 0];
         for a in actions {
             let r = env.step(a);
-            assert_eq!(r.state.len(), 10);
+            assert_eq!(r.state.len(), 12);
             // [0] inventory fraction in [0,1]
             assert!(r.state[0] >= 0.0 && r.state[0] <= 1.0, "s0 out of range: {}", r.state[0]);
             // [1] time fraction in [0,1]
@@ -1318,6 +1435,14 @@ mod tests {
             // [8..=9] impact dims: 0.0 in synthetic/historical modes
             assert_eq!(r.state[8], 0.0, "s8 (perm impact) must be 0 in synthetic mode");
             assert_eq!(r.state[9], 0.0, "s9 (temp impact) must be 0 in synthetic mode");
+            // [10..=11] regime dims take discrete values {0.0, 0.5, 1.0}.
+            for k in 10..=11 {
+                let v = r.state[k];
+                assert!(
+                    v == 0.0 || v == 0.5 || v == 1.0,
+                    "s{k} (regime dim) must be in {{0.0, 0.5, 1.0}}, got {v}"
+                );
+            }
             if r.done {
                 break;
             }

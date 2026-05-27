@@ -156,6 +156,12 @@ impl CounterfactualLob {
         self.temporary_impacts.clear();
         self.current_step = 0;
         self.current_book = self.replay.next_snapshot();
+        debug_assert_eq!(self.permanent_depth_reduction, 0.0,
+            "reset() must clear permanent_depth_reduction");
+        debug_assert!(self.temporary_impacts.is_empty(),
+            "reset() must clear temporary_impacts");
+        debug_assert_eq!(self.current_step, 0,
+            "reset() must zero current_step");
     }
 
     /// Seek to a specific snapshot offset, clearing all accumulated impact.
@@ -166,6 +172,21 @@ impl CounterfactualLob {
         self.temporary_impacts.clear();
         self.current_step = 0;
         self.current_book = self.replay.next_snapshot();
+        debug_assert_eq!(self.permanent_depth_reduction, 0.0,
+            "seek() must clear permanent_depth_reduction");
+        debug_assert!(self.temporary_impacts.is_empty(),
+            "seek() must clear temporary_impacts");
+        debug_assert_eq!(self.current_step, 0,
+            "seek() must zero current_step");
+    }
+
+    /// Update the sim-units → BTC scale factor used by the impact model.
+    ///
+    /// When the per-episode inventory varies (so `btc_scale = btc_target / inventory`
+    /// changes), call this after `reset()` / `seek()` so the next episode's impact
+    /// calculations use the correct conversion.
+    pub fn set_btc_scale(&mut self, btc_scale: f64) {
+        self.config.btc_scale = btc_scale.max(1e-12);
     }
 
     /// Total number of snapshots in the underlying replay.
@@ -361,6 +382,54 @@ mod tests {
                 "impact must not exceed 0.95, got {impact}"
             );
         }
+    }
+
+    /// WHAT: After running episodes that accumulate impact, reset() must restore
+    ///       the LOB to a pristine state — no permanent reduction, no temporary
+    ///       impacts queued, and the first fill matches the un-impacted mid price.
+    /// WHY: A known prior bug allowed permanent_depth_reduction to bleed across
+    ///      episodes, silently degrading every subsequent fill price. This test
+    ///      pins reset() against that regression.
+    #[test]
+    fn counterfactual_reset_guarantees_fresh_start() {
+        let mut cf = make_cf_lob();
+
+        // Accumulate impact across 50 large-sell steps.
+        for _ in 0..50 {
+            cf.record_trade_and_advance(200_000.0);
+        }
+        assert!(
+            cf.permanent_depth_reduction > 0.0,
+            "preconditions: impact should have accumulated after 50 large trades"
+        );
+
+        // Capture the un-impacted reference fill price BEFORE reset so the test
+        // is independent of fixture-snapshot ordering quirks.
+        let mut fresh = make_cf_lob();
+        let baseline_fill = fresh.current_adjusted_book().fill_market_sell(100.0).avg_fill_price;
+
+        // Reset and re-verify the canonical preconditions hold.
+        cf.reset();
+        assert_eq!(
+            cf.permanent_depth_reduction, 0.0,
+            "after reset, permanent_depth_reduction must be 0"
+        );
+        assert!(
+            cf.temporary_impacts.is_empty(),
+            "after reset, temporary_impacts must be empty"
+        );
+        assert_eq!(cf.current_step, 0, "after reset, current_step must be 0");
+
+        // A fresh fill on the post-reset book must match the baseline fill from a
+        // never-used CounterfactualLob (within 1% of the reference mid).
+        let reset_fill = cf.current_adjusted_book().fill_market_sell(100.0).avg_fill_price;
+        let ref_mid = cf.current_adjusted_book().mid_price().unwrap_or(100.0);
+        let pct_diff = ((reset_fill - baseline_fill).abs() / ref_mid.max(1e-9)) * 100.0;
+        assert!(
+            pct_diff < 1.0,
+            "post-reset fill price {reset_fill:.4} should match baseline {baseline_fill:.4} \
+             within 1% of mid {ref_mid:.4} (diff {pct_diff:.4}%)"
+        );
     }
 
     #[test]

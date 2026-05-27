@@ -24,6 +24,9 @@ class StrataExecEnv(gym.Env):
         btc_target: float = 500.0,
         seed: int = 42,
         n_state_dims: int = 8,
+        fixed_steps: bool = False,
+        fixed_size: bool = False,
+        jump_diffusion: bool = False,
     ):
         super().__init__()
 
@@ -57,14 +60,21 @@ class StrataExecEnv(gym.Env):
                 f"TradeData/AggTrades/BTCUSDT-aggTrades-{agg_date}.csv"
             ])
 
+        if fixed_steps:
+            self.cmd.append("--fixed-steps")
+        if fixed_size:
+            self.cmd.append("--fixed-size")
+        if jump_diffusion:
+            self.cmd.append("--jump-diffusion")
+
         # Diagnostic: print the full command so --agg-trades presence is easy to verify.
         if mode == "counterfactual":
             import sys
             print(f"[StrataExecEnv] cmd: {' '.join(self.cmd)}", file=sys.stderr)
 
-        # Counterfactual mode produces 10-dim state; others produce 8.
+        # Counterfactual mode produces 12-dim state; others produce 8.
         if n_state_dims == 8 and mode == "counterfactual":
-            n_state_dims = 10
+            n_state_dims = 12
 
         self.observation_space = gym.spaces.Box(
             low=-1.0, high=1.0,

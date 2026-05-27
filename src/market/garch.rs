@@ -1,8 +1,24 @@
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
-use rand_distr::StandardNormal;
+use rand_distr::{Normal, StandardNormal};
 
 use crate::market::gbm::PriceSimulator;
+
+/// Jump-diffusion parameters for the GARCH price model.
+///
+/// Adds a Bernoulli-Normal jump component on top of the GARCH return:
+/// each step, with probability `lambda_j`, a log jump of size
+/// N(`mu_j`, `sigma_j`²) is added to the period return. Used to inject
+/// discontinuous moves that GARCH alone cannot produce (e.g. crash days).
+#[derive(Clone, Debug)]
+pub struct JumpGarchParams {
+    /// Jump arrival probability per step (Bernoulli rate).
+    pub lambda_j: f64,
+    /// Mean log-jump size (negative biases toward downward shocks).
+    pub mu_j: f64,
+    /// Std deviation of log-jump size.
+    pub sigma_j: f64,
+}
 
 /// GARCH(1,1) stochastic-volatility price simulator.
 ///
@@ -13,6 +29,11 @@ use crate::market::gbm::PriceSimulator;
 ///
 /// This produces volatility clustering — large moves beget large moves — so
 /// `AdaptiveOptimal` execution can react to changing market conditions.
+///
+/// Optional jump-diffusion: when `jump_params` is `Some(...)` with `lambda_j > 0`,
+/// each step also draws a Bernoulli jump that is added to the log return.
+/// Jumps do not feed back into the GARCH variance update — they represent
+/// exogenous events outside the GARCH dynamics.
 pub struct GarchSimulator {
     pub price: f64,
     pub mu: f64,
@@ -22,6 +43,7 @@ pub struct GarchSimulator {
     pub sigma2: f64,
     pub dt: f64,
     rng: StdRng,
+    jump_params: Option<JumpGarchParams>,
 }
 
 impl GarchSimulator {
@@ -54,6 +76,35 @@ impl GarchSimulator {
             sigma2: sigma2_init,
             dt,
             rng: StdRng::seed_from_u64(seed),
+            jump_params: None,
+        }
+    }
+
+    /// Construct a jump-diffusion GARCH simulator.
+    ///
+    /// Identical to `new()` but adds a Bernoulli-Normal jump component on top
+    /// of the GARCH return at each step.
+    pub fn new_with_jumps(
+        price: f64,
+        mu: f64,
+        omega: f64,
+        alpha: f64,
+        beta: f64,
+        sigma2_init: f64,
+        dt: f64,
+        seed: u64,
+        jump_params: JumpGarchParams,
+    ) -> Self {
+        Self {
+            price,
+            mu,
+            omega,
+            alpha,
+            beta,
+            sigma2: sigma2_init,
+            dt,
+            rng: StdRng::seed_from_u64(seed),
+            jump_params: Some(jump_params),
         }
     }
 }
@@ -77,10 +128,29 @@ impl PriceSimulator for GarchSimulator {
 
         let r = (self.mu - 0.5 * self.sigma2) * self.dt + (self.sigma2 * self.dt).sqrt() * z;
 
-        self.price *= r.exp();
+        // Optional jump component.
+        // Guarded by `lambda_j > 0.0` so that disabled / zero-rate jumps consume
+        // no random draws, leaving the path identical to the standard GARCH path.
+        let jump: f64 = match &self.jump_params {
+            Some(jp) if jp.lambda_j > 0.0 => {
+                let u: f64 = self.rng.gen();
+                if u < jp.lambda_j {
+                    let dist = Normal::new(jp.mu_j, jp.sigma_j)
+                        .expect("jump sigma_j must be finite and non-negative");
+                    self.rng.sample(dist)
+                } else {
+                    0.0
+                }
+            }
+            _ => 0.0,
+        };
+
+        let total_return = r + jump;
+        self.price *= total_return.exp();
 
         // Rescale to per-period units before squaring so that GARCH parameters
-        // (ω, α, β) are invariant to the choice of dt.
+        // (ω, α, β) are invariant to the choice of dt. Variance update uses only
+        // the GARCH return — jumps are exogenous and do not feed back into σ².
         let r_per_period = r / self.dt.sqrt();
 
         // GARCH(1,1) variance update.
@@ -268,6 +338,73 @@ mod tests {
             (vol_before_step - 0.20).abs() < 1e-10,
             "initial volatility should be sqrt(sigma2_init)=0.20, got {vol_before_step}",
         );
+    }
+
+    /// WHAT: With lambda_j=1.0 (jump every step), the simulator produces at least one
+    ///       discontinuous move whose magnitude exceeds 3× the period vol.
+    /// WHY: Jump-diffusion is meant to inject sudden shocks GARCH alone cannot. If no
+    ///      observed step exceeds 3σ, the jump component is silently dropped.
+    #[test]
+    fn jump_diffusion_produces_discontinuous_moves() {
+        let jump = JumpGarchParams {
+            lambda_j: 1.0,    // jump every step
+            mu_j: 0.0,
+            sigma_j: 0.05,
+        };
+        let mut sim = GarchSimulator::new_with_jumps(
+            100.0, 0.0, 0.000_002, 0.08, 0.90, 0.04, 1.0 / 252.0, 7, jump,
+        );
+
+        // Per-period sigma at step 0: sqrt(sigma2 * dt) = sqrt(0.04/252) ≈ 0.0126.
+        let threshold = 3.0 * (sim.sigma2 * sim.dt).sqrt();
+
+        let mut prev = sim.price;
+        let mut found_big_move = false;
+        for _ in 0..10_000 {
+            let p = sim.step();
+            let log_return = (p / prev).ln().abs();
+            if log_return > threshold {
+                found_big_move = true;
+                break;
+            }
+            prev = p;
+        }
+        assert!(
+            found_big_move,
+            "jump-diffusion must produce at least one |log return| > 3σ in 10000 steps",
+        );
+    }
+
+    /// WHAT: A GARCH simulator with jumps disabled (lambda_j=0.0) produces an identical
+    ///       price path to a standard GARCH simulator with the same seed.
+    /// WHY: When jumps are off, the jump branch must consume no random draws — otherwise
+    ///      enabling the feature with lambda_j=0 silently shifts the RNG stream and
+    ///      breaks reproducibility of historical experiments.
+    #[test]
+    fn jump_diffusion_disabled_matches_standard_garch() {
+        let mut standard = GarchSimulator::new(
+            100.0, 0.05, 0.000_002, 0.08, 0.90, 0.04, 1.0 / 252.0, 42,
+        );
+        let mut with_zero_jumps = GarchSimulator::new_with_jumps(
+            100.0,
+            0.05,
+            0.000_002,
+            0.08,
+            0.90,
+            0.04,
+            1.0 / 252.0,
+            42,
+            JumpGarchParams { lambda_j: 0.0, mu_j: -0.02, sigma_j: 0.05 },
+        );
+
+        for k in 0..500 {
+            let ps = standard.step();
+            let pj = with_zero_jumps.step();
+            assert!(
+                (ps - pj).abs() < 1e-15,
+                "step {k}: standard={ps} vs zero-jump={pj} must match exactly",
+            );
+        }
     }
 
     /// WHAT: GBM(sigma=0.20) and GARCH(sigma2_init=0.04) both return volatility() ≈ 0.20

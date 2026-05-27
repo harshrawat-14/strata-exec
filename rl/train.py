@@ -76,6 +76,9 @@ def make_env(
     multi_dates=None,
     n_state_dims=8,
     seed=42,
+    fixed_steps=False,
+    fixed_size=False,
+    jump_diffusion=False,
 ):
     import random
 
@@ -93,6 +96,9 @@ def make_env(
             btc_target=btc_target,
             n_state_dims=n_state_dims,
             seed=seed,
+            fixed_steps=fixed_steps,
+            fixed_size=fixed_size,
+            jump_diffusion=jump_diffusion,
         )
         return Monitor(env)
     return _init
@@ -117,6 +123,8 @@ def train(
     save_path: str = "rl/models/",
     run_name: str = "ppo_passive",
     lr_schedule: str = "constant",
+    ent_coef: float = 0.05,
+    jump_diffusion: bool = False,
 ):
     os.makedirs(save_path, exist_ok=True)
     os.makedirs("rl/logs/", exist_ok=True)
@@ -130,9 +138,14 @@ def train(
         print(f"LOB date: {lob_date}")
     if multi_dates:
         print(f"Multi-dates: {multi_dates}")
+    if adversarial:
+        print("  Adversarial agents: FrontRunner + LiquidityWithdrawer ACTIVE")
+    if jump_diffusion:
+        print("  Jump diffusion: Poisson jump events ACTIVE")
+    print(f"  ent_coef: {ent_coef}")
     print("=" * 60)
 
-    n_state_dims = 10 if mode == "counterfactual" else 8
+    n_state_dims = 12 if mode == "counterfactual" else 8
 
     env_kwargs = dict(
         mode=mode,
@@ -142,6 +155,9 @@ def train(
         btc_target=btc_target,
         multi_dates=multi_dates,
         n_state_dims=n_state_dims,
+        fixed_steps=False,
+        fixed_size=False,
+        jump_diffusion=jump_diffusion,
     )
 
     n_envs = 8
@@ -166,6 +182,9 @@ def train(
         btc_target=btc_target,
         n_state_dims=n_state_dims,
         seed=9999,
+        fixed_steps=True,
+        fixed_size=True,
+        jump_diffusion=jump_diffusion,
     ))])
 
     device = get_device()
@@ -181,7 +200,7 @@ def train(
         gamma=0.99,
         gae_lambda=0.95,
         clip_range=0.2,
-        ent_coef=0.005,
+        ent_coef=ent_coef,
         policy_kwargs=dict(
             net_arch=dict(pi=[64, 64], vf=[64, 64]),
             lstm_hidden_size=64,
@@ -242,6 +261,10 @@ if __name__ == "__main__":
     p.add_argument("--btc-target", type=float, default=500.0)
     p.add_argument("--multi-date", type=str, default=None,
                    help="Comma-separated dates: 2024-01-15,2024-03-05")
+    p.add_argument("--ent-coef", type=float, default=0.05,
+                   help="Entropy coefficient. Higher -> more exploration.")
+    p.add_argument("--jump-diffusion", action="store_true",
+                   help="Enable Poisson jump diffusion in GARCH price model.")
     args = p.parse_args()
 
     multi_dates = None
@@ -266,4 +289,6 @@ if __name__ == "__main__":
         multi_dates=multi_dates,
         run_name=args.name,
         lr_schedule=args.lr_schedule,
+        ent_coef=args.ent_coef,
+        jump_diffusion=args.jump_diffusion,
     )
