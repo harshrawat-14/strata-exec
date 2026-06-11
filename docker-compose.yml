@@ -1,0 +1,41 @@
+services:
+  frontend:
+    build: ./frontend
+    ports:
+      - "3000:3000"
+    environment:
+      - VITE_API_URL=http://localhost:8000
+    depends_on:
+      - backend
+
+  backend:
+    build: ./web
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=sqlite+aiosqlite:///./strataexec.db
+      - REDIS_URL=redis://redis:6379
+      - RUST_BINARY_PATH=/app/target/release
+      - DATA_PATH=/app/TradeData
+      - MODEL_PATH=/app/rl/models
+      - UPLOAD_PATH=/app/uploads
+      - CORS_ORIGINS=["http://localhost:3000","http://localhost:5173"]
+    volumes:
+      - ./target/release:/app/target/release:ro
+      - ./TradeData:/app/TradeData:ro
+      - ./rl:/app/rl:ro
+      - uploads:/app/uploads
+      - ./results:/app/results
+    depends_on:
+      - redis
+    command: >
+      uvicorn web.main:app --host 0.0.0.0 --port 8000 --reload
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    restart: unless-stopped
+
+volumes:
+  uploads:

@@ -1,0 +1,17 @@
+fastapi==0.111.0
+uvicorn[standard]==0.29.0
+pydantic==2.7.0
+pydantic-settings==2.3.4
+sqlalchemy[asyncio]==2.0.30
+aiosqlite==0.20.0
+asyncpg==0.29.0
+redis[hiredis]==5.0.4
+python-multipart==0.0.9
+pandas==2.1.0
+numpy==1.26.4
+# RL evaluation stack
+stable-baselines3==2.3.0
+sb3-contrib==2.3.0
+gymnasium==0.29.1
+torch==2.1.0
+scipy==1.13.0

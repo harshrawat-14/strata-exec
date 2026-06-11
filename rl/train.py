@@ -8,6 +8,7 @@ from environment import StrataExecEnv
 import torch
 import torch.nn as nn
 import argparse
+import math
 import os
 
 
@@ -67,18 +68,46 @@ def _patch_mps_lstm(policy) -> None:
             print(f"  [MPS fix] {attr} → CPU")
 
 
+def cosine_with_restarts(progress_remaining: float) -> float:
+    """
+    Cosine annealing with 3 cycles over full training.
+    progress_remaining: 1.0 at step 0, 0.0 at final step.
+
+    Cycle boundaries (progress elapsed):
+      Cycle 0: 0%  -> 33%  peak multiplier = 1.000
+      Cycle 1: 33% -> 66%  peak multiplier = 0.500
+      Cycle 2: 66% -> 100% peak multiplier = 0.250
+
+    Each cycle: cosine decay from peak to ~0.
+    Halving peaks prevents late-training instability while
+    still allowing meaningful exploration after each restart.
+    """
+    progress = 1.0 - progress_remaining
+    cycle_length = 1.0 / 3.0
+    cycle_num = min(int(progress / cycle_length), 2)
+    cycle_progress = (progress - cycle_num * cycle_length) / cycle_length
+    peak = 0.5 ** cycle_num
+    return peak * 0.5 * (1.0 + math.cos(math.pi * cycle_progress))
+
+
+assert abs(cosine_with_restarts(1.0) - 1.0) < 0.01, "cosine_with_restarts(1.0) must be ~1.0"
+assert abs(cosine_with_restarts(0.67) - 0.5) < 0.05, "cosine_with_restarts(0.67) must be ~0.5"
+assert abs(cosine_with_restarts(0.34) - 0.25) < 0.05, "cosine_with_restarts(0.34) must be ~0.25"
+
+
 def make_env(
     mode="synthetic",
     adversarial=False,
     lob_date=None,
     agg_date=None,
-    btc_target=500.0,
+    btc_target=50000.0,
     multi_dates=None,
     n_state_dims=8,
     seed=42,
     fixed_steps=False,
     fixed_size=False,
     jump_diffusion=False,
+    no_regime_impact=False,
 ):
     import random
 
@@ -99,17 +128,10 @@ def make_env(
             fixed_steps=fixed_steps,
             fixed_size=fixed_size,
             jump_diffusion=jump_diffusion,
+            no_regime_impact=no_regime_impact,
         )
         return Monitor(env)
     return _init
-
-
-def get_lr_schedule(schedule, initial_lr, total_timesteps):
-    if schedule == "linear":
-        def lr_fn(progress_remaining: float) -> float:
-            return progress_remaining * initial_lr
-        return lr_fn
-    return initial_lr
 
 
 def train(
@@ -118,13 +140,17 @@ def train(
     mode: str = "synthetic",
     lob_date=None,
     agg_date=None,
-    btc_target: float = 500.0,
+    btc_target: float = 50000.0,
     multi_dates=None,
     save_path: str = "rl/models/",
     run_name: str = "ppo_passive",
-    lr_schedule: str = "constant",
+    lr_schedule: str = "cosine_restarts",
     ent_coef: float = 0.05,
     jump_diffusion: bool = False,
+    lstm_hidden: int = 128,
+    lstm_layers: int = 2,
+    n_envs: int = 4,
+    no_regime_impact: bool = False,
 ):
     os.makedirs(save_path, exist_ok=True)
     os.makedirs("rl/logs/", exist_ok=True)
@@ -134,6 +160,7 @@ def train(
     print(f"Mode: {mode}")
     print(f"Adversarial: {adversarial}")
     print(f"Timesteps: {total_timesteps:,}")
+    print(f"  btc_target: {btc_target}")
     if lob_date:
         print(f"LOB date: {lob_date}")
     if multi_dates:
@@ -143,6 +170,12 @@ def train(
     if jump_diffusion:
         print("  Jump diffusion: Poisson jump events ACTIVE")
     print(f"  ent_coef: {ent_coef}")
+    print(f"  lr_schedule: {lr_schedule} (base_lr=3e-4)")
+    print(f"  LSTM: {lstm_hidden} hidden × {lstm_layers} layers")
+    if no_regime_impact:
+        print("  Regime impact scaling: DISABLED (eval mode)")
+    else:
+        print("  Regime impact scaling: ACTIVE (crash=1.8×, quiet=0.7×)")
     print("=" * 60)
 
     n_state_dims = 12 if mode == "counterfactual" else 8

@@ -1,0 +1,365 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ────────────────────────────────────────────────────────────────
+   DESIGN TOKENS
+   Light:  page=#f0f0f0  card=#ffffff  hover=#e8e8e8
+   Dark:   page=#0a0a0a  card=#161616  hover=#1f1f1f
+   Sidebar always one shade darker than page
+──────────────────────────────────────────────────────────────────*/
+:root {
+  --page:      #f0f0f0;
+  --sidebar:   #ffffff;
+  --card:      #ffffff;
+  --card-hover:#f5f5f5;
+  --card-border: rgba(0,0,0,0.08);
+  --card-border-hover: rgba(0,0,0,0.18);
+  --input-bg:  #f8f8f8;
+  --text:      #0a0a0a;
+  --text-sub:  rgba(0,0,0,0.45);
+  --text-muted:rgba(0,0,0,0.25);
+  --divider:   rgba(0,0,0,0.07);
+  --active-fill: #0a0a0a;
+  --active-text: #ffffff;
+}
+
+html.dark {
+  --page:      #0a0a0a;
+  --sidebar:   #000000;
+  --card:      #161616;
+  --card-hover:#1e1e1e;
+  --card-border: rgba(255,255,255,0.07);
+  --card-border-hover: rgba(255,255,255,0.18);
+  --input-bg:  #1c1c1c;
+  --text:      #f2f2f2;
+  --text-sub:  rgba(255,255,255,0.45);
+  --text-muted:rgba(255,255,255,0.25);
+  --divider:   rgba(255,255,255,0.07);
+  --active-fill: #f2f2f2;
+  --active-text: #0a0a0a;
+}
+
+@layer base {
+  * {
+    box-sizing: border-box;
+    /* Don't auto-transition transform — hover lifts use explicit transition */
+    transition: background-color 0.2s ease, border-color 0.2s ease,
+                color 0.2s ease, opacity 0.2s ease, box-shadow 0.2s ease;
+  }
+
+  html {
+    scroll-behavior: smooth;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  body {
+    background: var(--page);
+    color: var(--text);
+    font-family: 'Inter', system-ui, sans-serif;
+    min-height: 100vh;
+  }
+
+  /* Select inherits theme */
+  select {
+    background: var(--input-bg);
+    color: var(--text);
+    color-scheme: light dark;
+  }
+
+  /* Scrollbar */
+  ::-webkit-scrollbar { width: 4px; height: 4px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--divider); border-radius: 99px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+}
+
+@layer components {
+
+  /* ── Cards ─────────────────────────────────────────────── */
+  .glass-card {
+    background: var(--card);
+    border: 1px solid var(--card-border);
+    border-radius: 12px;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.04);
+    transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.25s cubic-bezier(0.16,1,0.3,1);
+  }
+
+  .glass-card-hover {
+    @apply glass-card cursor-pointer;
+  }
+  .glass-card-hover:hover {
+    border-color: var(--card-border-hover);
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px rgba(0,0,0,0.08);
+  }
+
+  /* ── Stat Card ──────────────────────────────────────────── */
+  .stat-card {
+    @apply glass-card p-6 flex flex-col gap-1;
+  }
+
+  /* ── Buttons ────────────────────────────────────────────── */
+  .btn-primary {
+    @apply relative inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-lg font-semibold text-xs tracking-wider uppercase border;
+    background: var(--active-fill);
+    color: var(--active-text);
+    border-color: var(--active-fill);
+    transition: background 0.18s ease, color 0.18s ease, transform 0.18s ease, box-shadow 0.18s ease;
+  }
+  .btn-primary:hover:not(:disabled) {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 14px rgba(0,0,0,0.18);
+    /* Use a slightly softer fill — NOT pure white / NOT pure black on hover */
+    filter: brightness(1.12);
+  }
+  .btn-primary:active {
+    transform: translateY(0);
+    box-shadow: none;
+    filter: brightness(0.95);
+  }
+  .btn-primary:disabled {
+    opacity: 0.3;
+    cursor: not-allowed;
+  }
+
+  .btn-secondary {
+    @apply inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg font-medium text-xs tracking-wider uppercase border bg-transparent;
+    color: var(--text-sub);
+    border-color: var(--card-border);
+    transition: border-color 0.18s ease, color 0.18s ease, transform 0.18s ease;
+  }
+  .btn-secondary:hover {
+    border-color: var(--card-border-hover);
+    color: var(--text);
+    transform: translateY(-1px);
+  }
+
+  /* ── Badges ─────────────────────────────────────────────── */
+  .badge {
+    @apply inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md text-[10px] uppercase font-mono font-semibold tracking-wider border;
+  }
+  .badge-success {
+    background: rgba(0,0,0,0.04);
+    color: var(--text-sub);
+    border-color: var(--card-border);
+    @apply badge;
+  }
+  html.dark .badge-success {
+    background: rgba(255,255,255,0.05);
+    color: var(--text-sub);
+    border-color: var(--card-border);
+  }
+  .badge-warning {
+    @apply badge;
+    background: rgba(0,0,0,0.04);
+    color: var(--text-muted);
+    border-color: var(--card-border);
+  }
+  .badge-error {
+    @apply badge;
+    background: rgba(0,0,0,0.04);
+    color: var(--text-muted);
+    border-color: var(--card-border);
+  }
+  .badge-info {
+    @apply badge;
+    background: rgba(0,0,0,0.04);
+    color: var(--text-sub);
+    border-color: var(--card-border);
+  }
+  .badge-neutral {
+    @apply badge;
+    background: transparent;
+    color: var(--text-muted);
+    border-color: var(--divider);
+  }
+
+  /* ── Input / Select ─────────────────────────────────────── */
+  .input-field {
+    width: 100%;
+    padding: 10px 14px;
+    border-radius: 8px;
+    border: 1px solid var(--card-border);
+    background: var(--input-bg);
+    color: var(--text);
+    font-size: 13px;
+    outline: none;
+    transition: border-color 0.18s ease, box-shadow 0.18s ease;
+  }
+  .input-field::placeholder {
+    color: var(--text-muted);
+  }
+  .input-field:focus {
+    border-color: var(--card-border-hover);
+    box-shadow: 0 0 0 3px rgba(0,0,0,0.06);
+  }
+  html.dark .input-field:focus {
+    box-shadow: 0 0 0 3px rgba(255,255,255,0.05);
+  }
+
+  /* ── Typography ─────────────────────────────────────────── */
+  .label-text {
+    font-size: 10px;
+    font-family: 'JetBrains Mono', monospace;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+  }
+
+  .section-title {
+    font-size: 9px;
+    font-family: 'JetBrains Mono', monospace;
+    font-weight: 700;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    margin-bottom: 12px;
+  }
+
+  /* ── Skeleton ───────────────────────────────────────────── */
+  .skeleton {
+    border-radius: 6px;
+    background: linear-gradient(90deg,
+      var(--card-border) 0%,
+      var(--divider) 50%,
+      var(--card-border) 100%);
+    background-size: 200% 100%;
+    animation: shimmer 1.8s ease-in-out infinite;
+  }
+
+  /* ── Tab Buttons ────────────────────────────────────────── */
+  .tab-btn {
+    padding: 8px 16px;
+    font-size: 11px;
+    font-family: 'JetBrains Mono', monospace;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-muted);
+    border-bottom: 2px solid transparent;
+    transition: color 0.18s ease, border-color 0.18s ease;
+  }
+  .tab-btn:hover {
+    color: var(--text-sub);
+  }
+  .tab-btn.active {
+    color: var(--text);
+    border-bottom-color: var(--text);
+    font-weight: 700;
+  }
+
+  /* ── Strategy Pill ──────────────────────────────────────── */
+  .strategy-pill {
+    @apply flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-mono border cursor-pointer uppercase tracking-wider;
+    background: transparent;
+    border-color: var(--card-border);
+    color: var(--text-muted);
+    transition: all 0.18s ease;
+  }
+  .strategy-pill.selected {
+    background: var(--active-fill);
+    color: var(--active-text);
+    border-color: var(--active-fill);
+  }
+  .strategy-pill:not(.selected):hover {
+    border-color: var(--card-border-hover);
+    color: var(--text-sub);
+  }
+
+  /* ── Profit / Loss coloring ─────────────────────────────── */
+  .text-profit { color: var(--text); font-weight: 600; }
+  .text-loss   { color: var(--text-muted); }
+  .text-neutral-val { color: var(--text-sub); }
+
+  /* ── Divider ────────────────────────────────────────────── */
+  .divider {
+    border-top: 1px solid var(--divider);
+    margin: 16px 0;
+  }
+
+  /* ── Chart container ────────────────────────────────────── */
+  .chart-container {
+    @apply glass-card p-5;
+  }
+
+  /* ── Custom scrollbar (explicit class) ──────────────────── */
+  .custom-scrollbar::-webkit-scrollbar { width: 4px; }
+  .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+  .custom-scrollbar::-webkit-scrollbar-thumb { background: var(--divider); border-radius: 99px; }
+  .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+}
+
+@layer utilities {
+  /* Text gradient — monochrome */
+  .text-gradient-electric {
+    color: var(--text);
+    font-weight: 700;
+  }
+  .text-gradient-profit { color: var(--text); font-weight: 700; }
+
+  .animate-slide-up { animation: slideUp 0.35s cubic-bezier(0.16,1,0.3,1) both; }
+  .animate-fade-in  { animation: fadeIn 0.4s ease-out both; }
+}
+
+/* ── Keyframes ──────────────────────────────────────────────── */
+@keyframes shimmer {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(16px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes progress-pulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.7; }
+}
+
+/* ── Recharts overrides ─────────────────────────────────────── */
+.recharts-cartesian-grid-horizontal line,
+.recharts-cartesian-grid-vertical line {
+  stroke: var(--divider) !important;
+}
+.recharts-text {
+  fill: var(--text-muted) !important;
+  font-size: 10px !important;
+  font-family: 'JetBrains Mono', monospace !important;
+}
+.recharts-legend-wrapper {
+  font-family: 'JetBrains Mono', monospace !important;
+  font-size: 10px !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.05em !important;
+  color: var(--text-muted) !important;
+}
+.recharts-tooltip-wrapper .recharts-default-tooltip {
+  background: var(--card) !important;
+  border: 1px solid var(--card-border) !important;
+  border-radius: 8px !important;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.12) !important;
+  font-family: 'JetBrains Mono', monospace !important;
+  font-size: 10px !important;
+  color: var(--text) !important;
+}
+.recharts-default-tooltip .recharts-tooltip-label {
+  color: var(--text-muted) !important;
+  text-transform: uppercase;
+  font-size: 9px !important;
+  letter-spacing: 0.08em;
+  margin-bottom: 4px;
+}
+.recharts-default-tooltip .recharts-tooltip-item {
+  color: var(--text) !important;
+}
+
+/* ── Radix UI ───────────────────────────────────────────────── */
+[data-radix-popper-content-wrapper] { z-index: 50 !important; }
