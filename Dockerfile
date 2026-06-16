@@ -5,6 +5,11 @@ FROM rust:1.82-slim AS rust-builder
 
 WORKDIR /app
 
+# Force fresh cargo registry — prevents stale cached crates
+# from a previous layer causing manifest parse failures
+RUN rm -rf /usr/local/cargo/registry && \
+    rm -rf /usr/local/cargo/git
+
 # Install build dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     pkg-config \
