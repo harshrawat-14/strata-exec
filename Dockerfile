@@ -59,7 +59,8 @@ COPY --from=rust-builder /app/target/release/rl-env /app/target/release/rl-env
 # Copy application code and folders
 COPY web/ /app/web/
 COPY rl/ /app/rl/
-COPY TradeData/ /app/TradeData/
+# Create directories for upload, results, and raw data
+RUN mkdir -p /app/uploads /app/results /app/TradeData
 
 # Setup runtime configuration environment variables
 ENV DATABASE_URL=sqlite+aiosqlite:///./strataexec.db

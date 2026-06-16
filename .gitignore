@@ -1,5 +1,4 @@
 /target
-Cargo.lock
 .env
 .env.local
 
@@ -20,7 +19,10 @@ __pycache__/
 *.pyd
 
 # RL training artifacts (model weights + TensorBoard events)
-rl/models/
+rl/models/*
+!rl/models/ppo_lstm_v5_adaptive_best/
+!rl/models/ppo_lstm_v5_adaptive_best/best_model.zip
+!rl/models/smoke_v5_final.zip
 rl/logs/
 
 # Caches
