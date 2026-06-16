@@ -185,9 +185,8 @@ impl ExecutionMetrics {
 
         let total = self.cumulative_cost;
 
-        // Opportunity cost is zero while force_complete guarantees full execution.
-        // Becomes relevant when partial execution is allowed.
-        let opportunity_cost = 0.0;
+        // Opportunity cost represents the cost of forced liquidation at the horizon end.
+        let opportunity_cost = self.forced_liquidation_cost;
 
         let total_as_pct = if self.initial_notional.abs() > 1e-15 {
             total / self.initial_notional * 100.0

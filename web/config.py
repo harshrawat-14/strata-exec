@@ -4,6 +4,7 @@ Application configuration loaded from environment variables / .env file.
 
 from functools import lru_cache
 from pathlib import Path
+from typing import Optional
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -13,6 +14,8 @@ class Settings(BaseSettings):
         env_file=".env",
         env_file_encoding="utf-8",
         extra="ignore",
+        # Suppress pydantic "protected namespace" warnings for model_* fields
+        protected_namespaces=(),
     )
 
     # ── Database ──────────────────────────────────────────────────────────
@@ -20,6 +23,13 @@ class Settings(BaseSettings):
 
     # ── Redis ─────────────────────────────────────────────────────────────
     redis_url: str = "redis://localhost:6379"
+
+    # ── S3 Storage ────────────────────────────────────────────────────────
+    s3_endpoint_url: Optional[str] = None
+    s3_access_key_id: Optional[str] = None
+    s3_secret_access_key: Optional[str] = None
+    s3_bucket_name: str = "strataexec"
+    use_s3: bool = False
 
     # ── Rust binaries ────────────────────────────────────────────────────
     rust_binary_path: str = "./target/release"
@@ -29,6 +39,7 @@ class Settings(BaseSettings):
     model_path: str = "./rl/models"
     upload_path: str = "./uploads"
     results_path: str = "./results"
+
 
     # ── Simulation limits ────────────────────────────────────────────────
     max_paths: int = 2000
@@ -43,6 +54,10 @@ class Settings(BaseSettings):
     app_title: str = "StrataExec API"
     app_version: str = "1.0.0"
     debug: bool = False
+    testing: bool = False
+    log_level: str = "INFO"
+    jwt_secret: str = "supersecretkeyforlocalrun123!"
+    jwt_expire_minutes: int = 1440
 
     @property
     def research_sim_path(self) -> Path:

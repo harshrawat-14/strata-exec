@@ -130,6 +130,19 @@ interface PriceChartProps {
   pricePoints: number[]
 }
 
+const PriceTooltip = ({ active, payload, label }: any) => {
+  if (!active || !payload || !payload.length) return null
+  return (
+    <div className="glass-card p-3 text-[11px] font-mono space-y-1 bg-white dark:bg-black border border-black/10 dark:border-white/10 text-black dark:text-white min-w-[150px]">
+      <div className="text-black/30 dark:text-white/30 mb-2 uppercase font-semibold">Step {label}</div>
+      <div className="flex justify-between gap-4">
+        <span>Price:</span>
+        <span className="font-bold">${payload[0].value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+      </div>
+    </div>
+  )
+}
+
 export function PriceChart({ pricePoints }: PriceChartProps) {
   const isDark = useDarkMode()
   if (!pricePoints.length) return null
@@ -138,24 +151,23 @@ export function PriceChart({ pricePoints }: PriceChartProps) {
 
   return (
     <ResponsiveContainer width="100%" height={160}>
-      <LineChart data={data} margin={{ top: 8, right: 16, bottom: 0, left: 0 }}>
-        <CartesianGrid strokeDasharray="3 3" />
-        <XAxis dataKey="step" tickLine={false} />
+      <LineChart data={data} margin={{ top: 8, right: 16, bottom: 10, left: 10 }}>
+        <CartesianGrid strokeDasharray="3 3" opacity={isDark ? 0.08 : 0.15} />
+        <XAxis
+          dataKey="step"
+          tickLine={false}
+          tick={{ fontSize: 9, fontFamily: 'monospace' }}
+          label={{ value: 'STEP', position: 'insideBottomRight', offset: -5, style: { fontSize: 9, fill: 'var(--text-muted)', fontFamily: 'monospace' } }}
+        />
         <YAxis
           tickLine={false}
           axisLine={false}
           domain={['auto', 'auto']}
           tickFormatter={(v) => `$${v.toFixed(0)}`}
+          tick={{ fontSize: 9, fontFamily: 'monospace' }}
+          label={{ value: 'Price ($)', angle: -90, position: 'insideLeft', offset: 0, style: { fontSize: 10, fill: 'var(--text-muted)', fontFamily: 'monospace' } }}
         />
-        <Tooltip
-          contentStyle={{
-            background: isDark ? '#000000' : '#ffffff',
-            border: isDark ? '1px solid rgba(255,255,255,0.1)' : '1px solid rgba(0,0,0,0.1)',
-            borderRadius: 6,
-            fontSize: 10,
-            fontFamily: 'JetBrains Mono, monospace'
-          }}
-        />
+        <Tooltip content={<PriceTooltip />} />
         <Line
           type="monotone"
           dataKey="price"

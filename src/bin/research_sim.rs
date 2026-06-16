@@ -136,6 +136,105 @@ fn parse_calibrate_flag() -> Option<String> {
     None
 }
 
+fn parse_sigma_arg() -> Option<f64> {
+    let args: Vec<String> = std::env::args().collect();
+    let mut i = 1;
+    while i < args.len() {
+        if args[i] == "--sigma" {
+            if let Some(val) = args.get(i + 1) {
+                return val.parse::<f64>().ok();
+            }
+        }
+        i += 1;
+    }
+    None
+}
+
+fn parse_eta_arg() -> Option<f64> {
+    let args: Vec<String> = std::env::args().collect();
+    let mut i = 1;
+    while i < args.len() {
+        if args[i] == "--eta" {
+            if let Some(val) = args.get(i + 1) {
+                return val.parse::<f64>().ok();
+            }
+        }
+        i += 1;
+    }
+    None
+}
+
+fn parse_lambda_arg() -> Option<f64> {
+    let args: Vec<String> = std::env::args().collect();
+    let mut i = 1;
+    while i < args.len() {
+        if args[i] == "--lambda" {
+            if let Some(val) = args.get(i + 1) {
+                return val.parse::<f64>().ok();
+            }
+        }
+        i += 1;
+    }
+    None
+}
+
+fn parse_notional_arg() -> Option<f64> {
+    let args: Vec<String> = std::env::args().collect();
+    let mut i = 1;
+    while i < args.len() {
+        if args[i] == "--notional" {
+            if let Some(val) = args.get(i + 1) {
+                return val.parse::<f64>().ok();
+            }
+        }
+        i += 1;
+    }
+    None
+}
+
+fn parse_horizon_arg() -> Option<usize> {
+    let args: Vec<String> = std::env::args().collect();
+    let mut i = 1;
+    while i < args.len() {
+        if args[i] == "--horizon" {
+            if let Some(val) = args.get(i + 1) {
+                return val.parse::<usize>().ok();
+            }
+        }
+        i += 1;
+    }
+    None
+}
+
+fn parse_seed_arg() -> Option<u64> {
+    let args: Vec<String> = std::env::args().collect();
+    let mut i = 1;
+    while i < args.len() {
+        if args[i] == "--seed" {
+            if let Some(val) = args.get(i + 1) {
+                return val.parse::<u64>().ok();
+            }
+        }
+        i += 1;
+    }
+    None
+}
+
+fn parse_results_dir_arg() -> String {
+    let args: Vec<String> = std::env::args().collect();
+    let mut i = 1;
+    while i < args.len() {
+        if args[i] == "--results-dir" {
+            if let Some(val) = args.get(i + 1) {
+                return val.to_string();
+            }
+        }
+        i += 1;
+    }
+    "results".to_string()
+}
+
+
 /// Build the simulator based on the `--model` argument.
 ///
 /// Both GBM and GARCH are initialised with the same annualised volatility
@@ -454,6 +553,7 @@ fn main() {
     let agg_trades_path = parse_agg_trades_arg();
     let bucket_size_arg = parse_bucket_size_arg();
     let calibrate_path = parse_calibrate_flag();
+    let results_dir = parse_results_dir_arg();
 
     // ── Observability setup ────────────────────────────────────────
     let debug_state = if debug || progress {
@@ -464,7 +564,11 @@ fn main() {
     };
     let event_tx = debug_state.as_ref().map(|(tx, _)| tx);
 
-    let max_steps = 500;
+    let mut max_steps = 500;
+    if let Some(h) = parse_horizon_arg() {
+        max_steps = h;
+    }
+
     let mut params = SimParams {
         total_notional: 1_000_000.0,
         base_chunk: 10_000.0,
@@ -481,6 +585,21 @@ fn main() {
         transient_rho: 50.0,
         max_steps,
     };
+
+    if let Some(s) = parse_sigma_arg() {
+        params.sigma_ref = s;
+    }
+    if let Some(e) = parse_eta_arg() {
+        params.eta = e;
+    }
+    if let Some(l) = parse_lambda_arg() {
+        params.lambda = l;
+    }
+    if let Some(n) = parse_notional_arg() {
+        params.total_notional = n;
+        params.base_chunk = n / 100.0;
+    }
+
 
     if let Some(path) = calibrate_path {
         println!("Calibration Mode Enabled -> Analyzing: {}", path);
@@ -630,92 +749,173 @@ fn main() {
     } else {
         // ── Standard Multi-Strategy Simulator ─────────────────────────
         let mut overall_avg_vol = 0.0_f64;
-        let base_seed: u64 = 42;
+        let base_seed: u64 = parse_seed_arg().unwrap_or(42);
 
-    for path_id in 0..num_paths {
-        if let Some(tx) = event_tx {
-            let _ = tx.send(DebugEvent::PathStart { path_id });
-        }
+        use std::collections::HashMap;
+        let mut strategy_shortfalls: HashMap<String, Vec<f64>> = HashMap::new();
+        let mut strategy_ac_objectives: HashMap<String, Vec<f64>> = HashMap::new();
+        let mut strategy_spread_cost: HashMap<String, f64> = HashMap::new();
+        let mut strategy_temp_impact: HashMap<String, f64> = HashMap::new();
+        let mut strategy_perm_impact: HashMap<String, f64> = HashMap::new();
+        let mut strategy_timing_cost: HashMap<String, f64> = HashMap::new();
+        let mut strategy_opp_cost: HashMap<String, f64> = HashMap::new();
+        let mut strategy_path_count: HashMap<String, usize> = HashMap::new();
+        let mut strategy_trade_count: HashMap<String, usize> = HashMap::new();
+        let mut strategy_avg_price: HashMap<String, f64> = HashMap::new();
 
-        let strategies = build_strategies(&params, include_regime_ac);
-        let simulator = build_simulator(
-            &model,
-            params.arrival_price,
-            params.sigma_ref,
-            base_seed + path_id as u64,
-            params.max_steps,
-        );
-        let mut runner = if let Some(ref path) = lob_data_path {
-            // Reload the replay for each path so every path starts from snapshot 0.
-            match LobReplay::from_csv(path) {
-                Ok(replay) => {
-                    let mut r = MultiStrategyRunner::new(strategies, simulator, params.max_steps)
-                        .with_historical_lob(replay)
-                        .with_vpin(effective_bucket_size, TARGET_BUCKETS);
-                    // Wire real aggTrades on the first path; subsequent paths reuse the
-                    // pre-computed real_vpin_series (rebuilt from scratch each path anyway).
-                    if let Some(ref agg) = agg_trades_day {
-                        // Clone is cheap relative to file I/O; trades vec is reused read-only.
-                        r = r.with_agg_trades(AggTradesDay {
-                            trades: agg.trades.iter().map(|t| strata_exec::market::agg_trades::AggTrade {
-                                timestamp_ms: t.timestamp_ms,
-                                price: t.price,
-                                quantity_btc: t.quantity_btc,
-                                is_sell_aggressor: t.is_sell_aggressor,
-                            }).collect(),
-                            date: agg.date.clone(),
-                            skipped_rows: agg.skipped_rows,
-                        });
-                    }
-                    r
-                }
-                Err(e) => {
-                    eprintln!("ERROR reloading --lob-data for path {path_id}: {e}");
-                    std::process::exit(1);
-                }
-            }
-        } else {
-            MultiStrategyRunner::new(strategies, simulator, params.max_steps)
-                .with_lob(use_lob)
-                .with_vpin(effective_bucket_size, TARGET_BUCKETS)
-        };
-
-        // Only pipe events into runner if debug mode is explicitly set to true or path matches
-        if debug && path_id < debug_paths {
+        for path_id in 0..num_paths {
             if let Some(tx) = event_tx {
-                runner = runner.with_event_sender(tx.clone());
+                let _ = tx.send(DebugEvent::PathStart { path_id });
+            }
+
+            let strategies = build_strategies(&params, include_regime_ac);
+            let simulator = build_simulator(
+                &model,
+                params.arrival_price,
+                params.sigma_ref,
+                base_seed + path_id as u64,
+                params.max_steps,
+            );
+            let mut runner = if let Some(ref path) = lob_data_path {
+                // Reload the replay for each path so every path starts from snapshot 0.
+                match LobReplay::from_csv(path) {
+                    Ok(replay) => {
+                        let mut r = MultiStrategyRunner::new(strategies, simulator, params.max_steps)
+                            .with_results_dir(results_dir.clone())
+                            .with_historical_lob(replay)
+                            .with_vpin(effective_bucket_size, TARGET_BUCKETS);
+                        // Wire real aggTrades on the first path; subsequent paths reuse the
+                        // pre-computed real_vpin_series (rebuilt from scratch each path anyway).
+                        if let Some(ref agg) = agg_trades_day {
+                            // Clone is cheap relative to file I/O; trades vec is reused read-only.
+                            r = r.with_agg_trades(AggTradesDay {
+                                trades: agg.trades.iter().map(|t| strata_exec::market::agg_trades::AggTrade {
+                                    timestamp_ms: t.timestamp_ms,
+                                    price: t.price,
+                                    quantity_btc: t.quantity_btc,
+                                    is_sell_aggressor: t.is_sell_aggressor,
+                                }).collect(),
+                                date: agg.date.clone(),
+                                skipped_rows: agg.skipped_rows,
+                            });
+                        }
+                        r
+                    }
+                    Err(e) => {
+                        eprintln!("ERROR reloading --lob-data for path {path_id}: {e}");
+                        std::process::exit(1);
+                    }
+                }
+            } else {
+                MultiStrategyRunner::new(strategies, simulator, params.max_steps)
+                    .with_results_dir(results_dir.clone())
+                    .with_lob(use_lob)
+                    .with_vpin(effective_bucket_size, TARGET_BUCKETS)
+            };
+
+            // Only pipe events into runner if debug mode is explicitly set to true or path matches
+            if debug && path_id < debug_paths {
+                if let Some(tx) = event_tx {
+                    runner = runner.with_event_sender(tx.clone());
+                }
+            }
+
+            if let Err(e) = runner.run() {
+                eprintln!("ERROR: {e}");
+                std::process::exit(1);
+            }
+
+            for strat in runner.strategies() {
+                let name = strat.name.clone();
+                let sf_pct = strat.metrics.shortfall_percent().unwrap_or(0.0);
+                let ac_pct = strat.metrics.ac_objective_percent(params.lambda).unwrap_or(0.0);
+
+                strategy_shortfalls.entry(name.clone()).or_insert_with(Vec::new).push(sf_pct);
+                strategy_ac_objectives.entry(name.clone()).or_insert_with(Vec::new).push(ac_pct);
+
+                if let Some(decomp) = strat.metrics.decompose() {
+                    *strategy_spread_cost.entry(name.clone()).or_insert(0.0) += decomp.spread_cost;
+                    *strategy_temp_impact.entry(name.clone()).or_insert(0.0) += decomp.temporary_impact;
+                    *strategy_perm_impact.entry(name.clone()).or_insert(0.0) += decomp.permanent_impact;
+                    *strategy_timing_cost.entry(name.clone()).or_insert(0.0) += decomp.timing_cost;
+                    *strategy_opp_cost.entry(name.clone()).or_insert(0.0) += decomp.opportunity_cost;
+                }
+                *strategy_path_count.entry(name.clone()).or_insert(0) += 1;
+                *strategy_trade_count.entry(name.clone()).or_insert(0) += strat.metrics.trade_count();
+                if let Some(avg_p) = strat.metrics.avg_exec_price() {
+                    *strategy_avg_price.entry(name.clone()).or_insert(0.0) += avg_p;
+                }
+            }
+
+            if let Some(tx) = event_tx {
+                let _ = tx.send(DebugEvent::PathEnd { path_id });
+                if progress {
+                    let _ = tx.send(DebugEvent::Progress {
+                        completed: path_id + 1,
+                        total: num_paths,
+                    });
+                }
+            }
+
+            overall_avg_vol += runner.avg_volatility();
+
+            if path_id == 0 && !progress {
+                // Only print summary on the first run to not clutter console
+                println!("  Avg Volatility: {:.4}%", runner.avg_volatility() * 100.0);
+                print_single_run_summary(runner.strategies(), params.lambda, fill_label);
             }
         }
-
-        if let Err(e) = runner.run() {
-            eprintln!("ERROR: {e}");
-            std::process::exit(1);
-        }
-
-        if let Some(tx) = event_tx {
-            let _ = tx.send(DebugEvent::PathEnd { path_id });
-            if progress {
-                let _ = tx.send(DebugEvent::Progress {
-                    completed: path_id + 1,
-                    total: num_paths,
-                });
-            }
-        }
-
-        overall_avg_vol += runner.avg_volatility();
-
-        if path_id == 0 && !progress {
-            // Only print summary on the first run to not clutter console
-            println!("  Avg Volatility: {:.4}%", runner.avg_volatility() * 100.0);
-            print_single_run_summary(runner.strategies(), params.lambda, fill_label);
-        }
-    }
 
         if num_paths > 1 {
             let avg_vol = overall_avg_vol / num_paths as f64;
             println!("\n  Overall Avg Volatility ({num_paths} paths): {:.4}%", avg_vol * 100.0);
         }
-    } // End of else block
+
+        // Compute aggregate stats and write results/summary.json
+        let mut summary_map = serde_json::Map::new();
+
+        for (name, samples) in &strategy_shortfalls {
+            let ac_samples = strategy_ac_objectives.get(name).cloned().unwrap_or_default();
+            let path_count = strategy_path_count.get(name).copied().unwrap_or(0) as f64;
+
+            let sf_stats = strata_exec::analytics::distribution::DistributionStats::from_samples(samples);
+            let ac_stats = strata_exec::analytics::distribution::DistributionStats::from_samples(&ac_samples);
+
+            if let (Some(sf), Some(ac)) = (sf_stats, ac_stats) {
+                let avg_spread = strategy_spread_cost.get(name).copied().unwrap_or(0.0) / path_count;
+                let avg_temp = strategy_temp_impact.get(name).copied().unwrap_or(0.0) / path_count;
+                let avg_perm = strategy_perm_impact.get(name).copied().unwrap_or(0.0) / path_count;
+                let avg_timing = strategy_timing_cost.get(name).copied().unwrap_or(0.0) / path_count;
+                let avg_opp = strategy_opp_cost.get(name).copied().unwrap_or(0.0) / path_count;
+                let avg_tc = strategy_trade_count.get(name).copied().unwrap_or(0) as f64 / path_count;
+                let avg_ap = strategy_avg_price.get(name).copied().unwrap_or(0.0) / path_count;
+
+                let strat_val = serde_json::json!({
+                    "mean_is_pct": sf.mean,
+                    "is_variance": sf.std_dev * sf.std_dev,
+                    "cvar95": sf.cvar_95,
+                    "ac_objective": ac.mean,
+                    "trade_count": avg_tc,
+                    "avg_exec_price": avg_ap,
+                    "cost_decomposition": {
+                        "spread_cost": avg_spread,
+                        "temporary_impact": avg_temp,
+                        "permanent_impact": avg_perm,
+                        "timing_cost": avg_timing,
+                        "opportunity_cost": avg_opp
+                    }
+                });
+                summary_map.insert(name.clone(), strat_val);
+            }
+        }
+
+        let summary_json = serde_json::Value::Object(summary_map);
+        if std::fs::metadata(&results_dir).is_ok() {
+            if let Ok(mut f) = std::fs::File::create(format!("{results_dir}/summary.json")) {
+                let _ = serde_json::to_writer_pretty(&mut f, &summary_json);
+            }
+        }
+    }
 
     // ── Observability teardown ──────────────────────────────────────
     if let Some(tx) = event_tx {

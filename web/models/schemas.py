@@ -40,11 +40,13 @@ class SimulationRequest(BaseModel):
     params: SimParams = Field(default_factory=SimParams)
     lob_file_id: str | None = None
     agg_file_id: str | None = None
+    rl_model_id: str | None = None
+    include_rl: bool = False
 
     @field_validator("strategies")
     @classmethod
     def validate_strategies(cls, v: list[str]) -> list[str]:
-        valid = {"twap", "heuristic", "optimal", "adaptive"}
+        valid = {"twap", "heuristic", "optimal", "adaptive", "rl"}
         for s in v:
             if s not in valid:
                 raise ValueError(f"Unknown strategy '{s}'. Valid: {valid}")
@@ -57,6 +59,8 @@ class StrategyResult(BaseModel):
     is_variance: float | None = None
     cvar95: float | None = None
     ac_objective: float | None = None
+    trade_count: float | None = None
+    avg_exec_price: float | None = None
     trajectory: list[float] = Field(default_factory=list)
     cost_decomposition: dict[str, float] = Field(default_factory=dict)
 
@@ -188,3 +192,21 @@ class DashboardStats(BaseModel):
     available_models: int
     available_dates: list[str]
     recent_jobs: list[dict[str, Any]]
+
+
+# ── Authentication ────────────────────────────────────────────────────────────
+
+class UserLogin(BaseModel):
+    email: str
+    password: str
+
+
+class Token(BaseModel):
+    access_token: str
+    token_type: str
+
+
+class UserResponse(BaseModel):
+    id: str
+    email: str
+    is_active: bool

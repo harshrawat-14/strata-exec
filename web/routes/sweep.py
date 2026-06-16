@@ -9,21 +9,21 @@ from __future__ import annotations
 import json
 import uuid
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from web.models.database import SweepJob, get_db
 from web.models.schemas import JobStatus, SweepRequest, SweepResult
-from web.workers.tasks import run_sweep_task
+from web.services.auth import get_current_user
 
-router = APIRouter(prefix="/api/sweep", tags=["sweep"])
+router = APIRouter(prefix="/api/sweep", tags=["sweep"], dependencies=[Depends(get_current_user)])
 
 
 @router.post("", response_model=JobStatus)
 async def start_sweep(
     req: SweepRequest,
-    background_tasks: BackgroundTasks,
+    request: Request,
     db: AsyncSession = Depends(get_db),
 ):
     """Queue a parameter sweep job."""
@@ -39,16 +39,27 @@ async def start_sweep(
     db.add(job)
     await db.commit()
 
-    background_tasks.add_task(
-        run_sweep_task,
-        job_id=job_id,
-        request_data=req.model_dump(),
-    )
+    # Launch ARQ job
+    request_data = req.model_dump()
+    pool = getattr(request.app.state, "arq_pool", None)
+    if pool:
+        await pool.enqueue_job(
+            "run_sweep_job",
+            job_id=job_id,
+            request_data=request_data,
+        )
+    else:
+        # Local fallback if redis pool is not initialized
+        from web.workers.tasks import run_sweep_job
+        import asyncio
+        asyncio.create_task(
+            run_sweep_job({"redis": None}, job_id, request_data)
+        )
 
     return JobStatus(
         job_id=job_id,
         status="queued",
-        websocket_url=f"/ws/job/{job_id}",
+        websocket_url=f"/api/jobs/{job_id}/progress",
     )
 
 

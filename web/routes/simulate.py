@@ -12,7 +12,7 @@ import json
 import uuid
 from datetime import datetime
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import select, desc
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -23,15 +23,15 @@ from web.models.schemas import (
     SimulationResult,
     StrategyResult,
 )
-from web.workers.tasks import run_simulation_task
+from web.services.auth import get_current_user
 
-router = APIRouter(prefix="/api", tags=["simulation"])
+router = APIRouter(prefix="/api", tags=["simulation"], dependencies=[Depends(get_current_user)])
 
 
 @router.post("/simulate", response_model=JobStatus)
 async def start_simulation(
     req: SimulationRequest,
-    background_tasks: BackgroundTasks,
+    request: Request,
     db: AsyncSession = Depends(get_db),
 ):
     """Queue a Monte Carlo simulation job."""
@@ -73,20 +73,28 @@ async def start_simulation(
     db.add(job)
     await db.commit()
 
-    # Launch background task
+    # Launch ARQ job
     request_data = req.model_dump()
-    background_tasks.add_task(
-        run_simulation_task,
-        job_id=job_id,
-        request_data=request_data,
-        lob_path=lob_path,
-        agg_path=agg_path,
-    )
+    pool = getattr(request.app.state, "arq_pool", None)
+    if pool:
+        await pool.enqueue_job(
+            "run_simulation_job",
+            job_id=job_id,
+            request_data=request_data,
+            lob_path=lob_path,
+            agg_path=agg_path,
+        )
+    else:
+        # Local fallback if redis pool is not initialized
+        from web.workers.tasks import run_simulation_job
+        asyncio.create_task(
+            run_simulation_job({"redis": None}, job_id, request_data, lob_path, agg_path)
+        )
 
     return JobStatus(
         job_id=job_id,
         status="queued",
-        websocket_url=f"/ws/job/{job_id}",
+        websocket_url=f"/api/jobs/{job_id}/progress",
     )
 
 
@@ -118,6 +126,8 @@ async def get_simulation_result(job_id: str, db: AsyncSession = Depends(get_db))
             is_variance=s.get("is_variance"),
             cvar95=s.get("cvar95"),
             ac_objective=s.get("ac_objective"),
+            trade_count=s.get("trade_count"),
+            avg_exec_price=s.get("avg_exec_price"),
             trajectory=s.get("trajectory", []),
             cost_decomposition=s.get("cost_decomposition", {}),
         )

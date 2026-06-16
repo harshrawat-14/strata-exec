@@ -3,32 +3,17 @@
  * All styling via CSS variables.
  */
 
-import { useState, useCallback, useEffect, useRef } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { BrainCircuit, Play } from 'lucide-react'
-import {
-  BarChart, Bar, XAxis, YAxis, Tooltip,
-  ResponsiveContainer, Cell
-} from 'recharts'
-
-import { startEvaluation, fetchEvaluationResult, fetchUploadedModels } from '../api/client'
+import { startEvaluation, fetchEvaluationResult, fetchUploadedModels, cancelJob } from '../api/client'
 import { useWebSocket } from '../hooks/useWebSocket'
-import { JobStatusBadge, ProgressBar, Skeleton, EmptyState, IS } from '../components/ui'
+import { JobStatusBadge, ProgressBar, Skeleton, EmptyState } from '../components/ui'
+import EvaluationResultsPanel from '../components/EvaluationResultsPanel'
+import { LiveProgressDashboard } from '../components/LiveProgressDashboard'
 import type { JobStatusValue, EvaluationResult, WsMessage } from '../types'
 
-function useDarkMode() {
-  const [isDark, setIsDark] = useState(() =>
-    typeof window !== 'undefined' ? document.documentElement.classList.contains('dark') : true
-  )
-  useEffect(() => {
-    const obs = new MutationObserver(() =>
-      setIsDark(document.documentElement.classList.contains('dark'))
-    )
-    obs.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] })
-    return () => obs.disconnect()
-  }, [])
-  return isDark
-}
+
 
 const KNOWN_DATES = [
   { date: '2024-01-15', regime: 'Calm bull' },
@@ -39,38 +24,78 @@ const KNOWN_DATES = [
 ]
 
 export default function RLEvaluation() {
-  const isDark = useDarkMode()
   const [selectedModel, setSelectedModel] = useState('')
   const [selectedDates, setSelectedDates] = useState<string[]>(['2024-01-15', '2024-08-05'])
   const [nEpisodes,     setNEpisodes]     = useState(30)
 
-  const [jobId,     setJobId]     = useState<string | null>(null)
+  const [jobId,     setJobId]     = useState<string | null>(() => sessionStorage.getItem('activeJobId_evaluation'))
   const [jobStatus, setJobStatus] = useState<JobStatusValue | null>(null)
   const [progress,  setProgress]  = useState({ completed: 0, total: 0 })
   const [result,    setResult]    = useState<EvaluationResult | null>(null)
-  const jobStartedAt = useRef<number | undefined>(undefined)
+  const [completedDates, setCompletedDates] = useState<any[]>([])
+  const [jobStartedAt,   setJobStartedAt]   = useState<number | undefined>(undefined)
+
+  useEffect(() => {
+    if (jobId) {
+      sessionStorage.setItem('activeJobId_evaluation', jobId)
+    } else {
+      sessionStorage.removeItem('activeJobId_evaluation')
+    }
+  }, [jobId])
 
   const { data: models, isLoading: modelsLoading } = useQuery({
     queryKey: ['models'],
     queryFn: fetchUploadedModels,
   })
 
-  if (models?.length && !selectedModel) setSelectedModel(models[0].model_id)
+  const filteredModelsList = (models || [])
+    .filter(m => {
+      const name = m.name.toLowerCase()
+      return name === 'smoke_v5_final' || name === 'ppo_lstm_v5_adaptive_best'
+    })
+    .map(m => {
+      const name = m.name.toLowerCase()
+      let cleanName = m.name
+      if (name === 'smoke_v5_final') {
+        cleanName = 'SMOKE-V5 (Impact-Robust Liquidator)'
+      } else if (name === 'ppo_lstm_v5_adaptive_best') {
+        cleanName = 'PPO-LSTM (Regime-Adaptive Liquidator)'
+      }
+      return { ...m, name: cleanName }
+    })
+
+  useEffect(() => {
+    if (filteredModelsList.length && !selectedModel) {
+      setSelectedModel(filteredModelsList[0].model_id)
+    }
+  }, [filteredModelsList, selectedModel])
 
   const evalMut = useMutation({
     mutationFn: startEvaluation,
     onSuccess: (data) => {
       setJobId(data.job_id)
       setJobStatus('queued')
-      setProgress({ completed: 0, total: nEpisodes * selectedDates.length })
+      setProgress({ completed: 0, total: selectedDates.length })
+      setCompletedDates([])
       setResult(null)
-      jobStartedAt.current = Date.now()
+      setJobStartedAt(Date.now())
     },
   })
 
   const handleWsMessage = useCallback(async (msg: WsMessage) => {
+    if (msg.started_at) {
+      setJobStartedAt(msg.started_at)
+    }
+
     if (msg.type === 'progress') {
       setProgress({ completed: msg.completed, total: msg.total })
+      setJobStatus('running')
+    } else if (msg.type === 'date_complete') {
+      setCompletedDates(prev => {
+        if (prev.some(d => d.date === msg.date)) return prev
+        return [...prev, msg]
+      })
+      setProgress({ completed: msg.dates_done, total: msg.dates_total })
       setJobStatus('running')
     } else if (msg.type === 'status') {
       setJobStatus(msg.status)
@@ -86,7 +111,7 @@ export default function RLEvaluation() {
   useWebSocket({
     jobId,
     onMessage: handleWsMessage,
-    enabled: jobStatus === 'queued' || jobStatus === 'running',
+    enabled: !!jobId && jobStatus !== 'complete' && jobStatus !== 'failed',
   })
 
   const isRunning = jobStatus === 'queued' || jobStatus === 'running'
@@ -102,6 +127,15 @@ export default function RLEvaluation() {
       n_episodes: nEpisodes,
       compare_with: ['optimal', 'adaptive'],
     })
+  }
+
+  const handleCancel = async (id: string) => {
+    try {
+      await cancelJob(id)
+      setJobStatus('failed')
+    } catch (err) {
+      console.error("Failed to cancel RL evaluation", err)
+    }
   }
 
   return (
@@ -124,11 +158,11 @@ export default function RLEvaluation() {
               <select
                 value={selectedModel}
                 onChange={e => setSelectedModel(e.target.value)}
-                className="input-field text-xs font-mono uppercase"
+                className="input-field text-xs font-semibold"
                 id="model-selector"
               >
                 <option value="">Select a model…</option>
-                {models?.map(m => (
+                {filteredModelsList.map(m => (
                   <option key={m.model_id} value={m.model_id}>
                     {m.name}{m.is_builtin ? ' ★' : ''} ({(m.file_size_bytes / 1024).toFixed(0)} KB)
                   </option>
@@ -212,12 +246,24 @@ export default function RLEvaluation() {
             )}
           </button>
 
+          {/* Stop Button */}
+          {isRunning && jobId && (
+            <button
+              onClick={() => handleCancel(jobId)}
+              className="w-full py-2 px-4 rounded-lg text-xs font-mono font-semibold uppercase tracking-wider transition-all border border-red-500 hover:bg-red-500/10 text-red-500 flex items-center justify-center gap-1.5 mt-2"
+              id="stop-evaluation-btn"
+            >
+              <span className="w-2.5 h-2.5 bg-red-500 rounded-sm animate-pulse" />
+              Stop Evaluation
+            </button>
+          )}
+
           {isRunning && (
             <ProgressBar
               completed={progress.completed}
               total={progress.total || nEpisodes * selectedDates.length}
               label="Episodes"
-              startedAt={jobStartedAt.current}
+              startedAt={jobStartedAt}
             />
           )}
 
@@ -226,7 +272,7 @@ export default function RLEvaluation() {
       </div>
 
       {/* ── Results panel ─────────────────────────────────────────────────── */}
-      <div className="flex-1 space-y-4">
+      <div className="flex-1 min-w-0 space-y-4">
         {!result && !isRunning && (
           <div className="glass-card flex items-center justify-center" style={{ height: 500 }}>
             <EmptyState
@@ -238,125 +284,18 @@ export default function RLEvaluation() {
         )}
 
         {isRunning && !result && (
-          <div className="glass-card p-6 space-y-6">
-            <div className="p-4 rounded-xl" style={{ background: 'var(--card-hover)' }}>
-              <ProgressBar
-                completed={progress.completed}
-                total={progress.total || nEpisodes * selectedDates.length}
-                label="Evaluating episodes"
-                startedAt={jobStartedAt.current}
-              />
-            </div>
-            {Array.from({ length: 5 }).map((_, i) => <Skeleton key={i} className="h-14" />)}
-          </div>
+          <LiveProgressDashboard
+            jobType="evaluation"
+            jobId={jobId}
+            jobStatus={jobStatus}
+            progress={progress}
+            startedAt={jobStartedAt}
+            completedDates={completedDates}
+          />
         )}
 
         {result && (
-          <>
-            {/* Header card */}
-            <div className="glass-card p-5">
-              <h2 className="text-sm font-semibold font-mono uppercase tracking-wider mb-1" style={{ color: 'var(--text)' }}>
-                {result.model_name}
-              </h2>
-              <p className="text-[10px] font-mono uppercase mb-5" style={{ color: 'var(--text-muted)' }}>
-                {result.date_results.length} dates · {nEpisodes} episodes each
-                {result.duration_seconds && ` · ${result.duration_seconds.toFixed(1)}s`}
-              </p>
-
-              {/* IS comparison table */}
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr style={{ borderBottom: '1px solid var(--divider)' }}>
-                      {['Date', 'Regime', 'TWAP', 'Heuristic', 'Optimal AC', 'Adaptive AC', 'RL Agent', 'P-value', 'Better?'].map(h => (
-                        <th key={h} className="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>
-                          {h}
-                        </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {result.date_results.map(dr => (
-                      <tr
-                        key={dr.date}
-                        style={{ borderBottom: '1px solid var(--divider)' }}
-                        onMouseEnter={e => (e.currentTarget.style.background = 'var(--card-hover)')}
-                        onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
-                      >
-                        <td className="px-3 py-3 font-mono text-xs" style={{ color: 'var(--text)' }}>{dr.date}</td>
-                        <td className="px-3 py-3 text-xs font-mono uppercase" style={{ color: 'var(--text-muted)' }}>{dr.regime}</td>
-                        <td className="px-3 py-3"><IS value={dr.twap_is} /></td>
-                        <td className="px-3 py-3"><IS value={dr.heuristic_is} /></td>
-                        <td className="px-3 py-3"><IS value={dr.static_optimal_is} /></td>
-                        <td className="px-3 py-3"><IS value={dr.adaptive_optimal_is} /></td>
-                        <td className="px-3 py-3 font-bold"><IS value={dr.mean_is_pct} /></td>
-                        <td className="px-3 py-3 font-mono text-xs" style={{ color: 'var(--text-muted)' }}>
-                          {dr.p_value !== null ? dr.p_value.toFixed(3) : '—'}
-                        </td>
-                        <td className="px-3 py-3">
-                          {dr.significantly_better === null
-                            ? <span className="font-mono text-xs" style={{ color: 'var(--text-muted)' }}>—</span>
-                            : dr.significantly_better
-                            ? <span className="badge-success text-[9px]">✓ Yes</span>
-                            : <span className="badge-neutral text-[9px]">✗ No</span>}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
-            {/* Action distribution charts */}
-            {result.date_results.some(dr => Object.keys(dr.action_distribution).length > 0) && (
-              <div className="glass-card p-5">
-                <h3 className="text-[10px] font-mono font-bold uppercase tracking-widest mb-4" style={{ color: 'var(--text-muted)' }}>
-                  Action Distribution (Fraction of episode steps)
-                </h3>
-                <div className="grid grid-cols-2 gap-6">
-                  {result.date_results.map(dr => {
-                    const dist = Object.entries(dr.action_distribution)
-                      .map(([a, f]) => ({ action: parseInt(a), fraction: f }))
-                      .sort((a, b) => a.action - b.action)
-                    return (
-                      <div key={dr.date} className="space-y-2">
-                        <div className="text-[10px] font-mono uppercase" style={{ color: 'var(--text-muted)' }}>
-                          {dr.date} — {dr.regime}
-                        </div>
-                        <ResponsiveContainer width="100%" height={80}>
-                          <BarChart data={dist} margin={{ top: 0, right: 0, bottom: 0, left: 0 }}>
-                            <XAxis dataKey="action" tickLine={false} />
-                            <YAxis hide />
-                            <Tooltip
-                              contentStyle={{
-                                background: 'var(--card)',
-                                border: '1px solid var(--card-border)',
-                                borderRadius: 6,
-                                fontSize: 10,
-                                fontFamily: 'JetBrains Mono, monospace',
-                                color: 'var(--text)',
-                              }}
-                              formatter={(v: any) => [`${(Number(v) * 100).toFixed(1)}%`, 'Fraction']}
-                            />
-                            <Bar dataKey="fraction" radius={[2, 2, 0, 0]}>
-                              {dist.map(entry => (
-                                <Cell
-                                  key={entry.action}
-                                  fill={isDark
-                                    ? `rgba(255,255,255,${0.15 + (entry.action / 19) * 0.6})`
-                                    : `rgba(0,0,0,${0.1 + (entry.action / 19) * 0.6})`}
-                                />
-                              ))}
-                            </Bar>
-                          </BarChart>
-                        </ResponsiveContainer>
-                      </div>
-                    )
-                  })}
-                </div>
-              </div>
-            )}
-          </>
+          <EvaluationResultsPanel result={result} />
         )}
       </div>
     </div>

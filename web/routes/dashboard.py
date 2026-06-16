@@ -21,8 +21,9 @@ from web.models.database import (
     UploadedModel,
     get_db,
 )
+from web.services.auth import get_current_user
 
-router = APIRouter(prefix="/api", tags=["dashboard"])
+router = APIRouter(prefix="/api", tags=["dashboard"], dependencies=[Depends(get_current_user)])
 settings = get_settings()
 
 STRATEGY_INFO = [

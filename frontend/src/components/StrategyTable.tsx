@@ -8,7 +8,7 @@ import type { StrategyResult } from '../types'
 import { IS } from './ui'
 
 interface StrategyTableProps { strategies: StrategyResult[] }
-type SortKey = 'name' | 'mean_is_pct' | 'is_variance' | 'cvar95' | 'ac_objective'
+type SortKey = 'name' | 'mean_is_pct' | 'is_variance' | 'cvar95' | 'ac_objective' | 'trade_count' | 'avg_exec_price'
 
 const StrategyIndicator = ({ name }: { name: string }) => {
   if (name.includes('TWAP'))
@@ -60,6 +60,8 @@ export function StrategyTable({ strategies }: StrategyTableProps) {
             <Th k="is_variance"   label="IS Variance" />
             <Th k="cvar95"        label="CVaR 95%" />
             <Th k="ac_objective"  label="AC Objective" />
+            <Th k="trade_count"   label="Trade Count" />
+            <Th k="avg_exec_price" label="Avg Exec Price" />
             <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>
               Cost Breakdown
             </th>
@@ -89,6 +91,12 @@ export function StrategyTable({ strategies }: StrategyTableProps) {
                 <td className="px-4 py-3.5"><IS value={s.cvar95} /></td>
                 <td className="px-4 py-3.5 font-mono text-sm" style={{ color: 'var(--text-muted)' }}>
                   {s.ac_objective !== null ? s.ac_objective?.toFixed(4) : '—'}
+                </td>
+                <td className="px-4 py-3.5 font-mono text-sm" style={{ color: 'var(--text-muted)' }}>
+                  {s.trade_count !== null && s.trade_count !== undefined ? s.trade_count.toFixed(1) : '—'}
+                </td>
+                <td className="px-4 py-3.5 font-mono text-sm" style={{ color: 'var(--text-muted)' }}>
+                  {s.avg_exec_price !== null && s.avg_exec_price !== undefined ? s.avg_exec_price.toFixed(2) : '—'}
                 </td>
                 <td className="px-4 py-3.5">
                   {Object.keys(breakdown).length > 0 ? (

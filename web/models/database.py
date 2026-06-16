@@ -7,7 +7,7 @@ import uuid
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import String, Float, Integer, Boolean, DateTime, Text
+from sqlalchemy import String, Float, Integer, Boolean, DateTime, Text, Index
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -41,6 +41,11 @@ def _now() -> datetime:
 
 class SimulationJob(Base):
     __tablename__ = "simulation_jobs"
+    __table_args__ = (
+        # Speed up job listing queries (status filter + order by created_at)
+        Index("ix_sim_jobs_status", "status"),
+        Index("ix_sim_jobs_created_at", "created_at"),
+    )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
     status: Mapped[str] = mapped_column(String(20), default="queued")
@@ -59,6 +64,10 @@ class SimulationJob(Base):
 
 class EvaluationJob(Base):
     __tablename__ = "evaluation_jobs"
+    __table_args__ = (
+        Index("ix_eval_jobs_status", "status"),
+        Index("ix_eval_jobs_created_at", "created_at"),
+    )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
     status: Mapped[str] = mapped_column(String(20), default="queued")
@@ -75,6 +84,10 @@ class EvaluationJob(Base):
 
 class SweepJob(Base):
     __tablename__ = "sweep_jobs"
+    __table_args__ = (
+        Index("ix_sweep_jobs_status", "status"),
+        Index("ix_sweep_jobs_created_at", "created_at"),
+    )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
     status: Mapped[str] = mapped_column(String(20), default="queued")
@@ -112,6 +125,16 @@ class UploadedModel(Base):
     stored_path: Mapped[str] = mapped_column(String(500))
     file_size_bytes: Mapped[int] = mapped_column(Integer, default=0)
     is_builtin: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+
+
+class User(Base):
+    __tablename__ = "users"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    email: Mapped[str] = mapped_column(String(255), unique=True, index=True, nullable=False)
+    hashed_password: Mapped[str] = mapped_column(String(255), nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
 
 

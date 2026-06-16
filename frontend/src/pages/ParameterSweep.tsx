@@ -3,14 +3,14 @@
  * All styling via CSS variables.
  */
 
-import { useState, useCallback, useEffect, useRef } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import { useMutation } from '@tanstack/react-query'
 import { BarChart3, Play, Download } from 'lucide-react'
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, Legend
 } from 'recharts'
-import { startSweep, fetchSweepResult } from '../api/client'
+import { startSweep, fetchSweepResult, cancelJob } from '../api/client'
 import { useWebSocket } from '../hooks/useWebSocket'
 import { JobStatusBadge, ProgressBar, Skeleton, EmptyState } from '../components/ui'
 import type { JobStatusValue, WsMessage } from '../types'
@@ -22,45 +22,37 @@ const DIMENSION_OPTIONS = [
   { id: 'slices',     label: 'Trade Chunks',     desc: 'Number of execution slices',    presets: [10, 25, 50, 100, 200, 500] },
 ]
 
-function useDarkMode() {
-  const [isDark, setIsDark] = useState(() =>
-    typeof window !== 'undefined' ? document.documentElement.classList.contains('dark') : true
-  )
-  useEffect(() => {
-    const obs = new MutationObserver(() =>
-      setIsDark(document.documentElement.classList.contains('dark'))
-    )
-    obs.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] })
-    return () => obs.disconnect()
-  }, [])
-  return isDark
-}
-
 export default function ParameterSweep() {
-  const isDark = useDarkMode()
-
   const [dimension,   setDimension]   = useState('volatility')
   const [gridValues,  setGridValues]  = useState([0.05, 0.10, 0.15, 0.20, 0.30, 0.40])
   const [nPaths,      setNPaths]      = useState(100)
   const [strategies,  setStrategies]  = useState(['twap', 'optimal', 'adaptive'])
   const [customInput, setCustomInput] = useState('')
 
-  const [jobId,     setJobId]     = useState<string | null>(null)
+  const [jobId,     setJobId]     = useState<string | null>(() => sessionStorage.getItem('activeJobId_sweep'))
   const [jobStatus, setJobStatus] = useState<JobStatusValue | null>(null)
   const [progress,  setProgress]  = useState({ completed: 0, total: 0 })
   const [result,    setResult]    = useState<any>(null)
-  const jobStartedAt = useRef<number | undefined>(undefined)
+  const [jobStartedAt, setJobStartedAt] = useState<number | undefined>(undefined)
+
+  useEffect(() => {
+    if (jobId) {
+      sessionStorage.setItem('activeJobId_sweep', jobId)
+    } else {
+      sessionStorage.removeItem('activeJobId_sweep')
+    }
+  }, [jobId])
 
   const selectedDim = DIMENSION_OPTIONS.find(d => d.id === dimension)
 
   const getStrategyStyle = (name: string) => {
     const k = name.toLowerCase()
-    if (k.includes('twap'))     return { stroke: isDark ? '#888' : '#aaa', dash: '3 3' }
-    if (k.includes('heuristic'))return { stroke: isDark ? '#aaa' : '#777', dash: '6 3' }
+    if (k.includes('twap'))     return { stroke: '#94A3B8', dash: '3 3' }
+    if (k.includes('heuristic'))return { stroke: '#F59E0B', dash: '6 3' }
     if (k.includes('optimal') && !k.includes('adaptive'))
-                                return { stroke: isDark ? '#fff' : '#000', dash: '0' }
-    if (k.includes('adaptive')) return { stroke: isDark ? '#ddd' : '#444', dash: '8 3 2 3' }
-    return                             { stroke: isDark ? '#bbb' : '#555', dash: '0' }
+                                return { stroke: '#3B82F6', dash: '0' }
+    if (k.includes('adaptive')) return { stroke: '#A78BFA', dash: '8 3 2 3' }
+    return                             { stroke: '#10B981', dash: '0' }
   }
 
   const sweepMut = useMutation({
@@ -70,11 +62,14 @@ export default function ParameterSweep() {
       setJobStatus('queued')
       setProgress({ completed: 0, total: gridValues.length })
       setResult(null)
-      jobStartedAt.current = Date.now()
+      setJobStartedAt(Date.now())
     },
   })
 
   const handleWsMessage = useCallback(async (msg: WsMessage) => {
+    if (msg.started_at) {
+      setJobStartedAt(msg.started_at)
+    }
     if (msg.type === 'progress') {
       setProgress({ completed: msg.completed, total: msg.total })
       setJobStatus('running')
@@ -92,11 +87,20 @@ export default function ParameterSweep() {
   useWebSocket({
     jobId,
     onMessage: handleWsMessage,
-    enabled: jobStatus === 'queued' || jobStatus === 'running',
+    enabled: !!jobId && jobStatus !== 'complete' && jobStatus !== 'failed',
   })
 
   const handleRun = () => {
     sweepMut.mutate({ sweep_dimension: dimension, grid_values: gridValues, n_paths: nPaths, strategies })
+  }
+
+  const handleCancel = async (id: string) => {
+    try {
+      await cancelJob(id)
+      setJobStatus('failed')
+    } catch (err) {
+      console.error("Failed to cancel parameter sweep", err)
+    }
   }
 
   const isRunning = jobStatus === 'queued' || jobStatus === 'running'
@@ -141,11 +145,11 @@ export default function ParameterSweep() {
                       border: '1px solid',
                       borderColor: active ? 'var(--active-fill)' : 'var(--card-border)',
                       background: active ? 'var(--active-fill)' : 'transparent',
-                      color: active ? 'var(--active-text)' : 'var(--text-muted)',
+                      color: active ? 'var(--active-text)' : 'var(--text-sub)',
                     }}
                   >
                     <div className="w-1.5 h-1.5 rounded-full mt-1.5 flex-shrink-0"
-                      style={{ background: active ? 'var(--active-text)' : 'var(--text-muted)', opacity: active ? 1 : 0.3 }} />
+                      style={{ background: active ? 'var(--active-text)' : 'var(--text-sub)', opacity: active ? 1 : 0.4 }} />
                     <div className="text-left font-mono">
                       <div className="font-semibold">{d.label}</div>
                       <div className="text-[9px] opacity-65 mt-0.5">{d.desc}</div>
@@ -199,7 +203,7 @@ export default function ParameterSweep() {
                     style={{
                       borderColor: active ? 'var(--active-fill)' : 'var(--card-border)',
                       background: active ? 'var(--active-fill)' : 'transparent',
-                      color: active ? 'var(--active-text)' : 'var(--text-muted)',
+                      color: active ? 'var(--active-text)' : 'var(--text-sub)',
                     }}
                   >
                     {s}
@@ -240,12 +244,24 @@ export default function ParameterSweep() {
             }
           </button>
 
+          {/* Stop Button */}
+          {isRunning && jobId && (
+            <button
+              onClick={() => handleCancel(jobId)}
+              className="w-full py-2 px-4 rounded-lg text-xs font-mono font-semibold uppercase tracking-wider transition-all border border-red-500 hover:bg-red-500/10 text-red-500 flex items-center justify-center gap-1.5 mt-2"
+              id="stop-sweep-btn"
+            >
+              <span className="w-2.5 h-2.5 bg-red-500 rounded-sm animate-pulse" />
+              Stop Sweep
+            </button>
+          )}
+
           {isRunning && (
             <ProgressBar
               completed={progress.completed}
               total={progress.total || gridValues.length}
               label="Configurations"
-              startedAt={jobStartedAt.current}
+              startedAt={jobStartedAt}
             />
           )}
 
@@ -254,7 +270,7 @@ export default function ParameterSweep() {
       </div>
 
       {/* ── Results ──────────────────────────────────────────────────── */}
-      <div className="flex-1 space-y-4">
+      <div className="flex-1 min-w-0 space-y-4">
         {!result && !isRunning && (
           <div className="glass-card flex items-center justify-center" style={{ height: 500 }}>
             <EmptyState
@@ -272,7 +288,7 @@ export default function ParameterSweep() {
                 completed={progress.completed}
                 total={progress.total || gridValues.length}
                 label={`Sweeping ${selectedDim?.label}`}
-                startedAt={jobStartedAt.current}
+                startedAt={jobStartedAt}
               />
             </div>
             {Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-16" />)}
@@ -339,12 +355,31 @@ export default function ParameterSweep() {
             {result.sweep_data && (
               <div className="glass-card p-5">
                 <h3 className="text-[10px] font-mono font-bold uppercase tracking-widest mb-4" style={{ color: 'var(--text-muted)' }}>
-                  Raw Sweep Data
+                  Raw Sweep Data (Filtered by Selected Strategies)
                 </h3>
                 <div className="overflow-x-auto custom-scrollbar">
                   <pre className="text-[10px] font-mono whitespace-pre-wrap" style={{ color: 'var(--text-sub, var(--text-muted))' }}>
-                    {JSON.stringify(result.sweep_data, null, 2).slice(0, 2000)}
-                    {JSON.stringify(result.sweep_data, null, 2).length > 2000 ? '\n… (truncated)' : ''}
+                    {(() => {
+                      const filtered: Record<string, any[]> = {}
+                      const activeStrats = strategies.map(s => s.toLowerCase())
+                      for (const [key, rows] of Object.entries(result.sweep_data)) {
+                        if (Array.isArray(rows)) {
+                          filtered[key] = rows.filter((row: any) => {
+                            const s = normalizeStrategyName(row.Strategy || "")
+                            return activeStrats.includes(s)
+                          })
+                        } else {
+                          filtered[key] = rows as any
+                        }
+                      }
+                      const jsonStr = JSON.stringify(filtered, null, 2)
+                      return (
+                        <>
+                          {jsonStr.slice(0, 2000)}
+                          {jsonStr.length > 2000 ? '\n… (truncated)' : ''}
+                        </>
+                      )
+                    })()}
                   </pre>
                 </div>
               </div>
@@ -356,22 +391,34 @@ export default function ParameterSweep() {
   )
 }
 
-function buildSensitivityData(sweepData: any, dimension: string, strategies: string[]): any[] {
+function normalizeStrategyName(name: string): string {
+  const norm = name.toLowerCase().replace(/[\s\-_]/g, "")
+  if (norm.includes("twap")) return "twap"
+  if (norm.includes("heuristic")) return "heuristic"
+  if (norm.includes("optimal") && !norm.includes("adaptive")) return "optimal"
+  if (norm.includes("adaptive")) return "adaptive"
+  return norm
+}
+
+function buildSensitivityData(sweepData: any, dimension: string, _strategies: string[]): any[] {
   const dimKey = dimension === 'slices' ? 'trade_chunks' : dimension
   const rows = sweepData[dimKey] || []
   if (!rows.length) return []
+  
   const grouped: Record<number, Record<string, number>> = {}
   for (const row of rows) {
-    const x = row[dimKey] ?? row['volatility'] ?? row['horizon'] ?? row['impact'] ?? 0
-    if (!grouped[x]) grouped[x] = {}
-    for (const s of strategies) {
-      const col = `${s}_mean_is_pct`
-      if (row[col] !== undefined) grouped[x][s] = row[col]
-      for (const k of Object.keys(row)) {
-        if (k.toLowerCase().includes(s) && k.includes('IS')) grouped[x][s] = row[k]
-      }
+    const x = row.ParameterValue ?? row.ParamValue ?? row[dimKey] ?? 0
+    const rawStrat = row.Strategy || ""
+    const stratKey = normalizeStrategyName(rawStrat)
+    
+    if (!grouped[x]) {
+      grouped[x] = {}
     }
+    
+    const shortfall = row.MeanImplementationShortfall_Pct ?? row.mean_is_pct ?? 0.0
+    grouped[x][stratKey] = shortfall
   }
+  
   return Object.entries(grouped)
     .map(([x, vals]) => ({ x: parseFloat(x), ...vals }))
     .sort((a, b) => a.x - b.x)

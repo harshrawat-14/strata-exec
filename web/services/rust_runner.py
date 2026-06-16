@@ -52,6 +52,7 @@ class RustRunner:
         lob_path: str | None = None,
         agg_path: str | None = None,
         include_regime_ac: bool = False,
+        params: dict[str, Any] | None = None,
         on_progress: Callable[[int, int], None] | None = None,
     ) -> dict[str, Any]:
         """
@@ -70,6 +71,17 @@ class RustRunner:
             cmd.extend(["--agg-trades", agg_path])
         if include_regime_ac:
             cmd.append("--include-regime-ac")
+        if params:
+            if "sigma" in params and params["sigma"] is not None:
+                cmd.extend(["--sigma", str(params["sigma"])])
+            if "eta" in params and params["eta"] is not None:
+                cmd.extend(["--eta", str(params["eta"])])
+            if "lambda" in params and params["lambda"] is not None:
+                cmd.extend(["--lambda", str(params["lambda"])])
+            if "total_notional" in params and params["total_notional"] is not None:
+                cmd.extend(["--notional", str(params["total_notional"])])
+            if "horizon_steps" in params and params["horizon_steps"] is not None:
+                cmd.extend(["--horizon", str(params["horizon_steps"])])
 
         # Run from the project root so relative paths (TradeData/, results/) resolve correctly
         cwd = Path(settings.rust_binary_path).parent.parent  # target/release -> project root
@@ -184,23 +196,52 @@ class RustRunner:
                         trajectories[display_name].append(0.0)
                         costs[display_name].append(0.0)
 
+        summary_path = Path(csv_path).parent / "summary.json"
+        summary_data = {}
+        if summary_path.exists():
+            try:
+                with open(summary_path) as sf:
+                    summary_data = json.load(sf)
+            except Exception:
+                pass
+
+        def clean_name(s: str) -> str:
+            return s.lower().replace(" ", "").replace("(", "").replace(")", "").replace("-", "")
+
         strategies_out = []
         for display_name in strategy_map:
             traj = trajectories[display_name]
             cost_series = costs[display_name]
 
-            # Compute summary stats from the cost series
-            final_cost = cost_series[-1] if cost_series else None
-            initial_inventory = traj[0] if traj else 0.0
-            
+            # Try to fetch matching statistics from summary_data
+            stats = summary_data.get(display_name)
+            if not stats:
+                for k, v in summary_data.items():
+                    ck = clean_name(k)
+                    cd = clean_name(display_name)
+                    if ck == cd or ck in cd or cd in ck:
+                        stats = v
+                        break
+
+            mean_is_pct = stats.get("mean_is_pct") if stats else None
+            is_variance = stats.get("is_variance") if stats else None
+            cvar95 = stats.get("cvar95") if stats else None
+            ac_objective = stats.get("ac_objective") if stats else None
+            cost_decomp = stats.get("cost_decomposition", {}) if stats else {}
+            trade_count = stats.get("trade_count") if stats else None
+            avg_exec_price = stats.get("avg_exec_price") if stats else None
+
             strategies_out.append({
                 "name": display_name,
                 "trajectory": traj,
                 "cost_series": cost_series,
-                "mean_is_pct": None,   # Populated from multi-path aggregate
-                "is_variance": None,
-                "cvar95": None,
-                "ac_objective": None,
+                "mean_is_pct": mean_is_pct,
+                "is_variance": is_variance,
+                "cvar95": cvar95,
+                "ac_objective": ac_objective,
+                "cost_decomposition": cost_decomp,
+                "trade_count": trade_count,
+                "avg_exec_price": avg_exec_price,
             })
 
         return {
@@ -265,6 +306,7 @@ class RustRunner:
         n_paths: int,
         model: str = "gbm",
         on_progress: Callable[[int, int], None] | None = None,
+        job_id: str | None = None,
     ) -> dict[str, Any]:
         """Run research-sim with --experiments flag to produce sweep CSVs."""
         cmd = [
@@ -284,21 +326,29 @@ class RustRunner:
             stderr=asyncio.subprocess.PIPE,
             cwd=str(cwd),
         )
+        if job_id:
+            from web.services.job_registry import register_subprocess
+            await register_subprocess(job_id, proc)
 
-        stdout_lines: list[str] = []
-        stderr_lines: list[str] = []
+        try:
+            stdout_lines: list[str] = []
+            stderr_lines: list[str] = []
 
-        async def read_stdout():
-            async for line in proc.stdout:
-                decoded = line.decode(errors="replace").rstrip()
-                stdout_lines.append(decoded)
+            async def read_stdout():
+                async for line in proc.stdout:
+                    decoded = line.decode(errors="replace").rstrip()
+                    stdout_lines.append(decoded)
 
-        async def read_stderr():
-            async for line in proc.stderr:
-                stderr_lines.append(line.decode(errors="replace").rstrip())
+            async def read_stderr():
+                async for line in proc.stderr:
+                    stderr_lines.append(line.decode(errors="replace").rstrip())
 
-        await asyncio.gather(read_stdout(), read_stderr())
-        await proc.wait()
+            await asyncio.gather(read_stdout(), read_stderr())
+            await proc.wait()
+        finally:
+            if job_id:
+                from web.services.job_registry import unregister_subprocess
+                await unregister_subprocess(job_id, proc)
 
         if proc.returncode != 0:
             err = "\n".join(stderr_lines[-20:])

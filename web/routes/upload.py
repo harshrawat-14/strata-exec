@@ -21,6 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from web.config import get_settings
 from web.models.database import UploadedFile, UploadedModel, get_db
 from web.models.schemas import UploadedFileInfo, UploadedModelInfo, LOBPreview
+from web.services.auth import get_current_user
 from web.services.lob_preview import (
     FileValidationError,
     extract_date_from_filename,
@@ -30,7 +31,7 @@ from web.services.lob_preview import (
     validate_lob_csv,
 )
 
-router = APIRouter(prefix="/api/upload", tags=["upload"])
+router = APIRouter(prefix="/api/upload", tags=["upload"], dependencies=[Depends(get_current_user)])
 settings = get_settings()
 
 MAX_UPLOAD_MB = 50

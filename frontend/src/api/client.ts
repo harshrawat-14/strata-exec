@@ -24,6 +24,39 @@ export const api = axios.create({
   headers: { 'Content-Type': 'application/json' },
 })
 
+// Request interceptor: attach JWT token if present
+api.interceptors.request.use(
+  (config) => {
+    const token = localStorage.getItem('strataexec_token')
+    if (token && config.headers) {
+      config.headers.Authorization = `Bearer ${token}`
+    }
+    return config
+  },
+  (error) => Promise.reject(error)
+)
+
+// Response interceptor: redirect to login on 401 Unauthorized
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.response && error.response.status === 401) {
+      localStorage.removeItem('strataexec_token')
+      // Only redirect if we are not already on the login page
+      if (!window.location.pathname.endsWith('/login')) {
+        window.location.href = '/login'
+      }
+    }
+    return Promise.reject(error)
+  }
+)
+
+export const loginUser = (credentials: any): Promise<{ access_token: string; token_type: string }> =>
+  api.post('/api/auth/login', credentials).then((r) => r.data)
+
+export const fetchMe = (): Promise<{ id: string; email: string; is_active: boolean }> =>
+  api.get('/api/auth/me').then((r) => r.data)
+
 // ── Dashboard ─────────────────────────────────────────────────────────────────
 export const fetchDashboard = (): Promise<DashboardStats> =>
   api.get('/api/dashboard').then((r) => r.data)
@@ -91,3 +124,6 @@ export const fetchUploadedModels = (): Promise<UploadedModelInfo[]> =>
 
 export const fetchLobDepthPreview = (fileId: string): Promise<LobDepthPreview> =>
   api.get(`/api/upload/lob-preview/${fileId}`).then((r) => r.data)
+
+export const cancelJob = (jobId: string): Promise<{ status: string; message: string }> =>
+  api.post(`/api/jobs/${jobId}/cancel`).then((r) => r.data)

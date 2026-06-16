@@ -12,11 +12,29 @@ export interface JobStatus {
 export type JobStatusValue = 'queued' | 'running' | 'complete' | 'failed'
 
 // ── WebSocket messages ────────────────────────────────────────────────────────
-export type WsMessage =
+export type WsMessage = (
   | { type: 'progress'; completed: number; total: number }
   | { type: 'status'; status: JobStatusValue }
   | { type: 'complete'; job_id: string; results_url: string }
   | { type: 'error'; message: string }
+  | {
+      type: 'date_complete'
+      date: string
+      regime: string
+      rl_is: number
+      ac_is: number
+      improvement_pp: number
+      dates_done: number
+      dates_total: number
+    }
+  | {
+      type: 'paths_update'
+      paths_done: number
+      paths_total: number
+      partial_results: Record<string, { mean_is: number; variance: number; cost_series: number[] }>
+    }
+) & { started_at?: number }
+
 
 // ── Simulation ────────────────────────────────────────────────────────────────
 export interface SimParams {
@@ -34,6 +52,8 @@ export interface SimulationRequest {
   params: SimParams
   lob_file_id?: string
   agg_file_id?: string
+  rl_model_id?: string
+  include_rl?: boolean
 }
 
 export interface StrategyResult {
@@ -42,6 +62,8 @@ export interface StrategyResult {
   is_variance: number | null
   cvar95: number | null
   ac_objective: number | null
+  trade_count: number | null
+  avg_exec_price: number | null
   trajectory: number[]
   cost_decomposition: Record<string, number>
 }

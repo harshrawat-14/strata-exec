@@ -1,15 +1,21 @@
+version: "3.8"
+
 services:
   frontend:
-    build: ./frontend
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
     ports:
       - "3000:3000"
-    environment:
-      - VITE_API_URL=http://localhost:8000
+    restart: unless-stopped
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
 
   backend:
-    build: ./web
+    build:
+      context: .
+      dockerfile: Dockerfile
     ports:
       - "8000:8000"
     environment:
@@ -19,17 +25,43 @@ services:
       - DATA_PATH=/app/TradeData
       - MODEL_PATH=/app/rl/models
       - UPLOAD_PATH=/app/uploads
+      - RESULTS_PATH=/app/results
       - CORS_ORIGINS=["http://localhost:3000","http://localhost:5173"]
     volumes:
-      - ./target/release:/app/target/release:ro
-      - ./TradeData:/app/TradeData:ro
-      - ./rl:/app/rl:ro
       - uploads:/app/uploads
       - ./results:/app/results
+      - ./strataexec.db:/app/strataexec.db
+    restart: unless-stopped
     depends_on:
       - redis
-    command: >
-      uvicorn web.main:app --host 0.0.0.0 --port 8000 --reload
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: ["python", "-m", "arq", "web.arq_worker.WorkerSettings"]
+    environment:
+      - DATABASE_URL=sqlite+aiosqlite:///./strataexec.db
+      - REDIS_URL=redis://redis:6379
+      - RUST_BINARY_PATH=/app/target/release
+      - DATA_PATH=/app/TradeData
+      - MODEL_PATH=/app/rl/models
+      - UPLOAD_PATH=/app/uploads
+      - RESULTS_PATH=/app/results
+    volumes:
+      - uploads:/app/uploads
+      - ./results:/app/results
+      - ./strataexec.db:/app/strataexec.db
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
 
   redis:
     image: redis:7-alpine

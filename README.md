@@ -8,7 +8,7 @@
 </p>
 
 <p align="center">
-  <code>Rust + Python</code> · <code>389 tests</code> · <code>zero warnings</code> · <code>zero unwrap() in production code</code>
+  <code>Rust + Python + React</code> · <code>389 Rust + 80 Pytest + 25 Vitest tests</code> · <code>zero warnings</code>
 </p>
 
 ---
@@ -689,23 +689,64 @@ Every chunk must satisfy **all four** constraints:
 
 ---
 
-## Testing
+## Web API & Task Queue Architecture
 
-```bash
-# Run all 389 tests
-cargo test
+StrataExec includes a robust full-stack web interface and backend API layer designed to manage, execute, and monitor simulations and evaluations.
 
-# Run only experiment tests
-cargo test research::experiments
-
-# Run only analytics tests
-cargo test analytics::
-
-# Run with output visible
-cargo test -- --nocapture
+```
+                  ┌─────────────────────────────────┐
+                  │          React Frontend         │
+                  │      (Vite SPA / Lucide UI)     │
+                  └────────────────┬────────────────┘
+                                   │ HTTPS / Event Stream
+                                   ▼
+                  ┌─────────────────────────────────┐
+                  │       FastAPI Web Server        │
+                  │     (Uvicorn / Auth / DB)       │
+                  └────────────────┬────────────────┘
+                                   │ arq Queue Jobs
+                                   ▼
+                  ┌─────────────────────────────────┐
+                  │          Redis Server           │
+                  │      (Broker / Job Storage)     │
+                  └────────────────┬────────────────┘
+                                   │ Worker Thread Pool
+                                   ▼
+                  ┌─────────────────────────────────┐
+                  │       ARQ Background Worker     │
+                  │       (Loads RL / Runs DES)     │
+                  └─────────────────────────────────┘
 ```
 
-### Test Coverage by Module
+The stack components are:
+* **FastAPI Backend Web API**: Coordinates user authentication (JWT token based), manages job states, provides WebSocket/SSE status streams, handles data file uploads, and acts as the interface to the task queue.
+* **Asynchronous Database ORM (SQLAlchemy 2.0)**: Interfaces with the local SQLite database (`strataexec.db`) or production PostgreSQL instances asynchronously using `create_async_engine`. Key state indexes on `SimulationJob`, `EvaluationJob`, and `SweepJob` tables enable fast queries.
+* **Distributed Task Queue (Redis + ARQ)**: Compute-heavy tasks (such as running 1,000-path Monte Carlo simulations, full parameter sweeps, or recurrent neural network evaluations) are offloaded to an asynchronous task execution queue.
+* **Sandboxed ARQ Worker**: A background daemon that imports pre-trained Pytorch models (`ppo_lstm_v5_adaptive_best` or `smoke_v5_final`) into Gymnasium environments, running them against the core Rust DES binaries. Enforces resource limitations using soft/hard limits:
+  - **CPU Timeout Limit**: Bounded at 300 seconds per job execution.
+  - **Virtual Memory Sandbox Limit**: Hard-capped at 4GB per worker process to mitigate PyTorch OOM spikes.
+
+---
+
+## Testing
+
+StrataExec implements a comprehensive, multi-layered testing strategy spanning the core execution engine (Rust), the backend services (Pytest), and the user interface (Vitest).
+
+### 1. Rust Core Engine Simulation Tests
+The Rust core backtester contains **389 tests** checking mathematics, order routing, event priority queues, volatility estimation, and market impact models.
+
+```bash
+# Run all 389 core Rust tests (requires no database or RPC endpoint)
+cargo test
+
+# Run specific strategy tests
+cargo test strategies::optimal
+
+# Run research experiments tests
+cargo test research::experiments
+```
+
+### Test Coverage by Module (Rust Core)
 
 | Module | Tests | Focus |
 |--------|-------|-------|
@@ -729,14 +770,100 @@ cargo test -- --nocapture
 | `calibration` | 3 | Y-coefficient algebra, zero-trade filtering, multi-trade averaging |
 | `blockchain::client` | 3 | Mock client correctness |
 
+### 2. Python Backend API & Services (Pytest)
+The FastAPI backend layer implements **80 unit, integration, and route-level functional tests** verifying JWT authentication, LRU model caching behavior under concurrency, task execution routes, and services under `web/tests/`.
+
+```bash
+# Run the backend pytest suite
+rl/.venv/bin/python -m pytest web/tests/ -v --tb=short
+```
+
+Backend test coverage covers:
+* **Authentication**: JWT token validation, user registration, and secure route access guards.
+* **Services**: Shortfall aggregation calculations, CSV analysis parser validation, and file storage deduplication.
+* **API Endpoints**: Submit/simulate validations, job status and cancellations, LOB previews, and job listing pagination.
+* **Concurrency**: Multi-thread LRU cache locking mechanisms and eviction routines.
+
+### 3. Frontend Web App Tests (Vitest + RTL)
+The React single-page client uses **Vitest + React Testing Library (RTL)** to run **25 tests** verifying component behavior, active states, progress synchronization, and token/routing interceptors.
+
+```bash
+# Run the frontend vitest suite
+cd frontend && npm test
+```
+
+Frontend test coverage covers:
+* **Interceptors**: HTTP bearer token headers insertion and automated 401 redirection to `/login`.
+* **State Updates**: Progress trackers, remaining time estimators, and ETA interval timers.
+* **UI Components**: BADGE rendering for job states, Skeletons, and progress bar percentages.
+
+---
+
+## Production Deployment (Vercel & Render)
+
+The full-stack application is designed for cloud-native deployment. The React client is hosted on **Vercel** as a static single-page application (SPA), and the FastAPI server, Redis broker, and ARQ background worker are hosted on **Render** using Docker containers.
+
+### 1. Backend & Background Worker (Render)
+Render deployment utilizes Render Blueprints via [render.yaml](file:///Users/harshrawat/Harsh/Projects/StrataExec/render.yaml) to provision three interconnected service layers:
+1. **API Web Service (`strataexec-api`)**: Runs Uvicorn serving the FastAPI backend.
+2. **Background Worker (`strataexec-worker`)**: Runs the ARQ worker to process compute-intensive simulation and evaluation tasks.
+3. **Redis Broker (`strataexec-redis`)**: A managed Redis server acting as a broker between the API and workers.
+
+#### Backend Docker Container
+Both the web API and background worker use the multi-stage [Dockerfile](file:///Users/harshrawat/Harsh/Projects/StrataExec/Dockerfile) located in the project root:
+* **Stage 1 (Rust Builder)**: Compiles the source files in `src/` to produce the `research-sim` and `rl-env` binaries for the correct target OS (Linux), preventing executables compiled on a host macOS machine from failing in Docker containers.
+* **Stage 2 (Python Builder)**: Pre-installs Python packages like PyTorch, Stable-Baselines3, Gym, Pandas, and Uvicorn.
+* **Stage 3 (Runtime)**: Copies the Python libraries and compiled Rust binaries into a slim Debian runtime environment containing only required libraries (e.g. `libgomp1` for CPU OpenMP support) and configures the environment.
+
+#### Database Migrations (Alembic)
+Database migrations are structured using **Alembic**. The [env.py](file:///Users/harshrawat/Harsh/Projects/StrataExec/web/alembic/env.py) file supports async connections using SQLAlchemy `create_async_engine`.
+* To deploy the database schema on a fresh SQL instance (e.g., migrating from development SQLite to a production Postgres database), set the `DATABASE_URL` environment variable to the production connection string and run the upgrade command during deployment:
+  ```bash
+  rl/.venv/bin/alembic upgrade head
+  ```
+* In local development, the migrations are initialized and stamped on the existing `strataexec.db` file using:
+  ```bash
+  rl/.venv/bin/alembic stamp head
+  ```
+
+### 2. Frontend Client (Vercel)
+The React frontend is deployed to Vercel as a single-page application.
+* **Proxy and SPA Configuration**: The [vercel.json](file:///Users/harshrawat/Harsh/Projects/StrataExec/frontend/vercel.json) file redirects SPA paths directly to `index.html` to prevent 404 errors on browser reload, and proxies all `/api/*` and `/progress/*` (SSE) requests directly to the Render endpoint:
+  ```json
+  {
+    "rewrites": [
+      { "source": "/api/:path*", "destination": "https://api-strataexec.render.com/api/:path*" },
+      { "source": "/progress/:path*", "destination": "https://api-strataexec.render.com/progress/:path*" },
+      { "source": "/(.*)", "destination": "/index.html" }
+    ]
+  }
+  ```
+* **Environment Variables**: The `VITE_API_URL` variable inside the frontend configuration should be left blank (`VITE_API_URL=`) to instruct Axios to use relative path structures, allowing Vercel's rewrite engine to handle routing and prevent CORS preflight problems.
+
+### 3. Local Docker Orchestration (Docker Compose)
+For local multi-container development and verification, run the services using [docker-compose.yml](file:///Users/harshrawat/Harsh/Projects/StrataExec/docker-compose.yml):
+```bash
+# Build and run the entire stack locally in containers
+docker compose up --build
+```
+This builds and boots:
+* `redis`: The Alpine Redis service on port `6379`.
+* `backend`: The FastAPI web server on port `8000`, verified via a `/health` endpoint check.
+* `worker`: The background ARQ worker queue processor.
+* `frontend`: An Nginx-backed web server hosting the React SPA on port `3000`, routing API requests to the backend container.
+
 ---
 
 ## Project Structure
 
 ```
 StrataExec/
-├── Cargo.toml
-├── .env.example
+├── Cargo.toml                  # Cargo manifest for the Rust engine
+├── Dockerfile                  # Multi-stage production container build for backend
+├── render.yaml                 # Render Blueprint specification for Web, Worker, and Redis
+├── docker-compose.yml          # Container configuration for local stack orchestration
+├── pyproject.toml              # Pytest configuration (asyncio mode configurations)
+├── strataexec.db               # Local SQLite development database
 ├── historical_trades.csv       # Sample calibration data
 ├── README.md
 │
@@ -813,6 +940,36 @@ StrataExec/
 │   │
 │   └── observability/          # Logging & diagnostics
 │       └── logger.rs           # Non-blocking crossbeam-channel logger thread
+│
+├── web/                        # Python FastAPI Web API
+│   ├── main.py                 # FastAPI application and startup setup
+│   ├── requirements.txt        # Backend dependencies (FastAPI, PyTorch, Alembic)
+│   ├── config.py               # Pydantic environment configurations
+│   ├── arq_worker.py           # Background ARQ task executor configuration
+│   │
+│   ├── alembic/                # Database migration scripts
+│   │   ├── env.py              # Async DB connection script for migrations
+│   │   └── versions/           # Migration revisions folder
+│   │
+│   ├── models/                 # SQLAlchemy database schema models
+│   ├── routes/                 # FastAPI routes (authentication, jobs, uploads)
+│   ├── services/               # Internal business logic (auth, LOB validation)
+│   └── tests/                  # Pytest verification suites (unit, integration)
+│
+├── frontend/                   # React + TypeScript Vite Client
+│   ├── package.json            # Node scripts and dependencies
+│   ├── vitest.config.ts        # Vitest environment configs
+│   ├── vercel.json             # Vercel SPA routing configurations
+│   ├── nginx.conf              # Nginx container configuration and reverse proxy
+│   ├── Dockerfile              # Container compilation for client-side static asset build
+│   ├── .env.example            # Environment variables template
+│   │
+│   ├── src/
+│   │   ├── __tests__/          # Vitest suites (components, API interceptors)
+│   │   ├── api/                # API client connection logic
+│   │   ├── components/         # Reusable charts, dashboards, badges
+│   │   └── pages/              # Views (Simulator, Parameter Sweep, RL Evaluation)
+│   └── public/                 # Static assets
 │
 ├── rl/                         # Python RL layer
 │   ├── requirements.txt        # Python dependencies (pinned)

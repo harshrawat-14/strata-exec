@@ -22,3 +22,16 @@ __pycache__/
 # RL training artifacts (model weights + TensorBoard events)
 rl/models/
 rl/logs/
+
+# Caches
+.pytest_cache/
+.eslintcache
+.vitest/
+
+# Uploaded files and output results (too large for git)
+uploads/
+results/*.csv
+results/*.json
+
+# Logs
+*.log

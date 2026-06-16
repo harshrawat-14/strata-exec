@@ -1,0 +1,11 @@
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["web/tests"]
+addopts = "-v --tb=short"
+filterwarnings = [
+    # Suppress known pydantic protected-namespace warnings from SB3 / our schemas
+    "ignore::pydantic.warnings.PydanticDeprecatedSince20",
+    "ignore:Field .* has conflict with protected namespace:UserWarning",
+    # Suppress arq pool close deprecation until arq releases a fix
+    "ignore:Call to deprecated close:DeprecationWarning",
+]

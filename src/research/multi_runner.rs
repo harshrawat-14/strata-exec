@@ -97,6 +97,7 @@ pub struct MultiStrategyRunner {
     /// Per-snapshot VPIN series built from `agg_trades` on the first `run()` call.
     /// Indexed by `replay_step` — one value per bookDepth snapshot.
     pub real_vpin_series: Vec<f64>,
+    pub results_dir: String,
 }
 
 /// Per-step snapshot for one strategy (used during CSV export).
@@ -125,7 +126,14 @@ impl MultiStrategyRunner {
             lob_vpin_series: Vec::new(),
             agg_trades: None,
             real_vpin_series: Vec::new(),
+            results_dir: "results".to_string(),
         }
+    }
+
+    /// Set results directory output path.
+    pub fn with_results_dir(mut self, dir: String) -> Self {
+        self.results_dir = dir;
+        self
     }
 
     /// Attach a debug event sender (builder pattern).
@@ -540,7 +548,7 @@ impl MultiStrategyRunner {
 
     /// Internal helper to write out path results.
     fn export_csv(&self, prices: &[f64], history: &[Vec<StepRecord>]) -> Result<(), String> {
-        let results_dir = "results";
+        let results_dir = &self.results_dir;
         if std::fs::metadata(results_dir).is_err() {
             std::fs::create_dir(results_dir).map_err(|e| e.to_string())?;
         }

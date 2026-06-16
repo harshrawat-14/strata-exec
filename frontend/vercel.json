@@ -1,0 +1,7 @@
+{
+  "rewrites": [
+    { "source": "/api/:path*", "destination": "https://api-strataexec.render.com/api/:path*" },
+    { "source": "/progress/:path*", "destination": "https://api-strataexec.render.com/progress/:path*" },
+    { "source": "/(.*)", "destination": "/index.html" }
+  ]
+}

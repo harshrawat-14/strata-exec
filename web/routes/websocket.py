@@ -40,7 +40,7 @@ async def _get_job_status(job_id: str) -> dict | None:
 
 
 @router.websocket("/ws/job/{job_id}")
-async def job_websocket(websocket: WebSocket, job_id: str):
+async def job_websocket(websocket: WebSocket, job_id: str, token: str | None = None):
     """
     WebSocket for real-time progress.
 
@@ -50,6 +50,26 @@ async def job_websocket(websocket: WebSocket, job_id: str):
       {"type": "complete", "job_id": "...", "results_url": "..."}
       {"type": "error", "message": "..."}
     """
+    from jose import jwt
+    from web.services.auth import ALGORITHM
+
+    if not token:
+        await websocket.accept()
+        await websocket.send_json({"type": "error", "message": "Missing authentication token"})
+        await websocket.close(code=1008)
+        return
+
+    try:
+        payload = jwt.decode(token, settings.jwt_secret, algorithms=[ALGORITHM])
+        email: str = payload.get("sub")
+        if email is None:
+            raise Exception()
+    except Exception:
+        await websocket.accept()
+        await websocket.send_json({"type": "error", "message": "Invalid authentication token"})
+        await websocket.close(code=1008)
+        return
+
     await websocket.accept()
 
     # Try Redis pub/sub first
@@ -61,18 +81,21 @@ async def job_websocket(websocket: WebSocket, job_id: str):
 
         try:
             while True:
-                # Check for incoming message from Redis (non-blocking with timeout)
-                msg = await asyncio.wait_for(
-                    pubsub.get_message(ignore_subscribe_messages=True),
-                    timeout=1.0,
-                )
-                if msg and msg["type"] == "message":
-                    data = json.loads(msg["data"])
-                    await websocket.send_json(data)
+                try:
+                    # Check for incoming message from Redis (non-blocking with timeout)
+                    msg = await asyncio.wait_for(
+                        pubsub.get_message(ignore_subscribe_messages=True),
+                        timeout=1.0,
+                    )
+                    if msg and msg["type"] == "message":
+                        data = json.loads(msg["data"])
+                        await websocket.send_json(data)
 
-                    # Stop streaming once job is terminal
-                    if data.get("type") in ("complete", "error"):
-                        break
+                        # Stop streaming once job is terminal
+                        if data.get("type") in ("complete", "error"):
+                            break
+                except asyncio.TimeoutError:
+                    pass
 
                 # Keepalive ping
                 try:

@@ -51,26 +51,43 @@ export function ProgressBar({ completed, total, label, startedAt }: ProgressBarP
   const mountedAt = useRef(startedAt ?? Date.now())
 
   useEffect(() => {
+    if (startedAt) {
+      mountedAt.current = startedAt
+    }
+  }, [startedAt])
+
+  const completedRef = useRef(completed)
+  const totalRef = useRef(total)
+
+  useEffect(() => {
+    completedRef.current = completed
+    totalRef.current = total
+  }, [completed, total])
+
+  useEffect(() => {
     const interval = setInterval(() => {
       const now = Date.now()
       const elapsedSec = (now - mountedAt.current) / 1000
       setElapsed(elapsedSec)
 
-      if (completed > 0 && total > 0 && completed < total) {
-        const rate = completed / elapsedSec           // paths / sec
-        const remaining = total - completed
+      const comp = completedRef.current
+      const tot = totalRef.current
+
+      if (comp > 0 && tot > 0 && comp < tot) {
+        const rate = comp / elapsedSec           // paths / sec
+        const remaining = tot - comp
         const etaSec = remaining / rate
         if (etaSec < 3600) {
           const m = Math.floor(etaSec / 60)
           const s = Math.round(etaSec % 60)
           setEta(m > 0 ? `~${m}m ${s}s` : `~${s}s`)
         }
-      } else if (completed >= total) {
+      } else if (comp >= tot) {
         setEta(null)
       }
-    }, 500)
+    }, 1000)
     return () => clearInterval(interval)
-  }, [completed, total])
+  }, [])
 
   return (
     <div className="w-full space-y-2.5">
