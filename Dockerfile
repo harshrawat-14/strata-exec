@@ -1,7 +1,7 @@
 # ==============================================================================
 # Stage 1: Rust Builder
 # ==============================================================================
-FROM rust:1.75-slim AS rust-builder
+FROM rust:1.82-slim AS rust-builder
 
 WORKDIR /app
 
@@ -16,7 +16,9 @@ COPY Cargo.toml Cargo.lock ./
 COPY src/ ./src/
 
 # Build Rust binaries in release mode
-RUN cargo build --release
+RUN cargo build --release \
+    --bin research-sim \
+    --bin rl-env
 
 # ==============================================================================
 # Stage 2: Python Package Builder
