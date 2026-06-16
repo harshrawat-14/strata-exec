@@ -28,7 +28,19 @@ class StrataExecEnv(gym.Env):
         fixed_size: bool = False,
         jump_diffusion: bool = False,
     ):
+        import os
+        if lob_date:
+
+            lob_path = f"TradeData/BookDepth/BTCUSDT-bookDepth-{lob_date}.csv"
+            if not os.path.exists(lob_path):
+                raise FileNotFoundError(f"Historical LOB data file not found for date: {lob_date} (path: {lob_path})")
+        if agg_date:
+            agg_path = f"TradeData/AggTrades/BTCUSDT-aggTrades-{agg_date}.csv"
+            if not os.path.exists(agg_path):
+                raise FileNotFoundError(f"Historical AggTrades data file not found for date: {agg_date} (path: {agg_path})")
+
         super().__init__()
+
 
         self.cmd = [
             "./target/release/rl-env",
@@ -76,12 +88,14 @@ class StrataExecEnv(gym.Env):
         if n_state_dims == 8 and mode == "counterfactual":
             n_state_dims = 12
 
+        self.n_state_dims = n_state_dims
         self.observation_space = gym.spaces.Box(
             low=-1.0, high=1.0,
             shape=(n_state_dims,),
             dtype=np.float32
         )
         self.action_space = gym.spaces.Discrete(20)
+
 
         self.process = None
         self.current_seed = seed
@@ -112,12 +126,14 @@ class StrataExecEnv(gym.Env):
         use_seed = seed if seed is not None else self.current_seed
         result = self._send({"reset": True, "seed": use_seed})
         self._last_info = result.get("info", {})
-        obs = np.array(result["state"], dtype=np.float32)
+        obs = np.array(result["state"][:self.n_state_dims], dtype=np.float32)
         return obs, self._last_info
+
 
     def step(self, action: int):
         result = self._send({"action": int(action)})
-        obs    = np.array(result["state"], dtype=np.float32)
+        obs    = np.array(result["state"][:self.n_state_dims], dtype=np.float32)
+
         reward = float(result["reward"])
         done   = bool(result["done"])
         trunc  = False

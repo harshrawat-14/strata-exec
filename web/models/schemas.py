@@ -78,7 +78,9 @@ class SimulationResult(BaseModel):
 # ── RL Evaluation ─────────────────────────────────────────────────────────────
 
 class EvaluationRequest(BaseModel):
+    model_config = {"protected_namespaces": ()}
     model_id: str
+
     dates: list[str] = Field(min_length=1, max_length=11)
     n_episodes: int = Field(50, ge=1, le=200)
     compare_with: list[str] = Field(default=["optimal", "adaptive"])
@@ -117,7 +119,9 @@ class DateResult(BaseModel):
 
 
 class EvaluationResult(BaseModel):
+    model_config = {"protected_namespaces": ()}
     job_id: str
+
     status: str
     model_name: str | None = None
     date_results: list[DateResult] = Field(default_factory=list)
@@ -149,7 +153,9 @@ class UploadedFileInfo(BaseModel):
 
 
 class UploadedModelInfo(BaseModel):
+    model_config = {"protected_namespaces": ()}
     model_id: str
+
     name: str
     original_name: str
     file_size_bytes: int

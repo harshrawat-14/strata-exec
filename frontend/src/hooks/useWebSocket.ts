@@ -15,7 +15,11 @@ interface UseWebSocketOptions {
 export function useWebSocket({ jobId, onMessage, enabled = true }: UseWebSocketOptions) {
   const eventSourceRef = useRef<EventSource | null>(null)
   const onMessageRef = useRef(onMessage)
-  onMessageRef.current = onMessage
+  const connectRef = useRef<() => void>(() => {})
+
+  useEffect(() => {
+    onMessageRef.current = onMessage
+  }, [onMessage])
 
   const connect = useCallback(() => {
     if (!jobId || !enabled) return
@@ -42,9 +46,14 @@ export function useWebSocket({ jobId, onMessage, enabled = true }: UseWebSocketO
 
     es.onerror = () => {
       es.close()
-      setTimeout(connect, 2000)
+      setTimeout(() => connectRef.current(), 2000)
     }
   }, [jobId, enabled])
+
+  useEffect(() => {
+    connectRef.current = connect
+  }, [connect])
+
 
   const checkStateAndRestore = useCallback(async () => {
     if (!jobId || !enabled) return

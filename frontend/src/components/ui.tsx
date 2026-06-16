@@ -48,7 +48,13 @@ export function ProgressBar({ completed, total, label, startedAt }: ProgressBarP
   const pct = total > 0 ? Math.min(100, (completed / total) * 100) : 0
   const [eta, setEta] = useState<string | null>(null)
   const [elapsed, setElapsed] = useState(0)
-  const mountedAt = useRef(startedAt ?? Date.now())
+  const mountedAt = useRef<number>(startedAt ?? 0)
+
+  useEffect(() => {
+    if (mountedAt.current === 0) {
+      mountedAt.current = Date.now()
+    }
+  }, [])
 
   useEffect(() => {
     if (startedAt) {
@@ -67,8 +73,10 @@ export function ProgressBar({ completed, total, label, startedAt }: ProgressBarP
   useEffect(() => {
     const interval = setInterval(() => {
       const now = Date.now()
-      const elapsedSec = (now - mountedAt.current) / 1000
+      const start = mountedAt.current || now
+      const elapsedSec = (now - start) / 1000
       setElapsed(elapsedSec)
+
 
       const comp = completedRef.current
       const tot = totalRef.current

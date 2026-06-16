@@ -101,39 +101,55 @@ def test_vs_baseline(rl_is_samples: list, baseline_is: float) -> dict:
     }
 
 
-def load_model(path: str) -> RecurrentPPO:
+def load_model(path: str):
     """
-    Load a RecurrentPPO model saved with _CPULSTMWrapper.
-    Remaps lstm_actor.lstm.* -> lstm_actor.* in policy.pth.
+    Load a model. Supports both RecurrentPPO (with _CPULSTMWrapper patch)
+    and standard PPO.
     """
     zip_path = path if path.endswith('.zip') else path + '.zip'
 
-    all_files = {}
-    with zipfile.ZipFile(zip_path, 'r') as zf:
-        for name in zf.namelist():
-            all_files[name] = zf.read(name)
+    # Check if this is a recurrent model (contains lstm layers in policy state dict)
+    is_recurrent = False
+    try:
+        with zipfile.ZipFile(zip_path, 'r') as zf:
+            if 'policy.pth' in zf.namelist():
+                sd = torch.load(io.BytesIO(zf.read('policy.pth')), map_location='cpu')
+                if any('lstm' in k for k in sd.keys()):
+                    is_recurrent = True
+    except Exception:
+        pass
 
-    # Target policy.pth explicitly — not pytorch_variables.pth
-    sd = torch.load(
-        io.BytesIO(all_files['policy.pth']), map_location='cpu')
+    if is_recurrent:
+        all_files = {}
+        with zipfile.ZipFile(zip_path, 'r') as zf:
+            for name in zf.namelist():
+                all_files[name] = zf.read(name)
 
-    new_sd = {}
-    for k, v in sd.items():
-        nk = (k
-              .replace('lstm_actor.lstm.', 'lstm_actor.')
-              .replace('lstm_critic.lstm.', 'lstm_critic.'))
-        new_sd[nk] = v
+        # Target policy.pth explicitly — not pytorch_variables.pth
+        sd = torch.load(
+            io.BytesIO(all_files['policy.pth']), map_location='cpu')
 
-    buf = io.BytesIO()
-    torch.save(new_sd, buf)
-    all_files['policy.pth'] = buf.getvalue()
+        new_sd = {}
+        for k, v in sd.items():
+            nk = (k
+                  .replace('lstm_actor.lstm.', 'lstm_actor.')
+                  .replace('lstm_critic.lstm.', 'lstm_critic.'))
+            new_sd[nk] = v
 
-    with tempfile.TemporaryDirectory() as tmpdir:
-        patched = os.path.join(tmpdir, 'model.zip')
-        with zipfile.ZipFile(patched, 'w', zipfile.ZIP_DEFLATED) as zf_out:
-            for name, data in all_files.items():
-                zf_out.writestr(name, data)
-        return RecurrentPPO.load(patched, device='cpu')
+        buf = io.BytesIO()
+        torch.save(new_sd, buf)
+        all_files['policy.pth'] = buf.getvalue()
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            patched = os.path.join(tmpdir, 'model.zip')
+            with zipfile.ZipFile(patched, 'w', zipfile.ZIP_DEFLATED) as zf_out:
+                for name, data in all_files.items():
+                    zf_out.writestr(name, data)
+            return RecurrentPPO.load(patched, device='cpu')
+    else:
+        from stable_baselines3 import PPO
+        return PPO.load(zip_path, device='cpu')
+
 
 def _run_episode(model, env, seed: int):
     """
@@ -171,13 +187,16 @@ def _run_episode(model, env, seed: int):
 
     forced = info.get("forced_liquidation_qty", 0) > 0
 
-    is_pct = None
-    if fill_qtys:
+    is_pct = info.get("total_IS_pct")
+    if is_pct is not None:
+        is_pct = -is_pct
+    elif fill_qtys:
         total_qty = sum(fill_qtys)
         vwap = sum(q * p for q, p in zip(fill_qtys, fill_prices)) / total_qty
         is_pct = (vwap - arrival_price) / arrival_price * 100
 
     return is_pct, ep_reward, forced, actions_taken
+
 
 
 def evaluate_model_on_date(

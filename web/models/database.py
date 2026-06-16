@@ -139,9 +139,11 @@ class User(Base):
 
 
 async def init_db():
-    """Create all tables."""
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+    """Create all tables if using SQLite. In production, Alembic handles this."""
+    if "sqlite" in settings.database_url:
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+
 
 
 async def get_db():

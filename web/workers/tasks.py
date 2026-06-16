@@ -313,6 +313,11 @@ async def run_evaluation_job(ctx: dict, job_id: str, request_data: dict[str, Any
         # Load model using the LRU model loader cache
         model = await model_cache.get(model_path)
 
+        # Auto-detect state dimensions from the loaded model
+        n_state_dims = 8
+        if hasattr(model, "observation_space") and model.observation_space is not None:
+            n_state_dims = model.observation_space.shape[0]
+
         # Run evaluation in a thread pool to avoid blocking the event loop
         loop = asyncio.get_event_loop()
 
@@ -343,8 +348,9 @@ async def run_evaluation_job(ctx: dict, job_id: str, request_data: dict[str, Any
                 from evaluate import evaluate_model_on_date, test_vs_baseline, STATIC_OPTIMAL_IS, ADAPTIVE_OPTIMAL_IS, TWAP_IS, HEURISTIC_IS
 
                 regime = REGIMES.get(d, "unknown")
-                r = evaluate_model_on_date(model, d, n_episodes=n_episodes)
+                r = evaluate_model_on_date(model, d, n_episodes=n_episodes, n_state_dims=n_state_dims)
                 stat_test = test_vs_baseline(r.get("is_samples", []), STATIC_OPTIMAL_IS.get(d, 0.0))
+
 
                 return {
                     "date": d,

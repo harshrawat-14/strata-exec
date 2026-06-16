@@ -66,9 +66,13 @@ export default function RLEvaluation() {
 
   useEffect(() => {
     if (filteredModelsList.length && !selectedModel) {
-      setSelectedModel(filteredModelsList[0].model_id)
+      const timer = setTimeout(() => {
+        setSelectedModel(filteredModelsList[0].model_id)
+      }, 0)
+      return () => clearTimeout(timer)
     }
   }, [filteredModelsList, selectedModel])
+
 
   const evalMut = useMutation({
     mutationFn: startEvaluation,

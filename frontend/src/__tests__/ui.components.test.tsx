@@ -100,8 +100,9 @@ describe("ProgressBar", () => {
     });
 
     // Elapsed time label should appear (e.g. "1s", "0s", etc.)
-    const elapsedEl = screen.queryByText(/elapsed/i);
+    screen.queryByText(/elapsed/i);
     // The component renders elapsed — allow for either text or aria
+
     // At minimum it should not crash and still show progress
     expect(screen.getByText(/25\s*\/\s*100/)).toBeInTheDocument();
   });
@@ -122,8 +123,9 @@ describe("ProgressBar", () => {
     });
 
     // ETA should appear — look for ~ prefix (e.g. "~5s" or "~1m 0s")
-    const etaEl = screen.queryByText(/~/);
+    screen.queryByText(/~/);
     // ETA may or may not show depending on elapsed/rate; just verify no crash
+
     expect(screen.getByText(/50\s*\/\s*100/)).toBeInTheDocument();
   });
 
