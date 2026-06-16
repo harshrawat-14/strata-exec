@@ -801,16 +801,14 @@ Frontend test coverage covers:
 
 ## Production Deployment (Vercel & Render)
 
-The full-stack application is designed for cloud-native deployment. The React client is hosted on **Vercel** as a static single-page application (SPA), and the FastAPI server, Redis broker, and ARQ background worker are hosted on **Render** using Docker containers.
+The full-stack application is designed for cloud-native deployment. The React client is hosted on **Vercel** as a static single-page application (SPA), and the FastAPI backend server is hosted on **Render** using a single free-tier Docker container.
 
-### 1. Backend & Background Worker (Render)
-Render deployment utilizes Render Blueprints via [render.yaml](file:///Users/harshrawat/Harsh/Projects/StrataExec/render.yaml) to provision three interconnected service layers:
-1. **API Web Service (`strataexec-api`)**: Runs Uvicorn serving the FastAPI backend.
-2. **Background Worker (`strataexec-worker`)**: Runs the ARQ worker to process compute-intensive simulation and evaluation tasks.
-3. **Redis Broker (`strataexec-redis`)**: A managed Redis server acting as a broker between the API and workers.
+### 1. Backend API & Local Task Execution (Render)
+Render deployment utilizes Render Blueprints via [render.yaml](file:///Users/harshrawat/Harsh/Projects/StrataExec/render.yaml) to provision a single, free-tier Docker Web Service (`strataexec-api`):
+* **No Paid Worker / Redis Required**: By setting the environment variable `REDIS_URL=""` on Render, the backend automatically operates in **local fallback mode** (executing compute tasks asynchronously using Python's internal `asyncio.create_task` loop). This allows the entire backend and background tasks to run on the **free web tier** without requiring paid background worker or Redis services.
 
 #### Backend Docker Container
-Both the web API and background worker use the multi-stage [Dockerfile](file:///Users/harshrawat/Harsh/Projects/StrataExec/Dockerfile) located in the project root:
+The backend Web Service uses the multi-stage [Dockerfile](file:///Users/harshrawat/Harsh/Projects/StrataExec/Dockerfile) located in the project root:
 * **Stage 1 (Rust Builder)**: Compiles the source files in `src/` to produce the `research-sim` and `rl-env` binaries for the correct target OS (Linux), preventing executables compiled on a host macOS machine from failing in Docker containers.
 * **Stage 2 (Python Builder)**: Pre-installs Python packages like PyTorch, Stable-Baselines3, Gym, Pandas, and Uvicorn.
 * **Stage 3 (Runtime)**: Copies the Python libraries and compiled Rust binaries into a slim Debian runtime environment containing only required libraries (e.g. `libgomp1` for CPU OpenMP support) and configures the environment.
