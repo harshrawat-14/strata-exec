@@ -48,7 +48,7 @@ class Settings(BaseSettings):
     default_n_episodes: int = 50
 
     # ── CORS ─────────────────────────────────────────────────────────────
-    cors_origins: list[str] = ["http://localhost:3000", "http://localhost:5173"]
+    cors_origins: list[str] = ["*"]
 
     # ── App ──────────────────────────────────────────────────────────────
     app_title: str = "StrataExec API"

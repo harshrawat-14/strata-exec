@@ -137,10 +137,13 @@ def create_app() -> FastAPI:
     )
 
     # ── CORS ──────────────────────────────────────────────────────────────────
+    # When origins is ["*"] credentials must be False (browser CORS spec).
+    # JWT is carried in the Authorization header so cookies are not needed.
+    _allow_credentials = "*" not in settings.cors_origins
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origins,
-        allow_credentials=True,
+        allow_credentials=_allow_credentials,
         allow_methods=["*"],
         allow_headers=["*"],
     )
