@@ -23,7 +23,7 @@ export default function Dashboard() {
   return (
     <div className="space-y-8 animate-fade-in">
       {/* Header */}
-      <div className="flex items-start justify-between">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-3xl font-bold tracking-tight" style={{ color: 'var(--text)' }}>
             Research <span className="text-gradient-electric">Dashboard</span>
@@ -32,12 +32,12 @@ export default function Dashboard() {
             Execution strategy benchmarking · Monte Carlo · RL evaluation
           </p>
         </div>
-        <div className="flex gap-2">
-          <button onClick={() => navigate('/simulator')} className="btn-primary">
+        <div className="flex flex-wrap gap-2 w-full sm:w-auto">
+          <button onClick={() => navigate('/simulator')} className="btn-primary flex-1 sm:flex-initial">
             <FlaskConical size={12} />
             Run Simulation
           </button>
-          <button onClick={() => navigate('/upload')} className="btn-secondary">
+          <button onClick={() => navigate('/upload')} className="btn-secondary flex-1 sm:flex-initial">
             <Upload size={12} />
             Upload Data
           </button>
@@ -45,7 +45,7 @@ export default function Dashboard() {
       </div>
 
       {/* Stat tiles */}
-      <div className="grid grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {isLoading ? (
           Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-28" />)
         ) : (
@@ -59,10 +59,10 @@ export default function Dashboard() {
       </div>
 
       {/* Main grid */}
-      <div className="grid grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
 
         {/* Recent jobs */}
-        <div className="col-span-2 glass-card p-6">
+        <div className="col-span-1 lg:col-span-2 glass-card p-6">
           <h2 className="text-[10px] font-mono font-bold uppercase tracking-widest mb-5" style={{ color: 'var(--text-muted)' }}>
             Recent Jobs
           </h2>

@@ -166,7 +166,7 @@ export default function DataUpload() {
       </div>
 
       {/* Drop zones */}
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <DropZone
           type="lob"
           accept=".csv"
@@ -205,11 +205,11 @@ export default function DataUpload() {
       {/* Preview panel */}
       {lobResult && (
         <div className="glass-card p-6 space-y-5">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
             <h2 className="text-xs font-semibold text-black/40 dark:text-white/40 uppercase tracking-widest font-mono">
               Order Book Preview
             </h2>
-            <div className="flex gap-4 text-xs font-mono">
+            <div className="flex flex-wrap gap-x-4 gap-y-1.5 text-xs font-mono">
               <div>
                 <span className="text-black/30 dark:text-white/30">Mid Price </span>
                 <span className="font-mono text-black dark:text-white font-semibold">
@@ -229,7 +229,7 @@ export default function DataUpload() {
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-6">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <div>
               <p className="text-xs text-black/30 dark:text-white/30 mb-3 font-mono uppercase tracking-wider">Bid / Ask Depth (first snapshot)</p>
               {preview ? (
@@ -251,7 +251,7 @@ export default function DataUpload() {
       )}
 
       {/* Existing files table */}
-      <div className="grid grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Files */}
         <div className="glass-card p-5">
           <h2 className="text-xs font-semibold text-black/40 dark:text-white/40 uppercase tracking-widest font-mono mb-4">

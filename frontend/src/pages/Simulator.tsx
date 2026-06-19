@@ -160,10 +160,10 @@ export default function Simulator() {
   ]
 
   return (
-    <div className="flex gap-6 h-full animate-fade-in">
+    <div className="flex flex-col lg:flex-row gap-6 h-full animate-fade-in">
 
       {/* ── Left panel ────────────────────────────────────────────────────── */}
-      <div className="w-72 flex-shrink-0 space-y-4">
+      <div className="w-full lg:w-72 lg:flex-shrink-0 space-y-4">
         <div className="glass-card p-5 space-y-5">
           <h2 className="label-text">Simulation Parameters</h2>
 

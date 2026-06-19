@@ -120,10 +120,10 @@ export default function ParameterSweep() {
     : null
 
   return (
-    <div className="flex gap-6 animate-fade-in">
+    <div className="flex flex-col lg:flex-row gap-6 animate-fade-in">
 
       {/* ── Config ───────────────────────────────────────────────────── */}
-      <div className="w-72 flex-shrink-0">
+      <div className="w-full lg:w-72 lg:flex-shrink-0">
         <div className="glass-card p-5 space-y-5">
           <div className="flex items-center gap-2">
             <BarChart3 size={16} style={{ color: 'var(--text-muted)' }} />
