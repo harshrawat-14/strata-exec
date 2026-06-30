@@ -1,0 +1,146 @@
+{
+  "generated_at": "2026-06-19T18:58:19.861439",
+  "demo_mode": true,
+  "simulation_presets": [
+    {
+      "key": "garch__0.20__0.001__50000__500",
+      "label": "Default (GARCH, moderate)",
+      "description": "Standard GARCH volatility model with moderate parameters",
+      "tags": [
+        "default"
+      ],
+      "params_summary": {
+        "model": "garch",
+        "sigma": 0.2,
+        "lambda": 0.001,
+        "notional": 50000.0,
+        "horizon": 500
+      }
+    },
+    {
+      "key": "garch__0.10__0.0001__50000__500",
+      "label": "Low Volatility",
+      "description": "Calm market conditions \u2014 AC optimal shines here",
+      "tags": [
+        "calm"
+      ],
+      "params_summary": {
+        "model": "garch",
+        "sigma": 0.1,
+        "lambda": 0.0001,
+        "notional": 50000.0,
+        "horizon": 500
+      }
+    },
+    {
+      "key": "garch__0.40__0.01__50000__200",
+      "label": "High Volatility",
+      "description": "Volatile market \u2014 front-loading vs patience tradeoff",
+      "tags": [
+        "volatile"
+      ],
+      "params_summary": {
+        "model": "garch",
+        "sigma": 0.4,
+        "lambda": 0.01,
+        "notional": 50000.0,
+        "horizon": 200
+      }
+    },
+    {
+      "key": "jump_garch__0.20__0.001__50000__500",
+      "label": "Jump Diffusion",
+      "description": "GARCH + Poisson price jumps (crash scenario)",
+      "tags": [
+        "crash",
+        "jump"
+      ],
+      "params_summary": {
+        "model": "jump_garch",
+        "sigma": 0.2,
+        "lambda": 0.001,
+        "notional": 50000.0,
+        "horizon": 500
+      }
+    },
+    {
+      "key": "garch__0.20__0.001__100000__500",
+      "label": "Large Order",
+      "description": "2\u00d7 position size \u2014 impact costs become dominant",
+      "tags": [
+        "large"
+      ],
+      "params_summary": {
+        "model": "garch",
+        "sigma": 0.2,
+        "lambda": 0.001,
+        "notional": 100000.0,
+        "horizon": 500
+      }
+    },
+    {
+      "key": "gbm__0.20__0.001__50000__500",
+      "label": "GBM Baseline",
+      "description": "Geometric Brownian Motion \u2014 textbook model",
+      "tags": [
+        "baseline",
+        "gbm"
+      ],
+      "params_summary": {
+        "model": "gbm",
+        "sigma": 0.2,
+        "lambda": 0.001,
+        "notional": 50000.0,
+        "horizon": 500
+      }
+    }
+  ],
+  "evaluation_dates": [
+    {
+      "date": "2024-01-15",
+      "label": "Jan 15 \u2014 Calm Bull Market",
+      "regime": "calm bull",
+      "is_test_date": false
+    },
+    {
+      "date": "2024-06-10",
+      "label": "Jun 10 \u2014 Quiet Consolidation",
+      "regime": "quiet consolidation",
+      "is_test_date": false
+    },
+    {
+      "date": "2024-08-05",
+      "label": "Aug 05 \u2014 Crash Day",
+      "regime": "crash - Yen unwind",
+      "is_test_date": false
+    },
+    {
+      "date": "2024-04-15",
+      "label": "Apr 15 \u2014 BTC Correction (out-of-sample)",
+      "regime": "BTC correction",
+      "is_test_date": true
+    }
+  ],
+  "unavailable_features": [
+    {
+      "feature": "custom_lob_upload",
+      "message": "Upload your own LOB data",
+      "run_locally": "python scripts/run_local.py --lob-data your_file.csv"
+    },
+    {
+      "feature": "custom_model_upload",
+      "message": "Upload your own RL model",
+      "run_locally": "python rl/evaluate.py --passive-model your_model/best_model"
+    },
+    {
+      "feature": "custom_parameters",
+      "message": "Simulate with custom parameter values",
+      "run_locally": "cargo run --release --bin research-sim -- --sigma 0.35 ..."
+    },
+    {
+      "feature": "custom_evaluation_date",
+      "message": "Evaluate on a specific date",
+      "run_locally": "python rl/evaluate.py --date 2024-09-15"
+    }
+  ]
+}

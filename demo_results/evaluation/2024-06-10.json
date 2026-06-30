@@ -1,0 +1,27 @@
+{
+  "date": "2024-06-10",
+  "regime": "quiet consolidation",
+  "label": "Jun 10 \u2014 Quiet Consolidation",
+  "description": "Low volume, tight spreads, OFI-based strategy optimal",
+  "is_test_date": false,
+  "rl_is": -0.5523072574873867,
+  "rl_std": 0.0025713504671174437,
+  "rl_ci_lower": -0.5530316592905781,
+  "rl_ci_upper": -0.551611475938157,
+  "rl_cvar95": -0.5560648195817187,
+  "action_distribution": {
+    "7": 0.3632816045013159,
+    "8": 0.41065432434885196,
+    "9": 0.2260640711498321
+  },
+  "mean_action": 7.862782466648516,
+  "action_entropy": 1.0694773560071948,
+  "forced_liquidation_rate": 0.0,
+  "static_optimal_is": -0.8684,
+  "adaptive_optimal_is": -0.4494,
+  "twap_is": 1.9491,
+  "heuristic_is": 1.8417,
+  "improvement_vs_ac": 0.3160927425126132,
+  "p_value": 2.2903234071465922e-104,
+  "significantly_better": true
+}

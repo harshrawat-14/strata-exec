@@ -1,0 +1,27 @@
+{
+  "date": "2024-01-15",
+  "regime": "calm bull",
+  "label": "Jan 15 \u2014 Calm Bull Market",
+  "description": "Low volatility, steady upward trend",
+  "is_test_date": false,
+  "rl_is": -0.525171819128946,
+  "rl_std": 0.006230889583912126,
+  "rl_ci_lower": -0.5269537003229079,
+  "rl_ci_upper": -0.5234809207114468,
+  "rl_cvar95": -0.5356590078343623,
+  "action_distribution": {
+    "7": 0.5499616858237548,
+    "8": 0.3677394636015326,
+    "9": 0.08229885057471265
+  },
+  "mean_action": 7.532337164750958,
+  "action_entropy": 0.9022381680211653,
+  "forced_liquidation_rate": 0.0,
+  "static_optimal_is": -0.99,
+  "adaptive_optimal_is": -0.4935,
+  "twap_is": 1.9869,
+  "heuristic_is": 1.8797,
+  "improvement_vs_ac": 0.46482818087105404,
+  "p_value": 9.712808143894804e-94,
+  "significantly_better": true
+}

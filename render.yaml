@@ -3,8 +3,23 @@ services:
     name: strataexec-api
     env: docker
     plan: free
+    healthCheckPath: /health
     envVars:
       - key: DATABASE_URL
         value: sqlite+aiosqlite:///./strataexec.db
       - key: REDIS_URL
         value: ""
+      - key: DEMO_MODE
+        value: "true"
+      - key: JWT_SECRET
+        generateValue: true
+      - key: RUST_BINARY_PATH
+        value: /app/target/release
+      - key: MODEL_PATH
+        value: /app/rl/models
+      - key: DATA_PATH
+        value: /app/TradeData
+      - key: UPLOAD_PATH
+        value: /app/uploads
+      - key: RESULTS_PATH
+        value: /app/results

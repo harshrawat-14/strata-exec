@@ -66,6 +66,8 @@ COPY --from=rust-builder /app/target/release/rl-env /app/target/release/rl-env
 # Copy application code and folders
 COPY web/ /app/web/
 COPY rl/ /app/rl/
+# Pre-computed demo results — required for DEMO_MODE=true to serve data
+COPY demo_results/ /app/demo_results/
 # Create directories for upload, results, and raw data
 RUN mkdir -p /app/uploads /app/results /app/TradeData
 

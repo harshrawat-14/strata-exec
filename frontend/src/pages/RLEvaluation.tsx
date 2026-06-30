@@ -1,306 +1,224 @@
 /**
- * RL Evaluation page — model selector, date picker, results table + charts.
- * All styling via CSS variables.
+ * RL Evaluation page — Demo Mode
+ * Shows 4 pre-computed date cards. Clicking one fetches & displays the result instantly.
+ * No job queue, no SSE, no spinning progress — just direct fetch from demo endpoint.
  */
 
-import { useState, useCallback, useEffect } from 'react'
-import { useMutation, useQuery } from '@tanstack/react-query'
-import { BrainCircuit, Play } from 'lucide-react'
-import { startEvaluation, fetchEvaluationResult, fetchUploadedModels, cancelJob } from '../api/client'
-import { useWebSocket } from '../hooks/useWebSocket'
-import { JobStatusBadge, ProgressBar, Skeleton, EmptyState } from '../components/ui'
+import { useState, useCallback } from 'react'
+import { BrainCircuit } from 'lucide-react'
+import { fetchEvaluationResult } from '../api/client'
+import { EmptyState } from '../components/ui'
 import EvaluationResultsPanel from '../components/EvaluationResultsPanel'
-import { LiveProgressDashboard } from '../components/LiveProgressDashboard'
-import type { JobStatusValue, EvaluationResult, WsMessage } from '../types'
+import type { EvaluationResult } from '../types'
 
+/* ── Pre-computed dates — must match demo_results/evaluation/ filenames ─────── */
+interface DateScenario {
+  date: string
+  regime: string
+  label: string
+  description: string
+  tag: string
+  tagColor: string
+}
 
-
-const KNOWN_DATES = [
-  { date: '2024-01-15', regime: 'Calm bull' },
-  { date: '2024-03-05', regime: 'BTC breakout' },
-  { date: '2024-06-10', regime: 'Quiet consolidation' },
-  { date: '2024-08-05', regime: 'Crash — Yen unwind' },
-  { date: '2024-11-06', regime: 'Post-election surge' },
+const DATE_SCENARIOS: DateScenario[] = [
+  {
+    date: '2024-01-15',
+    regime: 'Calm bull',
+    label: 'Jan 15 — Calm Bull',
+    description: 'Low volatility, steady uptrend. The agent can afford to execute patiently, capturing liquidity across the full horizon with minimal price impact.',
+    tag: 'CALM',
+    tagColor: '#10B981',
+  },
+  {
+    date: '2024-04-15',
+    regime: 'BTC breakout',
+    label: 'Apr 15 — BTC Breakout',
+    description: 'Rapid breakout phase with momentum and spread widening. The agent must balance speed (avoiding adverse drift) against impact (thin liquidity on the ask).',
+    tag: 'BREAKOUT',
+    tagColor: '#3B82F6',
+  },
+  {
+    date: '2024-06-10',
+    regime: 'Quiet consolidation',
+    label: 'Jun 10 — Quiet Consolidation',
+    description: 'Market in a tight range with very low realized volatility. Ideal conditions for TWAP-style execution; the RL agent captures micro-structure alpha tactically.',
+    tag: 'QUIET',
+    tagColor: '#8B5CF6',
+  },
+  {
+    date: '2024-08-05',
+    regime: 'Crash — Yen unwind',
+    label: 'Aug 05 — Crash Day',
+    description: 'Yen carry trade unwind — sudden 5%+ drop. Critical test: the agent must liquidate aggressively to avoid holding depreciating inventory while the order book collapses.',
+    tag: 'CRASH',
+    tagColor: '#EF4444',
+  },
 ]
 
+/* ── Hardcoded model (demo) ──────────────────────────────────────────────────── */
+const DEMO_MODEL = {
+  id: 'smoke_v5_final',
+  name: 'SMOKE-V5 — Strategic Market Order Execution',
+}
+
 export default function RLEvaluation() {
-  const [selectedModel, setSelectedModel] = useState('')
-  const [selectedDates, setSelectedDates] = useState<string[]>(['2024-01-15', '2024-08-05'])
-  const [nEpisodes,     setNEpisodes]     = useState(30)
+  const [activeDate, setActiveDate]   = useState<string | null>(null)
+  const [loading, setLoading]         = useState(false)
+  const [result, setResult]           = useState<EvaluationResult | null>(null)
+  const [error, setError]             = useState<string | null>(null)
 
-  const [jobId,     setJobId]     = useState<string | null>(() => sessionStorage.getItem('activeJobId_evaluation'))
-  const [jobStatus, setJobStatus] = useState<JobStatusValue | null>(null)
-  const [progress,  setProgress]  = useState({ completed: 0, total: 0 })
-  const [result,    setResult]    = useState<EvaluationResult | null>(null)
-  const [completedDates, setCompletedDates] = useState<any[]>([])
-  const [jobStartedAt,   setJobStartedAt]   = useState<number | undefined>(undefined)
-
-  useEffect(() => {
-    if (jobId) {
-      sessionStorage.setItem('activeJobId_evaluation', jobId)
-    } else {
-      sessionStorage.removeItem('activeJobId_evaluation')
-    }
-  }, [jobId])
-
-  const { data: models, isLoading: modelsLoading } = useQuery({
-    queryKey: ['models'],
-    queryFn: fetchUploadedModels,
-  })
-
-  const filteredModelsList = (models || [])
-    .filter(m => {
-      const name = m.name.toLowerCase()
-      return name === 'smoke_v5_final' || name === 'ppo_lstm_v5_adaptive_best'
-    })
-    .map(m => {
-      const name = m.name.toLowerCase()
-      let cleanName = m.name
-      if (name === 'smoke_v5_final') {
-        cleanName = 'SMOKE-V5 (Impact-Robust Liquidator)'
-      } else if (name === 'ppo_lstm_v5_adaptive_best') {
-        cleanName = 'PPO-LSTM (Regime-Adaptive Liquidator)'
-      }
-      return { ...m, name: cleanName }
-    })
-
-  useEffect(() => {
-    if (filteredModelsList.length && !selectedModel) {
-      const timer = setTimeout(() => {
-        setSelectedModel(filteredModelsList[0].model_id)
-      }, 0)
-      return () => clearTimeout(timer)
-    }
-  }, [filteredModelsList, selectedModel])
-
-
-  const evalMut = useMutation({
-    mutationFn: startEvaluation,
-    onSuccess: (data) => {
-      setJobId(data.job_id)
-      setJobStatus('queued')
-      setProgress({ completed: 0, total: selectedDates.length })
-      setCompletedDates([])
-      setResult(null)
-      setJobStartedAt(Date.now())
-    },
-  })
-
-  const handleWsMessage = useCallback(async (msg: WsMessage) => {
-    if (msg.started_at) {
-      setJobStartedAt(msg.started_at)
-    }
-
-    if (msg.type === 'progress') {
-      setProgress({ completed: msg.completed, total: msg.total })
-      setJobStatus('running')
-    } else if (msg.type === 'date_complete') {
-      setCompletedDates(prev => {
-        if (prev.some(d => d.date === msg.date)) return prev
-        return [...prev, msg]
-      })
-      setProgress({ completed: msg.dates_done, total: msg.dates_total })
-      setJobStatus('running')
-    } else if (msg.type === 'status') {
-      setJobStatus(msg.status)
-    } else if (msg.type === 'complete' && jobId) {
-      setJobStatus('complete')
-      const res = await fetchEvaluationResult(jobId)
-      setResult(res)
-    } else if (msg.type === 'error') {
-      setJobStatus('failed')
-    }
-  }, [jobId])
-
-  useWebSocket({
-    jobId,
-    onMessage: handleWsMessage,
-    enabled: !!jobId && jobStatus !== 'complete' && jobStatus !== 'failed',
-  })
-
-  const isRunning = jobStatus === 'queued' || jobStatus === 'running'
-
-  const toggleDate = (d: string) =>
-    setSelectedDates(prev => prev.includes(d) ? prev.filter(x => x !== d) : [...prev, d])
-
-  const handleRun = () => {
-    if (!selectedModel || !selectedDates.length) return
-    evalMut.mutate({
-      model_id: selectedModel,
-      dates: selectedDates,
-      n_episodes: nEpisodes,
-      compare_with: ['optimal', 'adaptive'],
-    })
-  }
-
-  const handleCancel = async (id: string) => {
+  const handleSelectDate = useCallback(async (scenario: DateScenario) => {
+    if (loading) return
+    setActiveDate(scenario.date)
+    setLoading(true)
+    setError(null)
+    setResult(null)
     try {
-      await cancelJob(id)
-      setJobStatus('failed')
-    } catch (err) {
-      console.error("Failed to cancel RL evaluation", err)
+      // Direct fetch — no job queue needed in demo mode
+      const res = await fetchEvaluationResult(`demo_eval_${scenario.date}`)
+      setResult(res)
+    } catch (err: any) {
+      setError(err?.message || 'Failed to load evaluation result')
+    } finally {
+      setLoading(false)
     }
-  }
+  }, [loading])
 
   return (
     <div className="flex flex-col lg:flex-row gap-6 animate-fade-in">
 
-      {/* ── Config panel ──────────────────────────────────────────────────── */}
-      <div className="w-full lg:w-72 lg:flex-shrink-0">
-        <div className="glass-card p-5 space-y-5">
-          <div className="flex items-center gap-2">
+      {/* ── Left: Date selector ───────────────────────────────────────────── */}
+      <div className="w-full lg:w-72 lg:flex-shrink-0 space-y-3">
+        <div className="glass-card p-5">
+          <div className="flex items-center gap-2 mb-1">
             <BrainCircuit size={16} style={{ color: 'var(--text-muted)' }} />
             <h2 className="label-text">RL Evaluation</h2>
           </div>
+          <p className="text-[10px] font-mono mb-4" style={{ color: 'var(--text-muted)' }}>
+            Click a date to load pre-computed results instantly
+          </p>
 
-          {/* Model selector */}
-          <div className="space-y-2">
-            <label className="label-text">RL Model</label>
-            {modelsLoading ? (
-              <Skeleton className="h-10" />
-            ) : (
-              <select
-                value={selectedModel}
-                onChange={e => setSelectedModel(e.target.value)}
-                className="input-field text-xs font-semibold"
-                id="model-selector"
-              >
-                <option value="">Select a model…</option>
-                {filteredModelsList.map(m => (
-                  <option key={m.model_id} value={m.model_id}>
-                    {m.name}{m.is_builtin ? ' ★' : ''} ({(m.file_size_bytes / 1024).toFixed(0)} KB)
-                  </option>
-                ))}
-              </select>
-            )}
-            <p className="text-[10px] font-mono" style={{ color: 'var(--text-muted)' }}>★ = built-in models</p>
+          {/* Model badge */}
+          <div className="mb-4 p-2.5 rounded-lg" style={{ background: 'var(--input-bg)', border: '1px solid var(--divider)' }}>
+            <div className="text-[9px] font-mono uppercase" style={{ color: 'var(--text-muted)' }}>Model</div>
+            <div className="text-[11px] font-mono font-semibold mt-0.5" style={{ color: 'var(--text)' }}>
+              {DEMO_MODEL.name}
+            </div>
           </div>
 
-          {/* Date selection */}
-          <div className="space-y-2">
-            <label className="label-text">Evaluation Dates</label>
-            <div className="space-y-1.5">
-              {KNOWN_DATES.map(({ date, regime }) => {
-                const active = selectedDates.includes(date)
-                return (
-                  <button
-                    key={date}
-                    onClick={() => toggleDate(date)}
-                    className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-mono uppercase transition-all text-left"
-                    style={{
-                      border: '1px solid',
-                      borderColor: active ? 'var(--active-fill)' : 'var(--card-border)',
-                      background: active ? 'var(--active-fill)' : 'transparent',
-                      color: active ? 'var(--active-text)' : 'var(--text-muted)',
-                    }}
-                  >
-                    <div
-                      className="w-1.5 h-1.5 rounded-full flex-shrink-0"
-                      style={{ background: active ? 'var(--active-text)' : 'var(--text-muted)', opacity: active ? 1 : 0.3 }}
-                    />
-                    <div className="text-left">
-                      <div className="font-semibold">{date}</div>
-                      <div className="text-[9px] opacity-65 mt-0.5">{regime}</div>
+          {/* Date cards */}
+          <div className="space-y-2.5">
+            {DATE_SCENARIOS.map(scenario => {
+              const isActive  = activeDate === scenario.date
+              const isLoading = isActive && loading
+              return (
+                <button
+                  key={scenario.date}
+                  id={`eval-date-${scenario.date}`}
+                  onClick={() => handleSelectDate(scenario)}
+                  disabled={loading}
+                  className="w-full text-left rounded-xl p-3.5 transition-all duration-200 space-y-1.5"
+                  style={{
+                    border: '1px solid',
+                    borderColor: isActive ? scenario.tagColor + '60' : 'var(--card-border)',
+                    background: isActive ? scenario.tagColor + '10' : 'var(--input-bg)',
+                    opacity: loading && !isActive ? 0.5 : 1,
+                    cursor: loading ? 'wait' : 'pointer',
+                    transform: isActive ? 'scale(1.01)' : 'scale(1)',
+                    boxShadow: isActive ? `0 0 0 1px ${scenario.tagColor}30` : 'none',
+                  }}
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <div
+                        className="w-2 h-2 rounded-full flex-shrink-0"
+                        style={{ background: scenario.tagColor }}
+                      />
+                      <div>
+                        <div className="text-xs font-bold font-mono" style={{ color: 'var(--text)' }}>
+                          {scenario.label}
+                        </div>
+                        <div className="text-[9px] font-mono mt-0.5 uppercase" style={{ color: 'var(--text-muted)' }}>
+                          {scenario.regime}
+                        </div>
+                      </div>
                     </div>
-                  </button>
-                )
-              })}
-            </div>
+                    <span
+                      className="text-[8px] font-mono font-bold uppercase px-1.5 py-0.5 rounded flex-shrink-0"
+                      style={{ background: scenario.tagColor + '20', color: scenario.tagColor }}
+                    >
+                      {isLoading ? '...' : scenario.tag}
+                    </span>
+                  </div>
+
+                  {isLoading && (
+                    <div className="flex items-center gap-1.5 text-[9px] font-mono" style={{ color: scenario.tagColor }}>
+                      <div className="w-2.5 h-2.5 border border-current border-t-transparent rounded-full animate-spin" />
+                      Loading results…
+                    </div>
+                  )}
+                  {isActive && !loading && result && (
+                    <div className="text-[9px] font-mono" style={{ color: scenario.tagColor }}>
+                      ✓ Results loaded
+                    </div>
+                  )}
+                </button>
+              )
+            })}
           </div>
 
-          {/* Episodes slider */}
-          <div className="space-y-1.5">
-            <div className="flex justify-between">
-              <label className="label-text">Episodes per Date</label>
-              <span className="text-[10px] font-mono font-semibold" style={{ color: 'var(--text)' }}>{nEpisodes}</span>
+          {/* Description of selected date */}
+          {activeDate && (
+            <div className="mt-4 p-3 rounded-lg text-[10px] font-mono leading-relaxed" style={{ background: 'var(--input-bg)', color: 'var(--text-sub)', border: '1px solid var(--divider)' }}>
+              {DATE_SCENARIOS.find(s => s.date === activeDate)?.description}
             </div>
-            <div className="relative h-1.5 rounded-full" style={{ background: 'var(--card-border)' }}>
-              <div
-                className="absolute left-0 top-0 h-full rounded-full"
-                style={{
-                  width: `${((nEpisodes - 5) / 195) * 100}%`,
-                  background: 'var(--active-fill)',
-                }}
-              />
-              <input
-                type="range" min={5} max={200} step={5} value={nEpisodes}
-                onChange={e => setNEpisodes(parseInt(e.target.value))}
-                className="absolute inset-0 w-full opacity-0 cursor-pointer"
-                style={{ height: '6px' }}
-              />
-            </div>
-            <p className="text-[9px] font-mono" style={{ color: 'var(--text-muted)' }}>Higher = more accurate</p>
-          </div>
-
-          <button
-            onClick={handleRun}
-            disabled={isRunning || !selectedModel || !selectedDates.length}
-            className="btn-primary w-full"
-          >
-            {isRunning ? (
-              <>
-                <div className="w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin" />
-                Evaluating…
-              </>
-            ) : (
-              <>
-                <Play size={12} fill="currentColor" />
-                Evaluate Model
-              </>
-            )}
-          </button>
-
-          {/* Stop Button */}
-          {isRunning && jobId && (
-            <button
-              onClick={() => handleCancel(jobId)}
-              className="w-full py-2 px-4 rounded-lg text-xs font-mono font-semibold uppercase tracking-wider transition-all border border-red-500 hover:bg-red-500/10 text-red-500 flex items-center justify-center gap-1.5 mt-2"
-              id="stop-evaluation-btn"
-            >
-              <span className="w-2.5 h-2.5 bg-red-500 rounded-sm animate-pulse" />
-              Stop Evaluation
-            </button>
           )}
+        </div>
 
-          {isRunning && (
-            <ProgressBar
-              completed={progress.completed}
-              total={progress.total || nEpisodes * selectedDates.length}
-              label="Episodes"
-              startedAt={jobStartedAt}
-            />
-          )}
-
-          {jobStatus && <JobStatusBadge status={jobStatus} />}
+        {/* Demo mode notice */}
+        <div className="glass-card p-3 text-[9px] font-mono" style={{ color: 'var(--text-muted)', borderLeft: '2px solid var(--active-fill)' }}>
+          <span className="font-bold" style={{ color: 'var(--active-fill)' }}>DEMO MODE</span>
+          {' '}— Results are pre-computed from 30 episodes each. Run locally to evaluate custom dates.
         </div>
       </div>
 
-      {/* ── Results panel ─────────────────────────────────────────────────── */}
+      {/* ── Right: Results ────────────────────────────────────────────────── */}
       <div className="flex-1 min-w-0 space-y-4">
-        {!result && !isRunning && (
+
+        {/* Empty state */}
+        {!result && !loading && !error && (
           <div className="glass-card flex items-center justify-center" style={{ height: 500 }}>
             <EmptyState
               icon={<BrainCircuit size={28} />}
-              title="No evaluation results"
-              description="Select a model and dates, then click Evaluate Model"
+              title="Select an evaluation date"
+              description="Click one of the market regime dates on the left to load pre-computed RL evaluation results instantly"
             />
           </div>
         )}
 
-        {isRunning && !result && (
-          <LiveProgressDashboard
-            jobType="evaluation"
-            jobId={jobId}
-            jobStatus={jobStatus}
-            progress={progress}
-            startedAt={jobStartedAt}
-            completedDates={completedDates}
-          />
+        {/* Loading */}
+        {loading && !result && (
+          <div className="glass-card flex items-center justify-center" style={{ height: 500 }}>
+            <div className="text-center space-y-3">
+              <div className="w-8 h-8 border-2 border-[var(--active-fill)] border-t-transparent rounded-full animate-spin mx-auto" />
+              <p className="text-xs font-mono" style={{ color: 'var(--text-muted)' }}>Loading evaluation…</p>
+            </div>
+          </div>
         )}
 
-        {result && (
-          <EvaluationResultsPanel result={result} />
+        {/* Error */}
+        {error && (
+          <div className="glass-card p-6 text-center">
+            <p className="text-sm font-mono text-red-400">{error}</p>
+            <p className="text-[10px] font-mono mt-2" style={{ color: 'var(--text-muted)' }}>
+              Make sure the backend is running with DEMO_MODE=true
+            </p>
+          </div>
         )}
+
+        {/* Results panel — existing component, unchanged */}
+        {result && <EvaluationResultsPanel result={result} />}
       </div>
     </div>
   )

@@ -1,0 +1,25 @@
+{
+  "date": "2024-08-05",
+  "regime": "crash - Yen unwind",
+  "label": "Aug 05 \u2014 Crash Day",
+  "description": "Yen carry trade unwind \u2014 sudden 5%+ drop",
+  "is_test_date": false,
+  "rl_is": -0.5842637359280191,
+  "rl_std": 0.004322398376409009,
+  "rl_ci_lower": -0.5854657815885956,
+  "rl_ci_upper": -0.5830264404940783,
+  "rl_cvar95": -0.5895020959403031,
+  "action_distribution": {
+    "7": 1.0
+  },
+  "mean_action": 7.0,
+  "action_entropy": -1.000000082690371e-10,
+  "forced_liquidation_rate": 0.0,
+  "static_optimal_is": -1.0714,
+  "adaptive_optimal_is": -0.5854,
+  "twap_is": 1.9156,
+  "heuristic_is": 1.8078,
+  "improvement_vs_ac": 0.48713626407198085,
+  "p_value": 1.6159105361319837e-102,
+  "significantly_better": true
+}

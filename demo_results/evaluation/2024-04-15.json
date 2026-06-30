@@ -1,0 +1,27 @@
+{
+  "date": "2024-04-15",
+  "regime": "BTC correction",
+  "label": "Apr 15 \u2014 BTC Correction (out-of-sample)",
+  "description": "Out-of-sample: never seen during training",
+  "is_test_date": true,
+  "rl_is": -0.5637827336428335,
+  "rl_std": 0.003650946451967783,
+  "rl_ci_lower": -0.568662886607774,
+  "rl_ci_upper": -0.5553441850454808,
+  "rl_cvar95": -0.5683676776116959,
+  "action_distribution": {
+    "7": 0.4962092494313874,
+    "8": 0.46118271417740714,
+    "9": 0.04260803639120546
+  },
+  "mean_action": 7.546398786959818,
+  "action_entropy": 0.8391185162912249,
+  "forced_liquidation_rate": 0.0,
+  "static_optimal_is": -1.0281,
+  "adaptive_optimal_is": -0.5712,
+  "twap_is": 1.9423,
+  "heuristic_is": 1.8341,
+  "improvement_vs_ac": -0.464317,
+  "p_value": 3.2e-89,
+  "significantly_better": true
+}

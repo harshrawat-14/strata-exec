@@ -136,6 +136,9 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
 
+    from web.demo_middleware import DemoModeMiddleware
+    app.add_middleware(DemoModeMiddleware)
+
     # ── CORS ──────────────────────────────────────────────────────────────────
     # When origins is ["*"] credentials must be False (browser CORS spec).
     # JWT is carried in the Authorization header so cookies are not needed.
@@ -157,6 +160,9 @@ def create_app() -> FastAPI:
     app.include_router(upload.router)
     app.include_router(websocket.router)
     app.include_router(progress.router)
+
+    from web.routes.demo import router as demo_router
+    app.include_router(demo_router)
 
     @app.get("/health")
     async def health():
