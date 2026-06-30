@@ -42,9 +42,6 @@ export default function EvaluationResultsPanel({ result }: EvaluationResultsPane
   const meanACIs = dateResults.length > 0
     ? dateResults.reduce((acc, dr) => acc + (dr.static_optimal_is || 0), 0) / dateResults.length
     : 0
-  const meanTwapIs = dateResults.length > 0
-    ? dateResults.reduce((acc, dr) => acc + (dr.twap_is || 0), 0) / dateResults.length
-    : 0
 
   // In evaluate.py convention: IS is negated from Rust (higher IS = better = sold above arrival).
   // TWAP/Heuristic IS are from a different measurement framework (Monte Carlo with market drift)
@@ -54,9 +51,6 @@ export default function EvaluationResultsPanel({ result }: EvaluationResultsPane
   // In this convention: RL > AC means RL is better (less cost, higher IS).
   // meanACIs is very negative (-0.99%), meanRLIs is less negative (-0.53%) → RL beats Static AC.
   const acGap = meanRLIs - meanACIs // positive = RL IS higher = RL better than Static AC
-
-  // twapImprovement: kept for display purposes only — different measurement framework
-  const twapImprovement = meanTwapIs - meanRLIs
 
   // Count valid strategy wins (AC baselines only — same measurement framework as RL).
   // Higher IS = better. RL beats a strategy when RL IS > baseline IS.
@@ -79,11 +73,6 @@ export default function EvaluationResultsPanel({ result }: EvaluationResultsPane
     // Return count of AC strategies beaten: 0, 1, or 2
     return (wins > 0 ? 1 : 0) + (beatsStaticAC > 0 ? 1 : 0)
   })() : 0
-
-  // Generalization: count dates where RL is significantly better
-  const totalDates = dateResults.length
-  const sigBetterDates = dateResults.filter(dr => dr.significantly_better).length
-  const generalizationPct = totalDates > 0 ? (sigBetterDates / totalDates) * 100 : 0
 
   // Sim-to-Real degradation: compare average real RL performance to synthetic training environment
   const syntheticIS = result.synthetic_is ?? -1.25 // default fallback if null
