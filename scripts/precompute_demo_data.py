@@ -246,6 +246,42 @@ def run_evaluation_date(date_info: dict) -> dict:
     }
 
 
+def run_unified_comparison_all_dates(eval_dates) -> dict:
+    """
+    Run all 5 strategies (TWAP, Heuristic, AC Optimal, Adaptive AC, RL)
+    through the same counterfactual LOB / OW impact pipeline for each
+    evaluation date, so the comparison is methodologically valid.
+    """
+    sys.path.insert(0, str(ROOT / "rl"))
+    from evaluate import load_model, evaluate_all_strategies_on_date
+
+    model_path = str(
+        ROOT / "rl" / "models" /
+        "ppo_lstm_v5_adaptive_best" / "best_model"
+    )
+    model = load_model(model_path)
+
+    unified = {}
+    for date_info in eval_dates:
+        date = date_info["date"]
+        print(f"  Unified comparison: {date} ({date_info['regime']})...")
+        date_results = evaluate_all_strategies_on_date(
+            rl_model=model,
+            date=date,
+            n_episodes=50,
+            n_state_dims=12,
+        )
+        unified[date] = {
+            "date": date,
+            "regime": date_info["regime"],
+            "label": date_info["label"],
+            "is_test_date": date_info["is_test_date"],
+            "strategies": date_results,
+        }
+
+    return unified
+
+
 def generate_manifest(sim_presets, eval_dates):
     """Generate manifest.json so frontend knows what's available."""
     return {
@@ -331,7 +367,7 @@ def main():
             print(f"  SKIPPED (error above)")
 
     # ── EVALUATION ────────────────────────────────────────────
-    print("\n[2/2] Running RL evaluations...")
+    print("\n[2/3] Running RL evaluations...")
     eval_results = {}
 
     for date_info in EVALUATION_DATES:
@@ -382,6 +418,22 @@ def main():
         }
         summary_path.write_text(json.dumps(summary, indent=2))
         print(f"\nSaved all-dates summary: {summary_path.name}")
+
+    # ── UNIFIED COMPARISON ────────────────────────────────────
+    print("\n[3/3] Running unified comparison (all strategies, same "
+          "counterfactual LOB)...")
+    try:
+        unified = run_unified_comparison_all_dates(EVALUATION_DATES)
+        unified_path = DEMO_DIR / "evaluation" / "unified_comparison.json"
+        unified_path.write_text(json.dumps({
+            "generated_at": datetime.utcnow().isoformat(),
+            "n_episodes_per_date": 50,
+            "n_state_dims": 12,
+            "dates": unified,
+        }, indent=2))
+        print(f"  Saved: {unified_path.name}")
+    except Exception as e:
+        print(f"  SKIPPED unified comparison: {e}")
 
     # ── MANIFEST ──────────────────────────────────────────────
     manifest = generate_manifest(SIMULATION_PRESETS, EVALUATION_DATES)

@@ -61,6 +61,32 @@ HEURISTIC_IS = {
     "2024-11-06": 1.8189,
 }
 
+V5_FRACTIONS = [
+    0.000, 0.001, 0.003, 0.005, 0.008, 0.010,
+    0.015, 0.020, 0.030, 0.050, 0.070, 0.100,
+    0.150, 0.200, 0.300, 0.400, 0.500, 0.600,
+    0.800, 1.000,
+]
+
+V6_FRACTIONS = [
+    0.000, 0.005, 0.010, 0.015, 0.020, 0.025,
+    0.030, 0.035, 0.040, 0.050, 0.060, 0.075,
+    0.100, 0.125, 0.150, 0.200, 0.300, 0.500,
+    0.750, 1.000,
+]
+
+
+def get_action_fractions(n_state_dims: int) -> list:
+    """Return correct action fraction list based on state dims."""
+    return V6_FRACTIONS if n_state_dims == 12 else V5_FRACTIONS
+
+
+def nearest_action(target_frac: float, fractions: list) -> int:
+    """Map a desired sell fraction to the nearest discrete action."""
+    target_frac = max(0.0, min(1.0, target_frac))
+    diffs = [abs(f - target_frac) for f in fractions]
+    return int(np.argmin(diffs))
+
 
 def test_vs_baseline(rl_is_samples: list, baseline_is: float) -> dict:
     """
@@ -99,6 +125,208 @@ def test_vs_baseline(rl_is_samples: list, baseline_is: float) -> dict:
         "ci_upper": float(ci_upper),
         "significantly_better": bool(p_one_tailed < 0.05),
     }
+
+
+class TWAPPolicy:
+    """
+    Time-Weighted Average Price execution policy.
+    Divides total inventory uniformly across all remaining steps.
+    """
+
+    def __init__(self, n_state_dims: int = 12):
+        self.fractions = get_action_fractions(n_state_dims)
+        self.total_steps = 2880  # default evaluation horizon
+
+    def predict(self, obs, state=None, episode_start=None,
+                deterministic=True):
+        q_frac = float(obs[0])   # remaining inventory fraction
+        t_frac = float(obs[1])   # time remaining fraction
+
+        if t_frac < 0.001 or q_frac < 0.001:
+            action = nearest_action(1.0, self.fractions)
+        else:
+            remaining_steps = max(1.0, t_frac * self.total_steps)
+            target = min(1.0, 1.0 / remaining_steps)
+            action = nearest_action(target, self.fractions)
+
+        return np.array([action]), state
+
+
+class HeuristicPolicy:
+    """
+    Volatility and liquidity-adjusted TWAP.
+    Sells faster when volatility is high or the book is deep,
+    slower when volatility is low or the book is thin.
+    """
+
+    def __init__(self, n_state_dims: int = 12,
+                 vol_weight: float = 0.30,
+                 depth_weight: float = 0.20):
+        self.fractions = get_action_fractions(n_state_dims)
+        self.total_steps = 2880
+        self.vol_weight = vol_weight
+        self.depth_weight = depth_weight
+
+    def predict(self, obs, state=None, episode_start=None,
+                deterministic=True):
+        q_frac    = float(obs[0])
+        t_frac    = float(obs[1])
+        vol_ratio = float(obs[2])    # already tanh-normalised
+        depth_ratio = float(obs[4])  # already tanh-normalised
+
+        if t_frac < 0.001 or q_frac < 0.001:
+            action = nearest_action(1.0, self.fractions)
+        else:
+            remaining_steps = max(1.0, t_frac * self.total_steps)
+            base = min(1.0, 1.0 / remaining_steps)
+
+            vol_scalar   = 1.0 + self.vol_weight * vol_ratio
+            depth_scalar = 1.0 + self.depth_weight * depth_ratio
+
+            target = min(1.0, base * vol_scalar * depth_scalar)
+            target = max(0.0, target)
+
+            action = nearest_action(target, self.fractions)
+
+        return np.array([action]), state
+
+
+class ACOptimalPolicy:
+    """
+    Almgren-Chriss closed-form optimal execution trajectory.
+    Pre-computes the full AC schedule at initialisation using:
+      x(t) = X0 * sinh(kappa*(T-t)) / sinh(kappa*T)
+    """
+
+    def __init__(self, n_state_dims: int = 12,
+                 sigma: float = 0.20,
+                 lam: float = 0.001,
+                 eta: float = 0.10,
+                 total_steps: int = 2880):
+        self.fractions = get_action_fractions(n_state_dims)
+        self.total_steps = total_steps
+        self.kappa = np.sqrt(lam * sigma**2 / (eta + 1e-10))
+        self._schedule = self._build_schedule()
+
+    def _build_schedule(self) -> np.ndarray:
+        """
+        Precompute AC optimal sell fraction at each step.
+        Returns array of shape (total_steps,) where entry t
+        is the fraction of ORIGINAL inventory to sell at step t.
+        Entries sum to 1.0.
+        """
+        T = self.total_steps
+        k = self.kappa
+        steps = np.arange(T)
+
+        denom = np.sinh(k * T) + 1e-10
+        remaining_at_t = np.sinh(k * (T - steps)) / denom
+        remaining_at_t_plus_1 = np.concatenate([
+            np.sinh(k * (T - steps[1:])) / denom,
+            [0.0]
+        ])
+
+        sell_frac = remaining_at_t - remaining_at_t_plus_1
+        sell_frac = np.maximum(sell_frac, 0.0)
+
+        total = sell_frac.sum()
+        if total > 1e-10:
+            sell_frac = sell_frac / total
+
+        return sell_frac
+
+    def predict(self, obs, state=None, episode_start=None,
+                deterministic=True):
+        q_frac = float(obs[0])
+        t_frac = float(obs[1])
+
+        if t_frac < 0.001 or q_frac < 0.001:
+            action = nearest_action(1.0, self.fractions)
+        else:
+            step_idx = int((1.0 - t_frac) * self.total_steps)
+            step_idx = min(step_idx, len(self._schedule) - 1)
+
+            ac_original_frac = self._schedule[step_idx]
+
+            if q_frac > 1e-6:
+                target = min(1.0, ac_original_frac / q_frac)
+            else:
+                target = 1.0
+
+            action = nearest_action(target, self.fractions)
+
+        return np.array([action]), state
+
+
+class AdaptiveACPolicy:
+    """
+    Receding-horizon Almgren-Chriss with live volatility re-estimation.
+    Recomputes the AC schedule each step using the current
+    volatility (from state[2]) rather than a fixed initial sigma.
+    """
+
+    def __init__(self, n_state_dims: int = 12,
+                 sigma_ref: float = 0.20,
+                 lam: float = 0.001,
+                 eta: float = 0.10,
+                 total_steps: int = 2880):
+        self.fractions = get_action_fractions(n_state_dims)
+        self.total_steps = total_steps
+        self.sigma_ref = sigma_ref
+        self.lam = lam
+        self.eta = eta
+        self._ac_cache = {}   # cache (sigma_rounded) -> schedule
+
+    def _get_schedule(self, sigma: float) -> np.ndarray:
+        """Get or compute AC schedule for given sigma."""
+        sigma_key = round(sigma, 2)
+        if sigma_key not in self._ac_cache:
+            kappa = np.sqrt(
+                self.lam * sigma_key**2 / (self.eta + 1e-10)
+            )
+            T = self.total_steps
+            steps = np.arange(T)
+            denom = np.sinh(kappa * T) + 1e-10
+            remaining = np.sinh(kappa * (T - steps)) / denom
+            next_rem = np.concatenate([
+                np.sinh(kappa * (T - steps[1:])) / denom,
+                [0.0]
+            ])
+            sell_frac = np.maximum(remaining - next_rem, 0.0)
+            total = sell_frac.sum()
+            if total > 1e-10:
+                sell_frac /= total
+            self._ac_cache[sigma_key] = sell_frac
+        return self._ac_cache[sigma_key]
+
+    def predict(self, obs, state=None, episode_start=None,
+                deterministic=True):
+        q_frac    = float(obs[0])
+        t_frac    = float(obs[1])
+        vol_ratio_tanh = float(obs[2])  # tanh(current_vol/ref - 1)
+
+        if t_frac < 0.001 or q_frac < 0.001:
+            action = nearest_action(1.0, self.fractions)
+        else:
+            vol_ratio_raw = np.arctanh(
+                np.clip(vol_ratio_tanh, -0.999, 0.999)
+            )
+            current_sigma = self.sigma_ref * (1.0 + vol_ratio_raw)
+            current_sigma = max(0.01, min(current_sigma, 2.0))
+
+            schedule = self._get_schedule(current_sigma)
+            step_idx = int((1.0 - t_frac) * self.total_steps)
+            step_idx = min(step_idx, len(schedule) - 1)
+
+            ac_original_frac = schedule[step_idx]
+            if q_frac > 1e-6:
+                target = min(1.0, ac_original_frac / q_frac)
+            else:
+                target = 1.0
+
+            action = nearest_action(target, self.fractions)
+
+        return np.array([action]), state
 
 
 def load_model(path: str):
@@ -334,6 +562,199 @@ def evaluate_on_synthetic(model, n_episodes=200, n_state_dims=8) -> dict:
     }
 
 
+def evaluate_all_strategies_on_date(
+    rl_model,
+    date: str,
+    n_episodes: int = 50,
+    n_state_dims: int = 12,
+    adversarial: bool = False,
+    fixed_steps: bool = True,
+    fixed_size: bool = True,
+) -> dict:
+    """
+    Evaluate all 5 strategies on the same counterfactual LOB
+    environment using the same Obizhaeva-Wang impact model,
+    same real Binance price path, and same arrival price.
+
+    Replaces the mixed-framework comparison where TWAP/Heuristic
+    used research-sim (Monte Carlo + square-root impact) and RL
+    used evaluate.py (real LOB + OW impact).
+    """
+    policies = {
+        "twap": TWAPPolicy(n_state_dims),
+        "heuristic": HeuristicPolicy(n_state_dims),
+        "ac_optimal": ACOptimalPolicy(n_state_dims),
+        "adaptive_ac": AdaptiveACPolicy(n_state_dims),
+        "rl_agent": rl_model,
+    }
+
+    strategy_labels = {
+        "twap":        "TWAP",
+        "heuristic":   "Heuristic",
+        "ac_optimal":  "AC Optimal",
+        "adaptive_ac": "Adaptive AC",
+        "rl_agent":    "RL Agent",
+    }
+
+    results = {}
+
+    for strategy_key, policy in policies.items():
+        print(f"    [{strategy_labels[strategy_key]}]", end=" ", flush=True)
+
+        env = StrataExecEnv(
+            mode="historical",
+            adversarial=adversarial,
+            lob_date=date,
+            agg_date=date,
+            n_state_dims=n_state_dims,
+            fixed_steps=fixed_steps,
+            fixed_size=fixed_size,
+        )
+
+        all_is = []
+        all_rewards = []
+        forced_liq = 0
+        all_actions = []
+
+        for ep in range(n_episodes):
+            is_pct, ep_reward, forced, actions = _run_episode(
+                policy, env, seed=ep
+            )
+            if forced:
+                forced_liq += 1
+            if is_pct is not None:
+                all_is.append(is_pct)
+            all_rewards.append(ep_reward)
+            all_actions.extend(actions)
+
+        env.close()
+
+        arr = np.array(all_is) if all_is else np.array([0.0])
+
+        action_counts = Counter(all_actions)
+        total_actions = sum(action_counts.values()) or 1
+        action_dist = {
+            a: action_counts[a] / total_actions
+            for a in sorted(action_counts.keys())
+        }
+
+        # CVaR-95: average of worst 5% of IS values (most negative)
+        n_tail = max(1, len(arr) // 20)
+        sorted_asc = np.sort(arr)
+        cvar_95 = float(np.mean(sorted_asc[:n_tail]))
+
+        results[strategy_key] = {
+            "strategy": strategy_labels[strategy_key],
+            "date": date,
+            "mean_IS": float(np.mean(arr)),
+            "std_IS": float(np.std(arr)),
+            "var_IS": float(np.var(arr)),
+            "cvar_95": cvar_95,
+            "is_99th_pct": float(np.percentile(arr, 1)),
+            "is_sharpe": float(np.mean(arr) / (np.std(arr) + 1e-10)),
+            "mean_reward": float(np.mean(all_rewards)),
+            "forced_liquidation_rate": forced_liq / n_episodes,
+            "n_episodes": n_episodes,
+            "is_samples": all_is,
+            "action_distribution": action_dist,
+            "mean_action": float(np.mean(all_actions)) if all_actions else 0.0,
+        }
+
+        print(f"IS={results[strategy_key]['mean_IS']:.4f}%  "
+              f"CVaR95={cvar_95:.4f}%")
+
+    return results
+
+
+def print_unified_comparison(all_results: dict):
+    """
+    Print full strategy comparison table from unified evaluation.
+    all_results: {date: {strategy_key: metrics_dict}}
+    """
+    STRATEGY_ORDER = [
+        "twap", "heuristic", "ac_optimal", "adaptive_ac", "rl_agent"
+    ]
+    STRATEGY_LABELS = {
+        "twap":        "TWAP",
+        "heuristic":   "Heuristic",
+        "ac_optimal":  "AC Optimal",
+        "adaptive_ac": "Adaptive AC",
+        "rl_agent":    "RL Agent",
+    }
+
+    print("\n" + "=" * 90)
+    print("UNIFIED COMPARISON - ALL STRATEGIES IN COUNTERFACTUAL LOB")
+    print("Same OW impact model | Same real Binance price path | Same arrival price")
+    print("More negative IS = higher execution cost | CVaR-95 = avg of worst 5% episodes")
+    print("=" * 90)
+
+    for date, date_results in all_results.items():
+        if not date_results:
+            continue
+
+        regime = DATES.get(date) or TEST_DATES.get(date, "unknown")
+        print(f"\n{'-' * 70}")
+        print(f"  {date}  ({regime})")
+        print(f"{'-' * 70}")
+
+        header = (f"  {'Strategy':<18} {'Mean IS':>9} {'CVaR-95':>9} "
+                  f"{'IS Sharpe':>10} {'Forced Liq':>11}")
+        print(header)
+        print(f"  {'-'*18} {'-'*9} {'-'*9} {'-'*10} {'-'*11}")
+
+        rl_is = date_results.get("rl_agent", {}).get("mean_IS")
+
+        for key in STRATEGY_ORDER:
+            r = date_results.get(key)
+            if r is None:
+                continue
+
+            mean_is = r["mean_IS"]
+            cvar    = r["cvar_95"]
+            sharpe  = r["is_sharpe"]
+            fl_rate = r["forced_liquidation_rate"]
+
+            if rl_is is not None and key != "rl_agent":
+                vs_rl = "RL better" if rl_is > mean_is else "RL worse"
+                vs_rl_str = f"  <- {vs_rl}"
+            else:
+                vs_rl_str = ""
+
+            label = STRATEGY_LABELS[key]
+            if key == "rl_agent":
+                label = f"* {label}"
+
+            print(f"  {label:<18} {mean_is:>+9.4f}% {cvar:>+9.4f}% "
+                  f"{sharpe:>+10.4f} {fl_rate:>10.1%}"
+                  f"{vs_rl_str}")
+
+    print("\n" + "=" * 90)
+    print("CVAR-95 COMPARISON (lower = worse tail risk)")
+    print("=" * 90)
+
+    dates_list = list(all_results.keys())
+    if dates_list:
+        print(f"\n  {'Strategy':<18}", end="")
+        for date in dates_list:
+            print(f"  {date}", end="")
+        print()
+        print(f"  {'-'*18}", end="")
+        for _ in dates_list:
+            print(f"  {'-'*10}", end="")
+        print()
+
+        for key in STRATEGY_ORDER:
+            label = STRATEGY_LABELS[key]
+            print(f"  {label:<18}", end="")
+            for date in dates_list:
+                r = all_results[date].get(key)
+                if r:
+                    print(f"  {r['cvar_95']:>+9.4f}%", end="")
+                else:
+                    print(f"  {'N/A':>10}", end="")
+            print()
+
+
 def run_full_analysis(
     passive_model_path: str,
     adversarial_model_path: str = None,
@@ -343,6 +764,7 @@ def run_full_analysis(
     eval_counterfactual: bool = False,
     btc_target: float = 50000.0,
     include_test_dates: bool = False,
+    unified_comparison: bool = False,
 ):
     os.makedirs(output_dir, exist_ok=True)
 
@@ -585,6 +1007,60 @@ def run_full_analysis(
             print("  Adversarial training did not reduce gap on passive book.")
             print("  Likely cause: adversarial agents don't match real market.")
 
+    if unified_comparison:
+        print("\n" + "=" * 70)
+        print("RUNNING UNIFIED COMPARISON")
+        print("Evaluating all 5 strategies in same counterfactual LOB...")
+        print("=" * 70)
+
+        unified_results = {}
+        dates_to_evaluate = list(DATES.keys())
+        if include_test_dates:
+            dates_to_evaluate += [
+                d for d in TEST_DATES
+                if os.path.exists(
+                    f"TradeData/BookDepth/BTCUSDT-bookDepth-{d}.csv"
+                )
+            ]
+
+        for date in dates_to_evaluate:
+            lob_path = (f"TradeData/BookDepth/"
+                        f"BTCUSDT-bookDepth-{date}.csv")
+            if not os.path.exists(lob_path):
+                print(f"  SKIPPING {date} — LOB file not found")
+                continue
+
+            print(f"\n  Evaluating {date}...")
+            date_results = evaluate_all_strategies_on_date(
+                rl_model=passive_model,
+                date=date,
+                n_episodes=n_episodes,
+                n_state_dims=n_state_dims,
+            )
+            unified_results[date] = date_results
+
+        print_unified_comparison(unified_results)
+
+        unified_rows = []
+        for date, date_results in unified_results.items():
+            for strategy_key, r in date_results.items():
+                unified_rows.append({
+                    "date": date,
+                    "regime": DATES.get(date) or TEST_DATES.get(date, ""),
+                    "strategy": r["strategy"],
+                    "mean_IS": r["mean_IS"],
+                    "std_IS": r["std_IS"],
+                    "cvar_95": r["cvar_95"],
+                    "is_99th_pct": r["is_99th_pct"],
+                    "is_sharpe": r["is_sharpe"],
+                    "forced_liquidation_rate": r["forced_liquidation_rate"],
+                })
+
+        unified_df = pd.DataFrame(unified_rows)
+        unified_csv = f"{output_dir}unified_comparison.csv"
+        unified_df.to_csv(unified_csv, index=False)
+        print(f"\nUnified results saved: {unified_csv}")
+
 
 if __name__ == "__main__":
     p = argparse.ArgumentParser()
@@ -597,6 +1073,9 @@ if __name__ == "__main__":
     p.add_argument("--btc-target", type=float, default=50000.0)
     p.add_argument("--include-test-dates", action="store_true",
         help="Also evaluate on held-out test dates")
+    p.add_argument("--unified-comparison", action="store_true",
+        help="Run all 5 strategies in same counterfactual LOB "
+             "for methodologically valid comparison")
     args = p.parse_args()
 
     run_full_analysis(
@@ -607,4 +1086,5 @@ if __name__ == "__main__":
         eval_counterfactual=args.eval_counterfactual,
         btc_target=args.btc_target,
         include_test_dates=args.include_test_dates,
+        unified_comparison=args.unified_comparison,
     )
