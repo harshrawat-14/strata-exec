@@ -443,6 +443,7 @@ def evaluate_model_on_date(
         n_state_dims=n_state_dims,
         fixed_steps=True,
         fixed_size=True,
+        no_time_features=n_state_dims < 16,
     )
 
     all_is = []
@@ -511,6 +512,7 @@ def evaluate_model_counterfactual(
         n_state_dims=n_state_dims,
         fixed_steps=True,
         fixed_size=True,
+        no_time_features=n_state_dims < 16,
     )
 
     all_is = []
@@ -542,6 +544,7 @@ def evaluate_on_synthetic(model, n_episodes=200, n_state_dims=8) -> dict:
         n_state_dims=n_state_dims,
         fixed_steps=True,
         fixed_size=True,
+        no_time_features=n_state_dims < 16,
     )
     all_is = []
     all_rewards = []
@@ -609,6 +612,7 @@ def evaluate_all_strategies_on_date(
             n_state_dims=n_state_dims,
             fixed_steps=fixed_steps,
             fixed_size=fixed_size,
+            no_time_features=n_state_dims < 16,
         )
 
         all_is = []

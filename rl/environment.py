@@ -27,6 +27,7 @@ class StrataExecEnv(gym.Env):
         fixed_steps: bool = False,
         fixed_size: bool = False,
         jump_diffusion: bool = False,
+        no_time_features: bool = False,
     ):
         import os
         if lob_date:
@@ -78,6 +79,8 @@ class StrataExecEnv(gym.Env):
             self.cmd.append("--fixed-size")
         if jump_diffusion:
             self.cmd.append("--jump-diffusion")
+        if no_time_features:
+            self.cmd.append("--no-time-features")
 
         # Diagnostic: print the full command so --agg-trades presence is easy to verify.
         if mode == "counterfactual":

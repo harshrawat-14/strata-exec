@@ -112,6 +112,11 @@ pub struct EnvConfig {
     /// When true, use the configured `total_inventory` every episode (eval mode).
     /// When false (default), draw a fresh random order size per episode in replay modes.
     pub fixed_size: bool,
+    /// When true, build_state() returns the 12-dim v5 vector (no intraday time features).
+    /// When false (default), build_state() appends 4 time-of-day dims -> 16-dim v6 vector.
+    /// Existing v4/v5 evaluation must pass --no-time-features to keep observations
+    /// dimension-compatible with checkpoints trained before this field existed.
+    pub no_time_features: bool,
 }
 
 impl Default for EnvConfig {
@@ -130,6 +135,7 @@ impl Default for EnvConfig {
             agg_trades_path: None,
             fixed_steps: false,
             fixed_size: false,
+            no_time_features: false,
         }
     }
 }
@@ -354,6 +360,7 @@ impl RlEnv {
             "n_state_dims": state.len(),
             "vol_regime": vol_regime,
             "liq_regime": liq_regime,
+            "time_features_active": !self.cfg.no_time_features,
         });
         if let Some(cf) = &self.cf_lob {
             let btc_scale = self.cfg.btc_target / self.cfg.total_inventory.max(1.0);
@@ -1061,6 +1068,35 @@ impl RlEnv {
         let (vol_regime, liq_regime) = self.regime_dims();
         state.push(vol_regime);
         state.push(liq_regime);
+
+        if !self.cfg.no_time_features {
+            // [12]-[15]: intraday time-of-day features. Binance BTC-USDT liquidity
+            // varies dramatically by UTC hour (thin 00:00-04:00, deep at US open);
+            // without these an agent cannot learn "it's 2am, wait."
+            //
+            // current_timestamp_ms comes from the real Binance snapshot timestamp in
+            // historical/counterfactual modes. Synthetic mode has no real wall-clock
+            // time, so current_book.timestamp defaults to 0 -> time_of_day is a
+            // constant 0.0, which is harmless (synthetic training has no intraday
+            // structure to learn from regardless).
+            let current_timestamp_ms =
+                self.current_book.as_ref().map(|b| b.timestamp).unwrap_or(0);
+            let seconds_since_midnight =
+                (current_timestamp_ms % 86_400_000) as f64 / 1000.0;
+            let time_of_day = seconds_since_midnight / 86_400.0;
+
+            // Reuses the existing rolling realised-vol estimate as the "intraday"
+            // signal and sigma_ref as the "daily" baseline -- no separate 5-min /
+            // daily vol trackers exist, and both are already tracked per-step.
+            let intraday_vol_ratio =
+                self.current_sigma / (self.cfg.sigma_ref.max(1e-9) + 1e-10);
+
+            state.push(time_of_day);
+            state.push((intraday_vol_ratio - 1.0).tanh());
+            state.push((2.0 * std::f64::consts::PI * time_of_day).sin());
+            state.push((2.0 * std::f64::consts::PI * time_of_day).cos());
+        }
+
         state
     }
 
@@ -1190,6 +1226,7 @@ fn parse_cli() -> EnvConfig {
             }
             "--fixed-steps" => cfg.fixed_steps = true,
             "--fixed-size" => cfg.fixed_size = true,
+            "--no-time-features" => cfg.no_time_features = true,
             _ => {}
         }
         i += 1;
@@ -1291,6 +1328,7 @@ mod tests {
             agg_trades_path: None,
             fixed_steps: false,
             fixed_size: false,
+            no_time_features: true,
         };
         RlEnv::new(cfg)
     }
@@ -1366,6 +1404,7 @@ mod tests {
             agg_trades_path: None,
             fixed_steps: false,
             fixed_size: false,
+            no_time_features: true,
         };
         let mut env = RlEnv::new(cfg);
         env.reset(None);
@@ -1447,5 +1486,85 @@ mod tests {
                 break;
             }
         }
+    }
+
+    fn make_env_with_time_features() -> RlEnv {
+        let cfg = EnvConfig {
+            mode: RlMode::Synthetic,
+            total_inventory: 1_000_000.0,
+            total_steps: 100,
+            seed: 42,
+            sigma_ref: 0.20,
+            gamma: 0.005,
+            adversarial: false,
+            lob_data_path: None,
+            btc_target: 500.0,
+            adv_btc: 0.0,
+            agg_trades_path: None,
+            fixed_steps: false,
+            fixed_size: false,
+            no_time_features: false,
+        };
+        RlEnv::new(cfg)
+    }
+
+    #[test]
+    fn time_features_produce_16_dims() {
+        let mut env = make_env_with_time_features();
+        let r = env.reset(Some(42));
+        assert_eq!(
+            r.state.len(),
+            16,
+            "with time features active, state must have 16 dimensions (12 v5 + 4 time)"
+        );
+    }
+
+    #[test]
+    fn no_time_features_produces_12_dims() {
+        let mut env = make_env();
+        let r = env.reset(Some(42));
+        assert_eq!(
+            r.state.len(),
+            12,
+            "--no-time-features must keep the v5-compatible 12-dim state vector"
+        );
+    }
+
+    #[test]
+    fn time_of_day_in_range_zero_to_one() {
+        let mut env = make_env_with_time_features();
+        let r = env.reset(Some(42));
+        let time_of_day = r.state[12];
+        assert!(
+            (0.0..=1.0).contains(&time_of_day),
+            "time_of_day must be in [0,1], got {time_of_day}"
+        );
+    }
+
+    #[test]
+    fn cyclical_encoding_bounded() {
+        let mut env = make_env_with_time_features();
+        let r = env.reset(Some(42));
+        assert!(
+            r.state[14].abs() <= 1.0 + 1e-6,
+            "sin(time_of_day) component out of range: {}",
+            r.state[14]
+        );
+        assert!(
+            r.state[15].abs() <= 1.0 + 1e-6,
+            "cos(time_of_day) component out of range: {}",
+            r.state[15]
+        );
+    }
+
+    #[test]
+    fn sin_cos_identity() {
+        let mut env = make_env_with_time_features();
+        let r = env.reset(Some(42));
+        let identity = r.state[14].powi(2) + r.state[15].powi(2);
+        assert!(
+            (identity - 1.0).abs() < 0.001,
+            "sin^2 + cos^2 must be ~1.0, got {identity}"
+        );
     }
 }
