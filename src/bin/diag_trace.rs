@@ -49,7 +49,7 @@ fn main() {
         Some(max_steps),
     );
     let mut twap_metrics = ExecutionMetrics::new(arrival_price, total_notional);
-    let mut twap_impact_model = SquareRootImpact::new(5_000_000.0, 0.5);
+    let twap_impact_model = SquareRootImpact::new(5_000_000.0, 0.5);
     let mut twap_transient = TransientImpactTracker::new(50.0);
     let mut twap_price_adj = 0.0_f64;
     let mut twap_total_traded = 0.0_f64;
@@ -68,7 +68,7 @@ fn main() {
         Some(max_steps),
     );
     let mut ac_metrics = ExecutionMetrics::new(arrival_price, total_notional);
-    let mut ac_impact_model = SquareRootImpact::new(5_000_000.0, 0.5);
+    let ac_impact_model = SquareRootImpact::new(5_000_000.0, 0.5);
     let mut ac_transient = TransientImpactTracker::new(50.0);
     let mut ac_price_adj = 0.0_f64;
     let mut ac_total_traded = 0.0_f64;

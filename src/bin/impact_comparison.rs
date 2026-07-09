@@ -6,7 +6,6 @@ use strata_exec::engine::scheduler::{ExecutionMode, Scheduler};
 use strata_exec::execution::impact::SquareRootImpact;
 use strata_exec::execution::transient_impact::TransientImpactTracker;
 use strata_exec::market::garch::GarchSimulator;
-use strata_exec::market::gbm::PriceSimulator;
 use strata_exec::research::multi_runner::{MultiStrategyRunner, StrategyInstance};
 
 const STRATEGIES: [(&str, ExecutionMode); 4] = [

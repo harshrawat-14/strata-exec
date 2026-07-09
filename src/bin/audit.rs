@@ -49,7 +49,7 @@ fn investigation_1() {
         42,
     );
 
-    let heuristic = HeuristicStrategy::new(base_chunk, sigma_ref, liquidity_ref, total_notional);
+    let _heuristic = HeuristicStrategy::new(base_chunk, sigma_ref, liquidity_ref, total_notional);
     let mut remaining = total_notional;
 
     // Fixed reserves (mean value from MultiStrategyRunner OU process at t=0)
