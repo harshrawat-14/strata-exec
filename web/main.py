@@ -139,6 +139,9 @@ def create_app() -> FastAPI:
     from web.demo_middleware import DemoModeMiddleware
     app.add_middleware(DemoModeMiddleware)
 
+    from web.observability import RequestIDMiddleware
+    app.add_middleware(RequestIDMiddleware)
+
     # ── CORS ──────────────────────────────────────────────────────────────────
     # When origins is ["*"] credentials must be False (browser CORS spec).
     # JWT is carried in the Authorization header so cookies are not needed.
