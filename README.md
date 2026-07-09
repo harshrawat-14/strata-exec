@@ -8,7 +8,13 @@
 </p>
 
 <p align="center">
-  <code>Rust + Python + React</code> · <code>389 Rust + 80 Pytest + 25 Vitest tests</code> · <code>zero warnings</code>
+  <code>Rust + Python + React</code> · <code>420 Rust + 80 Pytest + 25 Vitest tests</code> · <code>zero warnings</code>
+</p>
+
+<p align="center">
+  <a href="https://github.com/harshrawat-14/strata-exec/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/harshrawat-14/strata-exec/actions/workflows/ci.yml/badge.svg"></a>
+  &nbsp;·&nbsp;
+  <a href="https://strata-exec.vercel.app/"><strong>Live Demo</strong></a>
 </p>
 
 ---
@@ -81,6 +87,69 @@ Mean sim-to-real degradation: **-0.56pp** (vs synthetic baseline of +0.10%). The
 
 ---
 
+## Research Methodology
+
+**Research question:** can a reinforcement-learning agent outperform the
+closed-form Almgren-Chriss optimal execution solution on real Binance
+BTC-USDT perpetual futures data, across diverse market regimes, including
+dates it never saw during training?
+
+**Evaluation methodology:** each strategy is run for 50 episodes per
+evaluation date (seeds 0-49), inside the counterfactual LOB environment
+(real Binance L2 snapshots + accumulated Obizhaeva-Wang own-impact). Eight
+evaluation dates span five market regimes (calm bull, breakout, quiet
+consolidation, crash, post-election surge) plus three held-out
+out-of-sample test dates (April, July, December) that were never included
+in any training run, so the reported test-date results are a genuine
+generalization check rather than in-sample fit. Metrics reported: mean
+implementation shortfall (IS%), 95% CI, CVaR-95, action distribution and
+entropy, and forced-liquidation rate.
+
+**Null results, documented honestly:** not every idea worked, and the
+negative results are kept in the write-up rather than quietly dropped —
+see [Phase 3](#phase-3-null-results-documented-honestly) above for VPIN
+and regime-conditional AC, both of which underperformed their simpler
+alternatives for identified, specific reasons rather than vague
+"didn't work."
+
+---
+
+## Engineering Highlights
+
+- **CounterfactualLob design** — real Binance L2 snapshots combined with
+  an accumulated Obizhaeva-Wang impact model (30% permanent, 70%
+  exponentially-decaying temporary), giving the training environment causal
+  feedback that pure historical replay lacks. This is the single change
+  that eliminated the degenerate instant-liquidation policy (see
+  [Critical Engineering Decision #5](#5-degenerate-policy-in-synthetic-lob)
+  and [ADR-002](docs/system_design/ADR.md#adr-002-counterfactual-lob-over-historical-replay)).
+- **`_CPULSTMWrapper` MPS fix** — works around a PyTorch 2.1 MPS LSTM
+  kernel crash by pinning only the LSTM submodules to CPU while the
+  MLP layers stay on Apple GPU (see
+  [Critical Engineering Decision #3](#3-mps-lstm-crash-pytorch-21) and
+  [ADR-005](docs/system_design/ADR.md#adr-005-_cpulstmwrapper-for-the-mps-pytorch-21-bug)).
+- **JSON-over-stdin/stdout IPC protocol** — the Rust simulation core and
+  the Python RL stack are separate processes exchanging newline-delimited
+  JSON, avoiding ABI coupling between the two toolchains (see
+  [ADR-001](docs/system_design/ADR.md#adr-001-json-over-stdinstdout-for-ipc)).
+- **420 Rust tests, zero compiler warnings, zero `unwrap()` in production
+  code** — enforced by CI (`.github/workflows/ci.yml`) on every push.
+- **Unified comparison framework** — TWAP, Heuristic, AC Optimal, and
+  Adaptive AC each implement the same `.predict(obs, state, episode_start,
+  deterministic)` interface as the RL agent's RecurrentPPO policy, so all
+  five strategies run through the identical counterfactual LOB / OW-impact
+  pipeline for a methodologically valid, apples-to-apples comparison
+  (`rl/evaluate.py --unified-comparison`).
+- **Structured observability** — `web/observability.py` emits greppable
+  key=value log lines for simulation lifecycle and Rust subprocess errors,
+  and `RequestIDMiddleware` stamps every request with a correlation ID.
+- **MLflow experiment tracking** — training runs log hyperparameters and
+  the final model artifact via `mlflow.start_run()` in `rl/train.py`;
+  `rl/experiment_tracker.py` provides read-only queries (`get_best_run`,
+  `compare_runs_table`) over the tracking store.
+
+---
+
 ## Critical Engineering Decisions
 
 The path from first implementation to a working RL agent involved several non-obvious problems. These are documented because the solutions are the technically interesting parts of the project.
@@ -142,9 +211,12 @@ StrataExec is a three-mode system:
 
 - [What This Is](#what-this-is)
 - [Key Research Findings](#key-research-findings)
+- [Research Methodology](#research-methodology)
+- [Engineering Highlights](#engineering-highlights)
 - [Critical Engineering Decisions](#critical-engineering-decisions)
 - [Architecture](#architecture)
 - [Module Reference](#module-reference)
+- [Local Setup](#local-setup)
 - [Getting Started](#getting-started)
 - [Live Engine](#live-engine)
 - [Research Simulator](#research-simulator)
@@ -161,6 +233,14 @@ StrataExec is a three-mode system:
 ---
 
 ## Architecture
+
+Full component diagram, data flow, and scalability notes:
+[docs/system_design/HLD.md](docs/system_design/HLD.md). Struct-level
+detail (CounterfactualLob fields, fill algorithm, JSON wire protocol, full
+state vector table, RecurrentPPO architecture):
+[docs/system_design/LLD.md](docs/system_design/LLD.md). The 5 key
+architecture decisions with alternatives and consequences:
+[docs/system_design/ADR.md](docs/system_design/ADR.md).
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
@@ -247,6 +327,23 @@ Config (seed, σ, η, λ)  →  GBM/GARCH Simulator
 
 ---
 
+## Local Setup
+
+The fastest path to a running instance, via the [Makefile](Makefile):
+
+```bash
+cargo build --release              # 1. build the Rust binaries
+pip install -r web/requirements.txt -r rl/requirements.txt   # 2. install Python deps
+make demo                          # 3. serve pre-computed results, no compute (DEMO_MODE=true)
+make dev                           # 4. OR: serve with live Rust subprocess compute (DEMO_MODE=false)
+make evaluate                      # 5. run the default RL model against all historical dates
+```
+
+See [Getting Started](#getting-started) below for the full walkthrough
+(live engine setup, research simulator flags, RL training).
+
+---
+
 ## Getting Started
 
 ### Prerequisites
@@ -264,7 +361,7 @@ cargo build --release
 ### Quick Smoke Test
 
 ```bash
-# Run all 389 tests (no RPC / network needed)
+# Run all 420 tests (no RPC / network needed)
 cargo test
 
 # Run a quick research simulation (no .env needed)
@@ -455,11 +552,17 @@ The `rl-env` binary communicates over stdin/stdout with newline-delimited JSON:
 
 | Mode | `--rl-mode` flag | Price source | State dims |
 |------|-----------------|--------------|------------|
-| Synthetic | `synthetic` | GBM / GARCH | 8 |
-| Historical | `historical` | Binance LOB replay | 8 |
-| Counterfactual | `counterfactual` | Real LOB + own-impact correction | 10 |
+| Synthetic | `synthetic` | GBM / GARCH | 12 (16 with time features) |
+| Historical | `historical` | Binance LOB replay | 12 (16 with time features) |
+| Counterfactual | `counterfactual` | Real LOB + own-impact correction | 12 (16 with time features) |
 
-### State Vector (Counterfactual Mode — 10 dimensions)
+`build_state()` always emits the 12-dim vector below, plus 4 additional
+time-of-day dims unless `--no-time-features` is passed (see
+[LLD.md](docs/system_design/LLD.md#state-vector-12-dim-v5--16-dim-v6) for
+the full table including the v6 time dims and evaluation backward
+compatibility with pre-v6 checkpoints).
+
+### State Vector (12 dimensions, v5)
 
 | Dim | Signal | Source |
 |-----|--------|--------|
@@ -471,8 +574,10 @@ The `rl-env` binary communicates over stdin/stdout with newline-delimited JSON:
 | [5] | OFI — (buy_vol − sell_vol) / total_vol | aggTrades 30s window |
 | [6] | tanh(price_drift_10steps) | LOB mid |
 | [7] | tanh(last_fill_slippage) | Execution |
-| [8] | tanh(permanent_impact_fraction) | OW model |
-| [9] | tanh(temporary_impact_fraction) | OW model |
+| [8] | tanh(permanent_impact_fraction) | OW model (0 outside counterfactual mode) |
+| [9] | tanh(temporary_impact_fraction) | OW model (0 outside counterfactual mode) |
+| [10] | vol_regime ∈ {0.0, 0.5, 1.0} | Regime classifier |
+| [11] | liq_regime ∈ {0.0, 0.5, 1.0} | Regime classifier |
 
 ### Prerequisites
 
@@ -511,10 +616,19 @@ python rl/train.py --mode counterfactual --adversarial --timesteps 500000
 
 ```bash
 python rl/evaluate.py \
-  --passive-model rl/models/ppo_lstm_v4_best/best_model \
+  --passive-model rl/models/ppo_lstm_v5_adaptive_best/best_model \
   --episodes 50 \
-  --n-state-dims 10 \
+  --n-state-dims 12 \
   --include-test-dates
+
+# Run all 5 strategies (TWAP, Heuristic, AC Optimal, Adaptive AC, RL) through
+# the same counterfactual LOB / OW-impact pipeline (methodologically valid comparison)
+python rl/evaluate.py \
+  --passive-model rl/models/ppo_lstm_v5_adaptive_best/best_model \
+  --episodes 50 \
+  --n-state-dims 12 \
+  --include-test-dates \
+  --unified-comparison
 ```
 
 ### Model Architecture
@@ -733,10 +847,10 @@ The stack components are:
 StrataExec implements a comprehensive, multi-layered testing strategy spanning the core execution engine (Rust), the backend services (Pytest), and the user interface (Vitest).
 
 ### 1. Rust Core Engine Simulation Tests
-The Rust core backtester contains **389 tests** checking mathematics, order routing, event priority queues, volatility estimation, and market impact models.
+The Rust core backtester contains **420 tests** checking mathematics, order routing, event priority queues, volatility estimation, and market impact models.
 
 ```bash
-# Run all 389 core Rust tests (requires no database or RPC endpoint)
+# Run all 420 core Rust tests (requires no database or RPC endpoint)
 cargo test
 
 # Run specific strategy tests
