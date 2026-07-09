@@ -5,6 +5,7 @@ from stable_baselines3.common.callbacks import (
     EvalCallback, CheckpointCallback)
 from stable_baselines3.common.monitor import Monitor
 from environment import StrataExecEnv
+import mlflow
 import torch
 import torch.nn as nn
 import argparse
@@ -155,128 +156,146 @@ def train(
     os.makedirs(save_path, exist_ok=True)
     os.makedirs("rl/logs/", exist_ok=True)
 
-    print("=" * 60)
-    print(f"Training: {run_name}")
-    print(f"Mode: {mode}")
-    print(f"Adversarial: {adversarial}")
-    print(f"Timesteps: {total_timesteps:,}")
-    print(f"  btc_target: {btc_target}")
-    if lob_date:
-        print(f"LOB date: {lob_date}")
-    if multi_dates:
-        print(f"Multi-dates: {multi_dates}")
-    if adversarial:
-        print("  Adversarial agents: FrontRunner + LiquidityWithdrawer ACTIVE")
-    if jump_diffusion:
-        print("  Jump diffusion: Poisson jump events ACTIVE")
-    print(f"  ent_coef: {ent_coef}")
-    print(f"  lr_schedule: {lr_schedule} (base_lr=3e-4)")
-    print(f"  LSTM: {lstm_hidden} hidden × {lstm_layers} layers")
-    if no_regime_impact:
-        print("  Regime impact scaling: DISABLED (eval mode)")
-    else:
-        print("  Regime impact scaling: ACTIVE (crash=1.8×, quiet=0.7×)")
-    print("=" * 60)
+    with mlflow.start_run(run_name=run_name):
+        mlflow.log_params(dict(
+            lstm_hidden=lstm_hidden,
+            lstm_layers=lstm_layers,
+            n_state_dims=12 if mode == "counterfactual" else 8,
+            ent_coef=ent_coef,
+            lr_schedule=lr_schedule,
+            n_envs=n_envs,
+            total_timesteps=total_timesteps,
+            adversarial=adversarial,
+            jump_diffusion=jump_diffusion,
+            btc_target=btc_target,
+            action_space_version="v6",
+            mode=mode,
+            no_regime_impact=no_regime_impact,
+        ))
 
-    n_state_dims = 12 if mode == "counterfactual" else 8
-
-    env_kwargs = dict(
-        mode=mode,
-        adversarial=adversarial,
-        lob_date=lob_date,
-        agg_date=agg_date,
-        btc_target=btc_target,
-        multi_dates=multi_dates,
-        n_state_dims=n_state_dims,
-        fixed_steps=False,
-        fixed_size=False,
-        jump_diffusion=jump_diffusion,
-    )
-
-    n_envs = 8
-    env_fns = [make_env(**env_kwargs) for _ in range(n_envs)]
-    train_env = SubprocVecEnv(env_fns)
-
-    eval_lob_date = None
-    eval_agg_date = None
-    if mode == "counterfactual":
+        print("=" * 60)
+        print(f"Training: {run_name}")
+        print(f"Mode: {mode}")
+        print(f"Adversarial: {adversarial}")
+        print(f"Timesteps: {total_timesteps:,}")
+        print(f"  btc_target: {btc_target}")
+        if lob_date:
+            print(f"LOB date: {lob_date}")
         if multi_dates:
-            eval_lob_date = multi_dates[0]
-            eval_agg_date = multi_dates[0]
+            print(f"Multi-dates: {multi_dates}")
+        if adversarial:
+            print("  Adversarial agents: FrontRunner + LiquidityWithdrawer ACTIVE")
+        if jump_diffusion:
+            print("  Jump diffusion: Poisson jump events ACTIVE")
+        print(f"  ent_coef: {ent_coef}")
+        print(f"  lr_schedule: {lr_schedule} (base_lr=3e-4)")
+        print(f"  LSTM: {lstm_hidden} hidden × {lstm_layers} layers")
+        if no_regime_impact:
+            print("  Regime impact scaling: DISABLED (eval mode)")
         else:
-            eval_lob_date = lob_date
-            eval_agg_date = agg_date
+            print("  Regime impact scaling: ACTIVE (crash=1.8×, quiet=0.7×)")
+        print("=" * 60)
 
-    eval_env = DummyVecEnv([lambda: Monitor(StrataExecEnv(
-        mode=mode,
-        adversarial=adversarial,
-        lob_date=eval_lob_date,
-        agg_date=eval_agg_date,
-        btc_target=btc_target,
-        n_state_dims=n_state_dims,
-        seed=9999,
-        fixed_steps=True,
-        fixed_size=True,
-        jump_diffusion=jump_diffusion,
-    ))])
+        n_state_dims = 12 if mode == "counterfactual" else 8
 
-    device = get_device()
+        env_kwargs = dict(
+            mode=mode,
+            adversarial=adversarial,
+            lob_date=lob_date,
+            agg_date=agg_date,
+            btc_target=btc_target,
+            multi_dates=multi_dates,
+            n_state_dims=n_state_dims,
+            fixed_steps=False,
+            fixed_size=False,
+            jump_diffusion=jump_diffusion,
+        )
 
-    model = RecurrentPPO(
-        policy="MlpLstmPolicy",
-        env=train_env,
-        device=device,
-        learning_rate=get_lr_schedule(lr_schedule, 3e-4, total_timesteps),
-        n_steps=2048,
-        batch_size=256,
-        n_epochs=10,
-        gamma=0.99,
-        gae_lambda=0.95,
-        clip_range=0.2,
-        ent_coef=ent_coef,
-        policy_kwargs=dict(
-            net_arch=dict(pi=[64, 64], vf=[64, 64]),
-            lstm_hidden_size=64,
-            n_lstm_layers=1,
-            activation_fn=torch.nn.Tanh,
-            enable_critic_lstm=True,
-        ),
-        verbose=1,
-        tensorboard_log=f"rl/logs/{run_name}",
-        seed=42,
-    )
+        n_envs = 8
+        env_fns = [make_env(**env_kwargs) for _ in range(n_envs)]
+        train_env = SubprocVecEnv(env_fns)
 
-    # PyTorch 2.1 MPS LSTM crashes when sequence_length >= lstm_hidden_size.
-    # Pin only the LSTM submodules to CPU; all MLP layers stay on MPS.
-    if device == "mps":
-        _patch_mps_lstm(model.policy)
+        eval_lob_date = None
+        eval_agg_date = None
+        if mode == "counterfactual":
+            if multi_dates:
+                eval_lob_date = multi_dates[0]
+                eval_agg_date = multi_dates[0]
+            else:
+                eval_lob_date = lob_date
+                eval_agg_date = agg_date
 
-    callbacks = [
-        EvalCallback(
-            eval_env,
-            best_model_save_path=f"{save_path}{run_name}_best",
-            eval_freq=50_000 // 4,
-            n_eval_episodes=50,
-            deterministic=True,
+        eval_env = DummyVecEnv([lambda: Monitor(StrataExecEnv(
+            mode=mode,
+            adversarial=adversarial,
+            lob_date=eval_lob_date,
+            agg_date=eval_agg_date,
+            btc_target=btc_target,
+            n_state_dims=n_state_dims,
+            seed=9999,
+            fixed_steps=True,
+            fixed_size=True,
+            jump_diffusion=jump_diffusion,
+        ))])
+
+        device = get_device()
+
+        model = RecurrentPPO(
+            policy="MlpLstmPolicy",
+            env=train_env,
+            device=device,
+            learning_rate=get_lr_schedule(lr_schedule, 3e-4, total_timesteps),
+            n_steps=2048,
+            batch_size=256,
+            n_epochs=10,
+            gamma=0.99,
+            gae_lambda=0.95,
+            clip_range=0.2,
+            ent_coef=ent_coef,
+            policy_kwargs=dict(
+                net_arch=dict(pi=[64, 64], vf=[64, 64]),
+                lstm_hidden_size=64,
+                n_lstm_layers=1,
+                activation_fn=torch.nn.Tanh,
+                enable_critic_lstm=True,
+            ),
             verbose=1,
-        ),
-        CheckpointCallback(
-            save_freq=100_000 // 4,
-            save_path=f"{save_path}checkpoints/{run_name}/",
-            name_prefix="ckpt",
-        ),
-    ]
+            tensorboard_log=f"rl/logs/{run_name}",
+            seed=42,
+        )
 
-    model.learn(
-        total_timesteps=total_timesteps,
-        callback=callbacks,
-        progress_bar=True,
-    )
+        # PyTorch 2.1 MPS LSTM crashes when sequence_length >= lstm_hidden_size.
+        # Pin only the LSTM submodules to CPU; all MLP layers stay on MPS.
+        if device == "mps":
+            _patch_mps_lstm(model.policy)
 
-    final_path = f"{save_path}{run_name}_final"
-    model.save(final_path)
-    print(f"\nModel saved: {final_path}")
-    return model
+        callbacks = [
+            EvalCallback(
+                eval_env,
+                best_model_save_path=f"{save_path}{run_name}_best",
+                eval_freq=50_000 // 4,
+                n_eval_episodes=50,
+                deterministic=True,
+                verbose=1,
+            ),
+            CheckpointCallback(
+                save_freq=100_000 // 4,
+                save_path=f"{save_path}checkpoints/{run_name}/",
+                name_prefix="ckpt",
+            ),
+        ]
+
+        model.learn(
+            total_timesteps=total_timesteps,
+            callback=callbacks,
+            progress_bar=True,
+        )
+
+        final_path = f"{save_path}{run_name}_final"
+        model.save(final_path)
+        mlflow.log_artifact(f"{final_path}.zip")
+        print(f"\nModel saved: {final_path}")
+        return model
 
 
 if __name__ == "__main__":
