@@ -87,7 +87,62 @@ implementation plan adds a step the original plan didn't anticipate:
 All three are implemented below; the throughput table in the HLD update reports
 before/after numbers for all three, not just the transport.
 
-## 5. Reproduction
+## 6. Follow-up: allocation elimination reduced count 25%, not to zero — what's the remaining cost?
+
+Phase S's stated acceptance criterion was "profiler-confirmed zero allocations in the
+`step()` hot path." The implementation reduced it from 20.01 to 15.01 allocations/step
+(-25%, ~1174 bytes/step) — not to zero. A count reduction alone doesn't say whether the
+remainder is worth chasing further, so this measures the *time* cost of what's left, not
+just the count.
+
+**Method**: a timing-instrumented global allocator (`alloc-timing` Cargo feature,
+`src/bin/rl_env.rs`) wraps the system allocator, summing `Instant::now()` deltas around
+every `alloc`/`dealloc`/`realloc`/`alloc_zeroed` call into an atomic counter. A benchmark
+(`step_allocation_time_share_of_wall_time`, gated behind the same feature, run with
+`cargo test --release --features alloc-timing -- --ignored --nocapture`) then calls the
+real production functions in the real per-iteration order — `serde_json::from_str::<InMsg>`
+(parsing an incoming action, exactly as `main()`'s hot loop does) → `RlEnv::step()`
+(includes `build_state()`) → `step_result_to_msg` → `write_msg` (writing to `io::sink()`,
+which discards bytes without buffering/allocating, isolating this from actual socket I/O
+latency) — for 2000 steps on real, cache-warmed `2024-01-15` historical data.
+
+**Result:**
+
+```
+total wall time:       1555.7 ns/step
+time inside allocator:  147.4 ns/step  (14,480 alloc/dealloc/realloc calls total, 7.24/step)
+allocator share of step wall time: 9.5%
+```
+
+**Reading this against the full observed per-step latency** (the number that actually
+reaches a Python training loop, not just Rust-side compute): section 1's post-caching
+throughput was ~44,000–46,000 steps/sec, i.e. ~21,600–22,700 ns/step end-to-end. This
+benchmark's 1,556 ns/step is the Rust-side compute (parse + step + serialize) contained
+within that — **only ~7% of the full round-trip time**; the remaining ~93% is socket/pipe
+I/O and Python-side JSON decode, which this benchmark deliberately excludes via
+`io::sink()`. Allocation specifically (147 ns/step) is **~0.7% of the full observed
+per-step latency**.
+
+**Verdict: treated as acceptable, not pursued further.** Even a hypothetical *complete*
+elimination of all remaining allocations would save ~147 ns/step out of a ~21,600+ ns/step
+round trip — a theoretical ceiling around 0.7%, not a meaningful lever. Allocation was
+never going to be the bottleneck for single-instance throughput once `reset()`'s ~239ms
+cost was fixed (section 4); IPC/socket round-trip cost now dominates what remains, and
+that is what the batched Arrow transport (not further `step()` micro-optimization)
+targets — see the HLD's Phase S section for that transport's own honestly-reported
+cost/benefit at different batch sizes. Chasing the literal "zero allocations" wording
+further would be optimizing a cost that is no longer material, contradicting the same
+"prove it with a number, don't assert it with a technique name" standard this whole
+baseline report is built on.
+
+One measurement caveat, stated plainly: this benchmark's allocator-*call*-count (7.24
+calls/step, alloc+dealloc combined) is lower than section 3's dhat-heap allocation-*count*
+(15.01 allocations/step alone, not counting frees) — the two profilers count on different
+bases (dhat's call-site "blocks" vs. this benchmark's raw `GlobalAlloc` invocation count),
+and reconciling them exactly wasn't pursued once the *time* answer above made the count
+discrepancy immaterial to the actual question being asked.
+
+## 7. Reproduction
 
 ```bash
 # Throughput
@@ -100,4 +155,8 @@ cargo build --release --bin rl-env --features dhat-heap
 # enough on this CSV-parse-heavy workload that a full-length run takes minutes,
 # not milliseconds (learned the hard way while producing this report).
 cargo build --release --bin rl-env   # rebuild the plain binary afterward
+
+# Allocation TIME share of step wall time (section 6)
+cargo test --release --features alloc-timing --bin rl-env \
+  step_allocation_time_share_of_wall_time -- --ignored --nocapture
 ```

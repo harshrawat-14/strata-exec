@@ -12,6 +12,71 @@
 #[global_allocator]
 static ALLOC: dhat::Alloc = dhat::Alloc;
 
+/// Timing-instrumented allocator (separate from dhat-heap, which counts
+/// allocations/bytes but not wall time spent inside them). Wraps the system
+/// allocator, timing every alloc/dealloc/realloc call via `Instant::now()`
+/// deltas summed into atomics, so a step-loop benchmark can report what
+/// fraction of its own wall time is actually spent allocating -- the
+/// follow-up measurement to the dhat-heap allocation-COUNT numbers in
+/// docs/system_design/phase_s_baseline.md. `Instant::now()` itself has
+/// measurable overhead (~20-40ns on macOS via mach_absolute_time), which is
+/// a source of over-counting on very cheap allocations -- treat this as an
+/// order-of-magnitude answer, documented as such wherever it's reported.
+#[cfg(feature = "alloc-timing")]
+mod alloc_timing {
+    use std::alloc::{GlobalAlloc, Layout, System};
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::time::Instant;
+
+    pub static ALLOC_NANOS: AtomicU64 = AtomicU64::new(0);
+    pub static ALLOC_CALLS: AtomicU64 = AtomicU64::new(0);
+
+    pub fn reset() {
+        ALLOC_NANOS.store(0, Ordering::SeqCst);
+        ALLOC_CALLS.store(0, Ordering::SeqCst);
+    }
+
+    pub fn snapshot() -> (u64, u64) {
+        (ALLOC_NANOS.load(Ordering::SeqCst), ALLOC_CALLS.load(Ordering::SeqCst))
+    }
+
+    pub struct TimingAlloc;
+
+    unsafe impl GlobalAlloc for TimingAlloc {
+        unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+            let t0 = Instant::now();
+            let ptr = System.alloc(layout);
+            ALLOC_NANOS.fetch_add(t0.elapsed().as_nanos() as u64, Ordering::Relaxed);
+            ALLOC_CALLS.fetch_add(1, Ordering::Relaxed);
+            ptr
+        }
+        unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
+            let t0 = Instant::now();
+            System.dealloc(ptr, layout);
+            ALLOC_NANOS.fetch_add(t0.elapsed().as_nanos() as u64, Ordering::Relaxed);
+            ALLOC_CALLS.fetch_add(1, Ordering::Relaxed);
+        }
+        unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
+            let t0 = Instant::now();
+            let p = System.realloc(ptr, layout, new_size);
+            ALLOC_NANOS.fetch_add(t0.elapsed().as_nanos() as u64, Ordering::Relaxed);
+            ALLOC_CALLS.fetch_add(1, Ordering::Relaxed);
+            p
+        }
+        unsafe fn alloc_zeroed(&self, layout: Layout) -> *mut u8 {
+            let t0 = Instant::now();
+            let ptr = System.alloc_zeroed(layout);
+            ALLOC_NANOS.fetch_add(t0.elapsed().as_nanos() as u64, Ordering::Relaxed);
+            ALLOC_CALLS.fetch_add(1, Ordering::Relaxed);
+            ptr
+        }
+    }
+}
+
+#[cfg(feature = "alloc-timing")]
+#[global_allocator]
+static ALLOC_TIMING: alloc_timing::TimingAlloc = alloc_timing::TimingAlloc;
+
 use std::cell::RefCell;
 use std::collections::{HashMap, VecDeque};
 use std::io::{self, BufRead, Write};
@@ -1814,6 +1879,98 @@ mod tests {
                  same seed -- the environment is not deterministic"
             );
         }
+    }
+
+    #[test]
+    #[cfg(feature = "alloc-timing")]
+    #[ignore = "manual benchmark; run with --features alloc-timing -- --ignored --nocapture"]
+    fn step_allocation_time_share_of_wall_time() {
+        // Follow-up to the dhat-heap allocation-COUNT measurement in
+        // docs/system_design/phase_s_baseline.md: 15.01 allocs/step is a count,
+        // not a cost. This measures what fraction of a step iteration's actual
+        // wall time is spent inside the allocator, now that reset()'s ~239ms
+        // no longer dominates -- run with:
+        //   cargo test --release --features alloc-timing \
+        //     step_allocation_time_share_of_wall_time -- --nocapture --ignored
+        // (--ignored because this needs real 2024-01-15 data and is a
+        // benchmark, not a correctness assertion; it prints a number rather
+        // than asserting a threshold, since "how much allocation costs" is a
+        // measurement to report, not a pass/fail gate.)
+        let lob_path = "TradeData/BookDepth/BTCUSDT-bookDepth-2024-01-15.csv";
+        if !std::path::Path::new(lob_path).exists() {
+            eprintln!("skipping: {lob_path} not present in this checkout");
+            return;
+        }
+
+        let cfg = EnvConfig {
+            mode: RlMode::Historical,
+            total_inventory: 1_000_000.0,
+            total_steps: HISTORICAL_DEFAULT_STEPS,
+            seed: 42,
+            sigma_ref: 0.20,
+            gamma: 0.005,
+            adversarial: false,
+            lob_data_path: Some(lob_path.to_string()),
+            btc_target: 50_000.0,
+            adv_btc: 0.0,
+            agg_trades_path: None,
+            fixed_steps: true,
+            fixed_size: true,
+            no_time_features: true,
+        };
+        let mut env = RlEnv::new(cfg);
+
+        // Warm the per-date cache (excluded from timing -- this measurement is
+        // about the steady-state step() cost, not the already-measured reset()
+        // cost).
+        env.reset(Some(1));
+        env.reset(Some(2));
+
+        const N: usize = 2000;
+        let incoming_line = "{\"action\": 0}";
+        alloc_timing::reset();
+        let wall_t0 = std::time::Instant::now();
+        for i in 0..N {
+            // Full main()-loop scope, calling the REAL production functions
+            // (not reimplementations): parse the incoming action message
+            // (serde_json::from_str::<InMsg>, same as main()'s hot loop -- an
+            // earlier version of this benchmark skipped this and undercounted
+            // allocations relative to the dhat-heap measurement in
+            // phase_s_baseline.md, which does include the input side) ->
+            // step() (includes build_state) -> step_result_to_msg -> write_msg.
+            // io::sink() discards bytes without buffering/allocating, isolating
+            // step()+serialization cost from actual socket/pipe I/O syscall
+            // latency, which is not allocation.
+            let in_msg: InMsg = serde_json::from_str(incoming_line).unwrap();
+            let r = env.step(in_msg.action.unwrap_or(0));
+            let out_msg = step_result_to_msg(r);
+            write_msg(&mut io::sink(), &out_msg).unwrap();
+            if i % 500 == 0 {
+                // Historical mode terminates after HISTORICAL_DEFAULT_STEPS;
+                // reset periodically (not timed as part of the loop average
+                // in the sense that matters -- reset() cost is already
+                // measured separately and is now ~1.2ms cached, negligible
+                // next to N=2000 steps, but exclude it from the allocator
+                // share calculation for a clean "steady-state step()" number).
+                alloc_timing::reset();
+                env.reset(Some((i as u64) % 5 + 1));
+                alloc_timing::reset();
+            }
+        }
+        let wall_elapsed = wall_t0.elapsed();
+        let (alloc_nanos, alloc_calls) = alloc_timing::snapshot();
+
+        let wall_ns = wall_elapsed.as_nanos() as u64;
+        let pct = 100.0 * alloc_nanos as f64 / wall_ns as f64;
+
+        println!("N={N} steps");
+        println!("total wall time:      {:.3} ms ({:.1} ns/step)", wall_elapsed.as_secs_f64() * 1000.0, wall_ns as f64 / N as f64);
+        println!("time inside allocator: {:.3} ms ({:.1} ns/step, {} calls, {:.2} calls/step)",
+            alloc_nanos as f64 / 1e6, alloc_nanos as f64 / N as f64, alloc_calls, alloc_calls as f64 / N as f64);
+        println!("allocator share of step wall time: {pct:.1}%");
+        println!("NOTE: Instant::now() has ~20-40ns overhead on macOS, called twice per \
+                   allocation call here -- this is an order-of-magnitude measurement, not \
+                   a precise one.");
     }
 
     #[test]

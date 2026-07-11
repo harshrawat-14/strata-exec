@@ -41,6 +41,7 @@ optional = true
 
 [features]
 dhat-heap = ["dhat"]
+alloc-timing = []
 
 [dev-dependencies]
 tokio = { version = "1", features = ["test-util"] }
