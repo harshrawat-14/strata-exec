@@ -164,3 +164,83 @@ remap before loading on a machine without the wrapper (see LLD.md). This
 workaround should be removed (or simply left in place, since it is
 harmless overhead) once the project's pinned PyTorch version is upgraded to
 ≥ 2.3, where the underlying MPS LSTM kernel was rewritten.
+
+---
+
+## ADR-006: Arrow IPC over a Unix domain socket for the batched hot-loop transport, plus per-date data caching
+
+**Status:** Accepted
+
+**Context — this partially revises ADR-001.** ADR-001 accepted JSON-over-stdio on the
+grounds that "serialization overhead is negligible relative to policy inference time."
+Phase S's baseline measurement (`docs/system_design/phase_s_baseline.md`) both confirms
+and complicates that claim: `step()`'s JSON marginal cost is indeed small in absolute
+terms (16 allocations/call, ~12,000 steps/sec on a single instance) — but `reset()`
+dominates total episode wall time (~103% of it), because it re-parses the entire
+multi-million-row historical CSV from disk on every episode. **The measured bottleneck
+is not the transport codec; it's redundant per-episode I/O and parsing.** This ADR
+covers both fixes together because the vectorized batched env (Phase S task 3) is the
+natural place to do both: N instances sharing one cached, pre-parsed dataset, and one
+batched state handoff to Python instead of N separate round-trips.
+
+**Decision:**
+1. **Cache parsed per-date market data** (`AggTradesDay`, `LobReplay`) behind a
+   process-local cache keyed by date, shared via `Arc` across every `RlEnv` instance
+   (including all N instances inside a batched env) that replays that date. Parse once
+   per date per process, not once per episode.
+2. **Replace JSON-over-stdio with Arrow RecordBatch IPC over a Unix domain socket** for
+   the batched `step_batch`/`reset_batch` hot path. The single-instance JSON protocol
+   from ADR-001 is left in place for the non-batched `rl-env` binary (still used by
+   `rl/evaluate.py`'s per-strategy episodes, where the transport cost was never the
+   bottleneck and JSON's debuggability is worth keeping) — this is additive, not a
+   full replacement.
+
+**Alternatives considered (for item 2):**
+- **True shared-memory ring buffer** (a hand-rolled `mmap`'d region with manual
+  producer/consumer sequence numbers). Highest theoretical throughput and the only
+  option that is *literally* zero-copy end-to-end (no bytes cross a socket at all).
+  Rejected for this codebase: manual synchronization primitives are exactly the kind of
+  code where a subtle bug silently corrupts state rather than crashing loudly — a bad
+  trade on a research platform that depends on Global Rule 10's per-instance RNG
+  isolation being airtight, and platform-specific enough (macOS vs Linux shared-memory
+  APIs differ) to add real portability risk. Given the baseline shows the per-step
+  transport cost is not the bottleneck, the extra correctness risk isn't bought by a
+  correspondingly large measured win.
+- **Cap'n Proto / FlatBuffers.** Also zero-copy on deserialization (direct struct access
+  on the wire format, no unpacking pass), and would work. Rejected in favor of Arrow
+  because our actual payload shape — N environment instances × a fixed-width float
+  state vector, plus per-instance reward/done scalars — is exactly Arrow's home turf
+  (a columnar `RecordBatch`), whereas Cap'n Proto/FlatBuffers have no batch-of-numeric-
+  arrays abstraction and would require hand-rolling that layout inside a schema. Arrow
+  also has substantially richer Python-side tooling for a research platform: a captured
+  message can be loaded and inspected interactively via `pyarrow` (schema, column
+  stats, `to_pandas()`) without writing a decoder, which JSON already gave us and this
+  choice does not give up.
+- **Arrow RecordBatch, chosen.** Deserialization on the Python side is a buffer-view
+  reinterpretation via `pyarrow`, not a parse (this is the conventional meaning of
+  "Arrow enables zero-copy" — the *decode* step is zero-copy even though bytes still
+  cross the socket, unlike shared memory). Natural fit for `step_batch(actions: &[Action])
+  -> StateBatch` (a `RecordBatch` with N rows). Strong library support on both sides
+  (`arrow-rs`, `pyarrow`). Self-describing schema keeps debuggability close to JSON's,
+  which matters more here than in a live-trading system (explicit scope boundary, see
+  Phase S framing) — correctness and the ability to inspect a wire message by hand
+  outweigh squeezing out the last-mile latency a hand-rolled shared-memory buffer would
+  give, especially since that latency was never the measured bottleneck.
+
+**Rationale for the socket (not stdio) as the batched channel:** the existing
+stdin/stdout pipe is line-oriented and shared with the single-instance JSON protocol; a
+dedicated Unix domain socket keeps the batched Arrow protocol as a separate, independently
+testable channel without overloading the meaning of a line on stdout, and is a small,
+well-understood step from "subprocess pipe" (no shared-memory allocator, no cross-platform
+POSIX shm quirks).
+
+**Consequences:** Two transports now exist side by side — JSON-over-stdio (ADR-001,
+unchanged, still used by the non-batched single-episode path) and Arrow-over-socket
+(this ADR, used by the new batched env). This is accepted as the correct scope: Phase S's
+explicit boundary is an offline research platform, not a live-trading rewrite, and
+`rl/evaluate.py`'s existing single-episode call sites do not need to change to get the
+throughput win, since that win doesn't come from the transport for those call sites in
+the first place (see baseline report). The per-date cache must be invalidated per
+process, not persisted across `rl-env` invocations — this is intentional: it caches
+within one training run's process lifetime, not across runs, so a changed CSV file on
+disk is always picked up by the next process start.
