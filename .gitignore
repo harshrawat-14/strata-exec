@@ -25,6 +25,9 @@ rl/models/*
 !rl/models/smoke_v5_final.zip
 rl/logs/
 
+# MLflow local tracking store (rl/train.py logs here by default)
+mlruns/
+
 # Caches
 .pytest_cache/
 .eslintcache

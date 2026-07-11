@@ -91,9 +91,46 @@ def cosine_with_restarts(progress_remaining: float) -> float:
     return peak * 0.5 * (1.0 + math.cos(math.pi * cycle_progress))
 
 
+# Regression note (Phase 2): this module could not previously be imported at
+# all -- these two assertions were failing with the ORIGINAL 0.67/0.34
+# inputs (cosine_with_restarts(0.67) ~= 0.0002, not ~0.5). The function
+# itself is correct and matches the docstring; 0.67/0.34 simply landed on
+# the wrong side of the 1/3 and 2/3 progress boundaries (e.g.
+# progress_remaining=0.67 -> progress=0.33, which is fractionally BEFORE
+# the exact 1/3 boundary -- still the tail end of cycle 0, where cosine
+# decays to ~0, not the start of cycle 1's peak). 0.66/0.32 land safely
+# inside cycles 1 and 2 respectively, at their intended peaks.
 assert abs(cosine_with_restarts(1.0) - 1.0) < 0.01, "cosine_with_restarts(1.0) must be ~1.0"
-assert abs(cosine_with_restarts(0.67) - 0.5) < 0.05, "cosine_with_restarts(0.67) must be ~0.5"
-assert abs(cosine_with_restarts(0.34) - 0.25) < 0.05, "cosine_with_restarts(0.34) must be ~0.25"
+assert abs(cosine_with_restarts(0.66) - 0.5) < 0.05, "cosine_with_restarts(0.66) must be ~0.5"
+assert abs(cosine_with_restarts(0.32) - 0.25) < 0.05, "cosine_with_restarts(0.32) must be ~0.25"
+
+
+def get_lr_schedule(lr_schedule: str, base_lr: float, total_timesteps: int):
+    """
+    Map the --lr-schedule CLI choice to what RecurrentPPO's learning_rate
+    argument expects: either a constant float, or a callable
+    (progress_remaining: float) -> float, where progress_remaining goes
+    1.0 -> 0.0 over training regardless of total_timesteps (SB3's own
+    convention -- total_timesteps is accepted here for interface symmetry
+    with the other two branches and isn't otherwise needed).
+
+    Regression note (Phase 2): this function was called but never defined
+    anywhere in this file -- train() raised NameError on the first line
+    that needed a learning rate, meaning training had never been run to
+    completion in this state. cosine_restarts here reuses
+    cosine_with_restarts (already implemented, already exercised at module
+    import time by the assertions above) scaled by base_lr.
+    """
+    if lr_schedule == "constant":
+        return base_lr
+    if lr_schedule == "linear":
+        return lambda progress_remaining: base_lr * progress_remaining
+    if lr_schedule == "cosine_restarts":
+        return lambda progress_remaining: base_lr * cosine_with_restarts(progress_remaining)
+    raise ValueError(
+        f"unknown lr_schedule {lr_schedule!r}; expected one of "
+        f"'constant', 'linear', 'cosine_restarts'"
+    )
 
 
 def make_env(
@@ -108,7 +145,7 @@ def make_env(
     fixed_steps=False,
     fixed_size=False,
     jump_diffusion=False,
-    no_regime_impact=False,
+    no_time_features=False,
 ):
     import random
 
@@ -129,7 +166,7 @@ def make_env(
             fixed_steps=fixed_steps,
             fixed_size=fixed_size,
             jump_diffusion=jump_diffusion,
-            no_regime_impact=no_regime_impact,
+            no_time_features=no_time_features,
         )
         return Monitor(env)
     return _init
@@ -151,16 +188,30 @@ def train(
     lstm_hidden: int = 128,
     lstm_layers: int = 2,
     n_envs: int = 4,
-    no_regime_impact: bool = False,
+    no_time_features: bool = False,
 ):
     os.makedirs(save_path, exist_ok=True)
     os.makedirs("rl/logs/", exist_ok=True)
+
+    # Phase 2 (intraday time features): counterfactual mode's real state width
+    # is 12 dims (no_time_features=True) or 16 dims (time features s12-s15
+    # included, the default). Previously this was hardcoded to 12 regardless
+    # of no_time_features, and no_time_features was never threaded through
+    # make_env/env_kwargs at all -- meaning every prior "counterfactual"
+    # training run silently trained on a 12-dim slice of whatever the Rust
+    # subprocess actually emitted (16-dim by default), discarding the time
+    # features entirely. See docs/system_design/ADR.md and the Phase 2 report
+    # for detail.
+    if mode == "counterfactual":
+        n_state_dims = 12 if no_time_features else 16
+    else:
+        n_state_dims = 8
 
     with mlflow.start_run(run_name=run_name):
         mlflow.log_params(dict(
             lstm_hidden=lstm_hidden,
             lstm_layers=lstm_layers,
-            n_state_dims=12 if mode == "counterfactual" else 8,
+            n_state_dims=n_state_dims,
             ent_coef=ent_coef,
             lr_schedule=lr_schedule,
             n_envs=n_envs,
@@ -170,7 +221,7 @@ def train(
             btc_target=btc_target,
             action_space_version="v6",
             mode=mode,
-            no_regime_impact=no_regime_impact,
+            no_time_features=no_time_features,
         ))
 
         print("=" * 60)
@@ -190,13 +241,9 @@ def train(
         print(f"  ent_coef: {ent_coef}")
         print(f"  lr_schedule: {lr_schedule} (base_lr=3e-4)")
         print(f"  LSTM: {lstm_hidden} hidden × {lstm_layers} layers")
-        if no_regime_impact:
-            print("  Regime impact scaling: DISABLED (eval mode)")
-        else:
-            print("  Regime impact scaling: ACTIVE (crash=1.8×, quiet=0.7×)")
+        print(f"  n_state_dims: {n_state_dims}"
+              f"{' (time features s12-s15 included)' if n_state_dims == 16 else ''}")
         print("=" * 60)
-
-        n_state_dims = 12 if mode == "counterfactual" else 8
 
         env_kwargs = dict(
             mode=mode,
@@ -209,6 +256,7 @@ def train(
             fixed_steps=False,
             fixed_size=False,
             jump_diffusion=jump_diffusion,
+            no_time_features=no_time_features,
         )
 
         n_envs = 8
@@ -236,6 +284,7 @@ def train(
             fixed_steps=True,
             fixed_size=True,
             jump_diffusion=jump_diffusion,
+            no_time_features=no_time_features,
         ))])
 
         device = get_device()
@@ -301,8 +350,10 @@ def train(
 if __name__ == "__main__":
     p = argparse.ArgumentParser()
     p.add_argument("--lr-schedule", type=str, default="constant",
-                   choices=["constant", "linear"],
-                   help="Learning rate schedule. linear decays lr to 0.")
+                   choices=["constant", "linear", "cosine_restarts"],
+                   help="Learning rate schedule. linear decays lr to 0; "
+                        "cosine_restarts uses 3 cosine-annealed cycles with "
+                        "halving peaks (see cosine_with_restarts).")
     p.add_argument("--adversarial", action="store_true")
     p.add_argument("--timesteps", type=int, default=500_000)
     p.add_argument("--name", type=str, default=None)
@@ -317,6 +368,12 @@ if __name__ == "__main__":
                    help="Entropy coefficient. Higher -> more exploration.")
     p.add_argument("--jump-diffusion", action="store_true",
                    help="Enable Poisson jump diffusion in GARCH price model.")
+    p.add_argument("--no-time-features", action="store_true",
+                   help="Counterfactual mode only: use the 12-dim state "
+                        "(omit intraday time features s12-s15). Default is "
+                        "16-dim (time features included) -- pass this flag "
+                        "to reproduce the pre-Phase-2 12-dim baseline for an "
+                        "ablation comparison.")
     args = p.parse_args()
 
     multi_dates = None
@@ -343,4 +400,5 @@ if __name__ == "__main__":
         lr_schedule=args.lr_schedule,
         ent_coef=args.ent_coef,
         jump_diffusion=args.jump_diffusion,
+        no_time_features=args.no_time_features,
     )
