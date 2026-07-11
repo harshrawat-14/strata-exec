@@ -8,6 +8,10 @@
 //
 // The response is a JSON object {state, reward, done, info}.
 
+#[cfg(feature = "dhat-heap")]
+#[global_allocator]
+static ALLOC: dhat::Alloc = dhat::Alloc;
+
 use std::collections::VecDeque;
 use std::io::{self, BufRead, Write};
 
@@ -1256,6 +1260,9 @@ fn step_result_to_msg(r: StepResult) -> OutMsg {
 }
 
 fn main() {
+    #[cfg(feature = "dhat-heap")]
+    let _profiler = dhat::Profiler::new_heap();
+
     let cfg = parse_cli();
     let mut env = RlEnv::new(cfg);
 
