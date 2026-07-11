@@ -1144,7 +1144,20 @@ impl RlEnv {
         };
         let s7 = (self.last_slippage / self.spread_ref.max(1e-9)).tanh();
 
-        let mut state = vec![s0, s1, s2, s3, s4, s5, s6, s7];
+        // Capacity 16 up front (the max possible width, time-features included) so
+        // the pushes below never trigger a grow-reallocation -- exactly one
+        // allocation per call instead of the 1-2 extra reallocations `vec![...]`
+        // followed by growing pushes used to incur (measured via dhat-heap,
+        // docs/system_design/phase_s_baseline.md).
+        let mut state = Vec::with_capacity(16);
+        state.push(s0);
+        state.push(s1);
+        state.push(s2);
+        state.push(s3);
+        state.push(s4);
+        state.push(s5);
+        state.push(s6);
+        state.push(s7);
         if let Some(cf) = &self.cf_lob {
             let s8 = (cf.permanent_impact() / 0.5).tanh();
             let s9 = (cf.temporary_impact_total() / 0.3).tanh();
@@ -1337,8 +1350,13 @@ fn parse_cli() -> EnvConfig {
 // ---------------------------------------------------------------------------
 
 fn write_msg(out: &mut impl Write, msg: &OutMsg) -> io::Result<()> {
-    let s = serde_json::to_string(msg).expect("OutMsg must serialise");
-    writeln!(out, "{s}")?;
+    // Write straight to the output stream instead of materialising an
+    // intermediate String via serde_json::to_string -- one fewer allocation
+    // per step on the hot path (measured via dhat-heap,
+    // docs/system_design/phase_s_baseline.md).
+    serde_json::to_writer(&mut *out, msg)
+        .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+    out.write_all(b"\n")?;
     out.flush()
 }
 
@@ -1354,15 +1372,23 @@ fn main() {
     let mut env = RlEnv::new(cfg);
 
     let stdin = io::stdin();
+    let mut stdin = stdin.lock();
     let stdout = io::stdout();
     let mut stdout = stdout.lock();
 
-    for line in stdin.lock().lines() {
-        let line = match line {
-            Ok(l) => l,
+    // Reused across iterations (cleared, not reallocated) instead of
+    // BufRead::lines(), which allocates a fresh String per line -- one fewer
+    // allocation per step on the input side of the hot path (measured via
+    // dhat-heap, docs/system_design/phase_s_baseline.md).
+    let mut line_buf = String::with_capacity(256);
+    loop {
+        line_buf.clear();
+        match stdin.read_line(&mut line_buf) {
+            Ok(0) => break, // EOF
+            Ok(_) => {}
             Err(_) => break,
-        };
-        let trimmed = line.trim();
+        }
+        let trimmed = line_buf.trim();
         if trimmed.is_empty() {
             continue;
         }
