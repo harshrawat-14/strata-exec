@@ -323,6 +323,38 @@ class HeuristicPolicy:
 AC_DEFAULT_LAMBDA = 0.001
 
 
+def _stable_sinh_ratio(kappa: float, T: int, t: np.ndarray) -> np.ndarray:
+    """
+    sinh(kappa*(T-t)) / sinh(kappa*T), computed without overflow for large
+    kappa*T.
+
+    Found via Phase 1's AC lambda-grid sweep test: at high lambda combined
+    with AdaptiveACPolicy's live-volatility clamp (current_sigma up to 2.0,
+    predict()), kappa*T can reach into the thousands -- sinh() overflows to
+    inf, and inf/inf produces NaN, silently corrupting the AC schedule (a
+    RuntimeWarning that a naive test could pass right past, exactly the
+    "config that hides the interesting failure" pattern -- here the
+    trajectory-level assertions still happened to hold on average, which is
+    what makes it easy to miss).
+
+    Numerically stable rewrite: sinh(x) = (e^x - e^-x)/2, so for x = kappa*t
+    and y = kappa*T both large and positive,
+        sinh(x)/sinh(y) = exp(x-y) * (1 - exp(-2x)) / (1 - exp(-2y))
+    which stays in [0, 1] and never evaluates e^(anything > 0) for the
+    dominant term. t ranges over [0, T), so x = kappa*(T-t) > 0 always.
+    """
+    x = kappa * (T - t)
+    y = kappa * T
+    if y > 20.0:
+        # sinh(y) itself would already be ~e^20/2 here; the direct formula
+        # is safe up to y~700 in float64, but this rewrite is exact in the
+        # limit and avoids ever computing sinh() of a value that could grow
+        # unboundedly across future callers.
+        return np.exp(x - y) * (1.0 - np.exp(-2.0 * x)) / (1.0 - np.exp(-2.0 * y))
+    denom = np.sinh(y) + 1e-10
+    return np.sinh(x) / denom
+
+
 class ACOptimalPolicy:
     """
     Almgren-Chriss closed-form optimal execution trajectory.
@@ -351,10 +383,9 @@ class ACOptimalPolicy:
         k = self.kappa
         steps = np.arange(T)
 
-        denom = np.sinh(k * T) + 1e-10
-        remaining_at_t = np.sinh(k * (T - steps)) / denom
+        remaining_at_t = _stable_sinh_ratio(k, T, steps)
         remaining_at_t_plus_1 = np.concatenate([
-            np.sinh(k * (T - steps[1:])) / denom,
+            _stable_sinh_ratio(k, T, steps[1:]),
             [0.0]
         ])
 
@@ -418,10 +449,9 @@ class AdaptiveACPolicy:
             )
             T = self.total_steps
             steps = np.arange(T)
-            denom = np.sinh(kappa * T) + 1e-10
-            remaining = np.sinh(kappa * (T - steps)) / denom
+            remaining = _stable_sinh_ratio(kappa, T, steps)
             next_rem = np.concatenate([
-                np.sinh(kappa * (T - steps[1:])) / denom,
+                _stable_sinh_ratio(kappa, T, steps[1:]),
                 [0.0]
             ])
             sell_frac = np.maximum(remaining - next_rem, 0.0)
@@ -819,6 +849,98 @@ def evaluate_all_strategies_on_date(
               f"(tail n={cvar_ci['n_tail']})")
 
     return results
+
+
+# Default risk-aversion grid for the AC baseline sweep (Phase 1 task 3a):
+# spans patient (low lambda, trades slowly, more market risk) to urgent
+# (high lambda, front-loads execution, more impact cost). Deliberately wider
+# than a token 2-point grid so the reader can see AC_DEFAULT_LAMBDA's actual
+# position on the curve, not just two endpoints.
+AC_LAMBDA_GRID = [1e-5, 1e-4, AC_DEFAULT_LAMBDA, 1e-2, 1e-1]
+
+
+def evaluate_ac_lambda_grid(
+    date: str,
+    lambdas: list = None,
+    n_episodes: int = 50,
+    n_state_dims: int = 12,
+    fixed_steps: bool = True,
+    fixed_size: bool = True,
+    n_bootstrap: int = 10000,
+    bootstrap_seed: int = 0,
+) -> dict:
+    """
+    Phase 1 task 3a: the AC baseline is not unique -- it depends on a
+    risk-aversion parameter (see AC_DEFAULT_LAMBDA's Rust/Python mismatch
+    note), and every p-value/comparison in this project is measured against
+    it. Sweep AC Optimal and Adaptive AC across a lambda grid on the same
+    counterfactual LOB episodes (same seeds) so a reader can see whether
+    AC_DEFAULT_LAMBDA sits on a strawman (too patient), an unbeatable wall
+    (too urgent), or somewhere reasonable in between -- rather than trusting
+    a single hidden value.
+
+    Only runs the two lambda-dependent policies (TWAP/Heuristic/RL don't
+    depend on lambda and are already covered once by
+    evaluate_all_strategies_on_date -- no need to re-run them per grid point).
+
+    Returns {lambda: {"ac_optimal": {...}, "adaptive_ac": {...}}}, same
+    per-strategy metrics shape as evaluate_all_strategies_on_date.
+    """
+    if lambdas is None:
+        lambdas = AC_LAMBDA_GRID
+
+    grid_results = {}
+
+    for lam in lambdas:
+        policies = {
+            "ac_optimal": ACOptimalPolicy(n_state_dims, lam=lam),
+            "adaptive_ac": AdaptiveACPolicy(n_state_dims, lam=lam),
+        }
+        strategy_labels = {"ac_optimal": "AC Optimal", "adaptive_ac": "Adaptive AC"}
+        lam_result = {}
+
+        for strategy_key, policy in policies.items():
+            print(f"    [lambda={lam:.0e} {strategy_labels[strategy_key]}]", end=" ", flush=True)
+
+            env = StrataExecEnv(
+                mode="historical",
+                lob_date=date,
+                agg_date=date,
+                n_state_dims=n_state_dims,
+                fixed_steps=fixed_steps,
+                fixed_size=fixed_size,
+                no_time_features=n_state_dims < 16,
+            )
+
+            all_is = []
+            for ep in range(n_episodes):
+                is_pct, _ep_reward, _forced, _actions = _run_episode(policy, env, seed=ep)
+                if is_pct is not None:
+                    all_is.append(is_pct)
+            env.close()
+
+            arr = np.array(all_is) if all_is else np.array([0.0])
+            cvar_95 = compute_cvar_95(arr)
+            cvar_ci = bootstrap_cvar_95_ci(arr, n_bootstrap=n_bootstrap, seed=bootstrap_seed)
+
+            lam_result[strategy_key] = {
+                "strategy": strategy_labels[strategy_key],
+                "lambda": lam,
+                "date": date,
+                "mean_IS": float(np.mean(arr)),
+                "std_IS": float(np.std(arr)),
+                "cvar_95": cvar_95,
+                "cvar_95_ci_lower": cvar_ci["ci_lower"],
+                "cvar_95_ci_upper": cvar_ci["ci_upper"],
+                "is_sharpe": float(np.mean(arr) / (np.std(arr) + 1e-10)),
+                "n_episodes": n_episodes,
+                "is_samples": all_is,
+            }
+            print(f"IS={lam_result[strategy_key]['mean_IS']:.4f}%  CVaR95={cvar_95:.4f}%")
+
+        grid_results[lam] = lam_result
+
+    return grid_results
 
 
 def print_unified_comparison(all_results: dict):

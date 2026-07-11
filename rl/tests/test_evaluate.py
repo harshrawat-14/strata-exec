@@ -13,6 +13,7 @@ from evaluate import (
     ACOptimalPolicy,
     AdaptiveACPolicy,
     AC_DEFAULT_LAMBDA,
+    _stable_sinh_ratio,
 )
 
 
@@ -107,6 +108,61 @@ class TestBootstrapCvar95Ci:
         arr = np.zeros(50)
         result = bootstrap_cvar_95_ci(arr, n_bootstrap=100)
         assert result["n_tail"] == 2  # 50 // 20 = 2
+
+
+class TestStableSinhRatio:
+    """
+    Regression coverage for a real numerical bug found via Phase 1's AC
+    lambda-grid sweep: at high lambda combined with AdaptiveACPolicy's
+    live-volatility clamp (current_sigma up to 2.0 in predict()), kappa*T
+    reached into the thousands, sinh() overflowed to inf, and inf/inf
+    produced NaN -- silently corrupting the AC schedule. The bug was easy to
+    miss: the trajectory-level "higher lambda -> worse mean IS" assertion
+    still passed on average despite the warnings, exactly the "config that
+    hides the interesting failure" pattern (a passing test isn't evidence of
+    correctness if it doesn't check the thing that can go wrong).
+    """
+
+    def test_matches_direct_sinh_for_moderate_kappa_t(self):
+        # Sanity: for kappa*T well within float64's safe range, the stable
+        # rewrite must agree with the naive formula to high precision.
+        kappa, T = 0.01, 100
+        t = np.arange(T)
+        naive = np.sinh(kappa * (T - t)) / (np.sinh(kappa * T) + 1e-10)
+        stable = _stable_sinh_ratio(kappa, T, t)
+        assert np.allclose(naive, stable, atol=1e-9)
+
+    def test_no_overflow_or_nan_at_extreme_kappa_t(self):
+        # The exact scenario that triggered the bug: lambda=0.1, sigma
+        # clamped to 2.0, eta=0.10 -> kappa=2.0, T=2880 -> kappa*T=5760,
+        # far beyond where naive sinh(kappa*T) overflows to inf.
+        kappa, T = 2.0, 2880
+        t = np.arange(T)
+        with np.errstate(over="raise", invalid="raise"):
+            result = _stable_sinh_ratio(kappa, T, t)
+        assert np.all(np.isfinite(result)), "must never produce inf/NaN"
+        assert np.all(result >= 0.0) and np.all(result <= 1.0 + 1e-9), (
+            "sinh(kappa*(T-t))/sinh(kappa*T) is a ratio of same-signed "
+            "quantities and must stay in [0, 1]"
+        )
+        # At t=0 the ratio must be ~1.0 (full remaining inventory); it must
+        # decay monotonically to ~0 as t -> T.
+        assert result[0] == pytest.approx(1.0, abs=1e-6)
+        assert result[-1] < 1e-6
+        assert np.all(np.diff(result) <= 1e-12), "must be monotonically non-increasing"
+
+    def test_ac_optimal_schedule_is_finite_at_extreme_lambda(self):
+        # End-to-end: constructing ACOptimalPolicy at the lambda that used
+        # to trigger the overflow must produce a finite, valid schedule.
+        policy = ACOptimalPolicy(lam=0.1, sigma=2.0, eta=0.10, total_steps=2880)
+        assert np.all(np.isfinite(policy._schedule))
+        assert policy._schedule.sum() == pytest.approx(1.0, abs=1e-6)
+
+    def test_adaptive_ac_schedule_is_finite_at_extreme_sigma(self):
+        policy = AdaptiveACPolicy(lam=0.1, sigma_ref=0.20, eta=0.10, total_steps=2880)
+        schedule = policy._get_schedule(2.0)  # the clamp's max current_sigma
+        assert np.all(np.isfinite(schedule))
+        assert schedule.sum() == pytest.approx(1.0, abs=1e-6)
 
 
 class TestAcLambdaOverride:
