@@ -12,8 +12,9 @@
 #[global_allocator]
 static ALLOC: dhat::Alloc = dhat::Alloc;
 
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::io::{self, BufRead, Write};
+use std::sync::Arc;
 
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
@@ -26,8 +27,58 @@ use strata_exec::market::counterfactual_lob::{CounterfactualLob, CounterfactualL
 use strata_exec::market::garch::GarchSimulator;
 use strata_exec::market::gbm::PriceSimulator;
 use strata_exec::market::lob_generator::{generate_lob, LobGeneratorParams};
-use strata_exec::market::lob_replay::LobReplay;
+use strata_exec::market::lob_replay::{LobReplay, LobSnapshot};
 use strata_exec::market::order_book::OrderBook;
+
+/// Penalty reward applied when an episode is force-terminated by a data-ingestion
+/// failure (missing/corrupt historical file, zero valid snapshots) rather than
+/// crashing the whole training process. Deliberately an order of magnitude larger
+/// in absolute value than a normal step reward (see the reward-scale diagnostic in
+/// `RlEnv::reset`, ~1e-4 to 1e-2), so it is unambiguously distinguishable from
+/// ordinary reward noise in training logs, without being so extreme it destabilizes
+/// return statistics if it fires legitimately in production.
+const DATA_INGESTION_FAILURE_PENALTY: f64 = -1.0;
+
+/// Caches parsed per-date market data (`LobReplay` snapshots, `AggTradesDay`) across
+/// repeated `reset()` calls within one `RlEnv`'s process lifetime.
+///
+/// Phase S baseline measurement: `LobReplay::from_csv` + `AggTradesDay::from_csv`
+/// account for ~99% of a historical/counterfactual `reset()`'s allocations and ~100%
+/// of its wall time (re-parsing a 1M+-row aggTrades CSV and a 28.8K-row bookDepth CSV
+/// from disk), yet the same date is replayed across many episodes both in evaluation
+/// (50 episodes/strategy/date) and training (repeated sampling from `--multi-date`).
+/// Parsing once per date per process and sharing the immutable parsed data via `Arc`
+/// (a cheap refcount bump per reset, not a copy) removes that redundant I/O/parsing
+/// entirely after the first reset for a given date. Deliberately process-local, not
+/// persisted across `rl-env` invocations: an updated CSV on disk is always picked up
+/// by the next process start.
+#[derive(Default)]
+struct MarketDataCache {
+    lob: HashMap<String, Arc<Vec<LobSnapshot>>>,
+    agg: HashMap<String, Arc<AggTradesDay>>,
+}
+
+impl MarketDataCache {
+    fn load_lob(&mut self, path: &str) -> Result<LobReplay, String> {
+        if let Some(snapshots) = self.lob.get(path) {
+            return Ok(LobReplay::from_arc(Arc::clone(snapshots)));
+        }
+        let replay = LobReplay::from_csv(path)
+            .map_err(|e| format!("failed to load LOB data '{path}': {e}"))?;
+        let snapshots = replay.snapshots_arc();
+        self.lob.insert(path.to_string(), Arc::clone(&snapshots));
+        Ok(LobReplay::from_arc(snapshots))
+    }
+
+    fn load_agg(&mut self, path: &str) -> Result<Arc<AggTradesDay>, String> {
+        if let Some(agg) = self.agg.get(path) {
+            return Ok(Arc::clone(agg));
+        }
+        let agg = Arc::new(AggTradesDay::from_csv(path)?);
+        self.agg.insert(path.to_string(), Arc::clone(&agg));
+        Ok(agg)
+    }
+}
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -215,11 +266,15 @@ pub struct RlEnv {
     cf_lob: Option<CounterfactualLob>,
 
     /// Loaded aggTrades for OFI computation (historical/counterfactual modes).
-    agg_trades: Option<AggTradesDay>,
+    agg_trades: Option<Arc<AggTradesDay>>,
     /// Precomputed OFI per snapshot, indexed across the full replay (not offset-adjusted).
     ofi_series: Vec<f64>,
     /// Snapshot index of episode start; ofi_series[ofi_start + step_idx] = OFI at step.
     ofi_start: usize,
+
+    /// Parsed-per-date cache shared across resets within this process (see
+    /// `MarketDataCache`).
+    market_cache: MarketDataCache,
 
     /// Snapshot of `cfg.total_steps` at construction time. The per-episode
     /// `cfg.total_steps` is rebuilt from this each reset (random or fixed).
@@ -299,6 +354,7 @@ impl RlEnv {
             agg_trades: None,
             ofi_series: Vec::new(),
             ofi_start: 0,
+            market_cache: MarketDataCache::default(),
             base_total_steps,
             base_total_inventory,
             episode_size_fraction: 1.0,
@@ -340,10 +396,27 @@ impl RlEnv {
         self.total_filled = 0.0;
         self.current_sigma = self.cfg.sigma_ref;
 
-        match self.cfg.mode {
-            RlMode::Synthetic => self.reset_synthetic(seed),
+        let ingestion_result = match self.cfg.mode {
+            RlMode::Synthetic => {
+                self.reset_synthetic(seed);
+                Ok(())
+            }
             RlMode::Historical => self.reset_historical(seed),
             RlMode::Counterfactual => self.reset_counterfactual(seed),
+        };
+
+        if let Err(e) = ingestion_result {
+            eprintln!("Data ingestion error at reset (episode force-terminated): {e}");
+            let n_dims = if self.cfg.no_time_features { 12 } else { 16 };
+            return StepResult {
+                state: vec![0.0; n_dims],
+                reward: DATA_INGESTION_FAILURE_PENALTY,
+                done: true,
+                info: json!({
+                    "error": e,
+                    "terminated_reason": "data_ingestion_failure",
+                }),
+            };
         }
 
         // Reward-scale diagnostic (printed to stderr at each reset).
@@ -422,13 +495,13 @@ impl RlEnv {
         self.lob_replay = None;
     }
 
-    fn reset_historical(&mut self, seed: u64) {
+    fn reset_historical(&mut self, seed: u64) -> Result<(), String> {
         let path = self
             .cfg
             .lob_data_path
             .clone()
-            .expect("historical mode requires --lob-data");
-        let mut replay = LobReplay::from_csv(&path).expect("failed to load --lob-data CSV");
+            .ok_or_else(|| "historical mode requires --lob-data".to_string())?;
+        let mut replay = self.market_cache.load_lob(&path)?;
         let n = replay.len();
         // Auto-align total_steps to replay length.
         if self.cfg.total_steps == DEFAULT_TOTAL_STEPS
@@ -473,7 +546,12 @@ impl RlEnv {
         replay.seek(start_offset);
 
         // Pull the snapshot at start_offset as the initial book.
-        let first = replay.next_snapshot().expect("LobReplay must yield ≥1 snapshot");
+        let first = replay.next_snapshot().ok_or_else(|| {
+            format!(
+                "LOB replay for '{path}' yielded zero snapshots at start_offset={start_offset} \
+                 (possible data gap or truncated file)"
+            )
+        })?;
         let raw_btc_mid = first.mid_price().unwrap_or(100.0);
         let price_factor = 100.0 / raw_btc_mid;
         let scaled_first = first.rescale_full(price_factor, qty_factor);
@@ -490,9 +568,11 @@ impl RlEnv {
         self.arrival_price = 100.0;
 
         // Precompute OFI series from aggTrades before replay is moved into self.
+        // AggTrades load failure is intentionally non-fatal: OFI is an optional
+        // signal (state dim s5 falls back to 0.0), unlike the LOB replay itself.
         if let Some(agg_path) = self.cfg.agg_trades_path.clone() {
             let timestamps = replay.snapshot_timestamps();
-            match AggTradesDay::from_csv(&agg_path) {
+            match self.market_cache.load_agg(&agg_path) {
                 Ok(agg) => {
                     self.ofi_series = agg.build_ofi_series(&timestamps, 30_000);
                     self.ofi_start = start_offset;
@@ -513,15 +593,16 @@ impl RlEnv {
 
         self.lob_replay = Some(replay);
         self.sim = None;
+        Ok(())
     }
 
-    fn reset_counterfactual(&mut self, seed: u64) {
+    fn reset_counterfactual(&mut self, seed: u64) -> Result<(), String> {
         let path = self
             .cfg
             .lob_data_path
             .clone()
-            .expect("counterfactual mode requires --lob-data");
-        let mut replay = LobReplay::from_csv(&path).expect("failed to load --lob-data CSV");
+            .ok_or_else(|| "counterfactual mode requires --lob-data".to_string())?;
+        let mut replay = self.market_cache.load_lob(&path)?;
         let n = replay.len();
         if self.cfg.total_steps == DEFAULT_TOTAL_STEPS
             || self.cfg.total_steps == HISTORICAL_DEFAULT_STEPS
@@ -584,7 +665,12 @@ impl RlEnv {
         let start_offset = (seed as usize) % max_start;
         replay.seek(start_offset);
 
-        let first = replay.next_snapshot().expect("LobReplay must yield ≥1 snapshot");
+        let first = replay.next_snapshot().ok_or_else(|| {
+            format!(
+                "LOB replay for '{path}' yielded zero snapshots at start_offset={start_offset} \
+                 (possible data gap or truncated file)"
+            )
+        })?;
         self.spread_ref = first.half_spread().unwrap_or(0.01).max(1e-9);
         self.current_book = Some(first);
         // FIX A: cf_lob rescales all BTC prices to simulation scale (~100).
@@ -598,7 +684,7 @@ impl RlEnv {
         // but snapshot_timestamps() returns all timestamps regardless of cursor position).
         if let Some(agg_path) = self.cfg.agg_trades_path.clone() {
             let timestamps = replay.snapshot_timestamps();
-            match AggTradesDay::from_csv(&agg_path) {
+            match self.market_cache.load_agg(&agg_path) {
                 Ok(agg) => {
                     self.ofi_series = agg.build_ofi_series(&timestamps, 30_000);
                     self.ofi_start = start_offset;
@@ -623,7 +709,7 @@ impl RlEnv {
         // Build CounterfactualLob on the first episode; reuse and explicitly reset on
         // subsequent resets so accumulated impact from the previous episode never carries over.
         if self.cf_lob.is_none() {
-            let cf_replay = LobReplay::from_csv(&path).expect("failed to load --lob-data CSV for cf_lob");
+            let cf_replay = self.market_cache.load_lob(&path)?;
             self.cf_lob = Some(CounterfactualLob::new(cf_replay, cf_config));
         }
         let cf = self.cf_lob.as_mut().unwrap();
@@ -632,6 +718,7 @@ impl RlEnv {
         // so the impact model converts trade-units → BTC with the right ratio.
         cf.set_btc_scale(btc_scale);
         cf.seek(start_offset);
+        Ok(())
     }
 
     /// Execute one action and advance the environment by one step.
@@ -1351,6 +1438,93 @@ mod tests {
         );
         assert!(!r.done);
         assert_eq!(r.reward, 0.0);
+    }
+
+    #[test]
+    fn reset_on_missing_lob_file_terminates_episode_gracefully_instead_of_panicking() {
+        // Phase S graceful-degradation test: a missing/corrupt historical data file
+        // must force-terminate the episode with a defined penalty, not crash the
+        // process (which would kill every other in-flight episode / the whole
+        // training run).
+        let cfg = EnvConfig {
+            mode: RlMode::Historical,
+            total_inventory: 1_000_000.0,
+            total_steps: 100,
+            seed: 42,
+            sigma_ref: 0.20,
+            gamma: 0.005,
+            adversarial: false,
+            lob_data_path: Some("TradeData/BookDepth/does-not-exist-fixture.csv".to_string()),
+            btc_target: 500.0,
+            adv_btc: 0.0,
+            agg_trades_path: None,
+            fixed_steps: true,
+            fixed_size: true,
+            no_time_features: true,
+        };
+        let mut env = RlEnv::new(cfg);
+        let r = env.reset(Some(1));
+
+        assert!(r.done, "episode must be marked done, not left half-initialised");
+        assert_eq!(
+            r.reward, DATA_INGESTION_FAILURE_PENALTY,
+            "must apply the defined ingestion-failure penalty, not a normal step reward"
+        );
+        assert_eq!(
+            r.state.len(),
+            12,
+            "state vector must still be the correct width so the Python side doesn't \
+             choke on a malformed observation"
+        );
+        let err = r.info.get("error").and_then(|v| v.as_str());
+        assert!(err.is_some(), "info must explain what went wrong: {:?}", r.info);
+        assert_eq!(
+            r.info.get("terminated_reason").and_then(|v| v.as_str()),
+            Some("data_ingestion_failure")
+        );
+    }
+
+    #[test]
+    fn reset_on_lob_file_with_zero_valid_snapshots_terminates_gracefully() {
+        // Distinct failure mode from "file missing": the file opens and has a valid
+        // header, but every row fails to parse (e.g. a truncated/corrupted download),
+        // leaving zero snapshots -- LobReplay::from_csv returns Err in this case too,
+        // and it must be handled the same way, not panic.
+        let dir = std::env::temp_dir();
+        let path = dir.join(format!(
+            "rl_env_zero_snapshot_fixture_{}.csv",
+            std::process::id()
+        ));
+        std::fs::write(&path, "timestamp,percentage,depth,notional\nnot-a-timestamp,-1,1.0,1.0\n")
+            .expect("failed to write test fixture");
+
+        let cfg = EnvConfig {
+            mode: RlMode::Historical,
+            total_inventory: 1_000_000.0,
+            total_steps: 100,
+            seed: 7,
+            sigma_ref: 0.20,
+            gamma: 0.005,
+            adversarial: false,
+            lob_data_path: Some(path.to_string_lossy().to_string()),
+            btc_target: 500.0,
+            adv_btc: 0.0,
+            agg_trades_path: None,
+            fixed_steps: true,
+            fixed_size: true,
+            no_time_features: true,
+        };
+        let mut env = RlEnv::new(cfg);
+        let r = env.reset(Some(1));
+
+        let _ = std::fs::remove_file(&path);
+
+        assert!(r.done);
+        assert_eq!(r.reward, DATA_INGESTION_FAILURE_PENALTY);
+        assert_eq!(
+            r.info.get("terminated_reason").and_then(|v| v.as_str()),
+            Some("data_ingestion_failure")
+        );
     }
 
     #[test]

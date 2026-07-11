@@ -20,6 +20,7 @@
 // is assumed; otherwise format B is used.
 
 use std::error::Error;
+use std::sync::Arc;
 
 use chrono::NaiveDateTime;
 use crate::market::order_book::{OrderBook, PriceLevel};
@@ -51,7 +52,7 @@ impl LobSnapshot {
 /// When the replay is exhausted, `next_snapshot` returns `None` so the caller
 /// can fall back to the synthetic LOB.
 pub struct LobReplay {
-    snapshots: Vec<LobSnapshot>,
+    snapshots: Arc<Vec<LobSnapshot>>,
     cursor: usize,
 }
 
@@ -61,6 +62,14 @@ impl LobReplay {
     /// Format is detected from the header — no user configuration needed.
     /// Rows / groups with parse errors are silently skipped.
     /// Returns an error only if the file cannot be opened or yields zero valid snapshots.
+    ///
+    /// Every call re-parses the file from disk (Phase S baseline measurement: this is
+    /// the dominant cost of `RlEnv::reset()`, ~239ms and 99% of that reset's
+    /// allocations for a typical historical date). Callers that reset the same date
+    /// repeatedly (every training episode, every evaluation episode) should parse once
+    /// via `from_csv` and reuse the parsed data across resets via `snapshots_arc()` /
+    /// `from_arc()` instead of calling `from_csv` again -- see `MarketDataCache` in
+    /// `rl_env.rs`.
     pub fn from_csv(path: &str) -> Result<Self, Box<dyn Error>> {
         // Peek at the header to choose the parser.
         let mut reader = csv::Reader::from_path(path)?;
@@ -80,7 +89,21 @@ impl LobReplay {
             return Err("CSV contained no valid L2 snapshots".into());
         }
 
-        Ok(Self { snapshots, cursor: 0 })
+        Ok(Self { snapshots: Arc::new(snapshots), cursor: 0 })
+    }
+
+    /// Construct a fresh replay (cursor at 0) from already-parsed, shared snapshot
+    /// data, without touching disk. Used to give each of N cache-sharing instances
+    /// (e.g. a batched env's parallel episodes, or repeated resets on one date) its
+    /// own independent cursor over one shared, immutable parse of the CSV.
+    pub fn from_arc(snapshots: Arc<Vec<LobSnapshot>>) -> Self {
+        Self { snapshots, cursor: 0 }
+    }
+
+    /// Clone of the `Arc` (cheap refcount bump, not a data copy) for caching by a
+    /// caller that wants to hand out further `from_arc` replays for the same date.
+    pub fn snapshots_arc(&self) -> Arc<Vec<LobSnapshot>> {
+        Arc::clone(&self.snapshots)
     }
 
     /// Return the next snapshot as an `OrderBook`, advancing the cursor.
