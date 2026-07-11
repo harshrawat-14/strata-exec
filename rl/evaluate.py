@@ -30,6 +30,18 @@ DATES = {
     "2024-11-06": "post-election surge",
 }
 
+# ── DEPRECATED for cross-strategy comparison ──────────────────────────────
+# These four dicts are point estimates from the Rust `research-sim` binary's
+# Monte Carlo (GBM/GARCH) pipeline with a square-root impact model -- a
+# DIFFERENT simulator than the counterfactual LOB replay
+# (evaluate_all_strategies_on_date) that produces RL's numbers below. Putting
+# these side-by-side with live RL/LOB numbers in one table is the exact
+# mixed-simulator bug Phase 0 exists to fix: it is not a valid comparison.
+#
+# They are retained ONLY as historical reference values, gated behind
+# `legacy_mixed_comparison=True` in run_full_analysis (off by default).
+# For any real strategy comparison, use evaluate_all_strategies_on_date,
+# which runs every strategy through the identical counterfactual LOB path.
 STATIC_OPTIMAL_IS = {
     "2024-01-15": -0.9900,
     "2024-03-05": -1.2275,
@@ -208,6 +220,20 @@ class HeuristicPolicy:
         return np.array([action]), state
 
 
+# AC risk-aversion default used by the Python AC-family policies below.
+# NOTE: the Rust `research-sim` AlmgrenChriss/Scheduler default is 1e-4
+# (SimParams.lambda, src/bin/research_sim.rs), an order of magnitude
+# different from this Python default. The two implementations are
+# independent (see STRATEGIES audit finding) and were never reconciled.
+# Both ACOptimalPolicy and AdaptiveACPolicy now accept `lam` as an override
+# so callers (e.g. a Phase 1 lambda-grid sweep) aren't stuck with either
+# hardcoded value -- but the *default* here is left at the pre-existing
+# 0.001 rather than silently changed to match Rust, since changing a
+# baseline's default risk-aversion would change every AC number in this
+# file without an explicit decision to do so.
+AC_DEFAULT_LAMBDA = 0.001
+
+
 class ACOptimalPolicy:
     """
     Almgren-Chriss closed-form optimal execution trajectory.
@@ -217,7 +243,7 @@ class ACOptimalPolicy:
 
     def __init__(self, n_state_dims: int = 12,
                  sigma: float = 0.20,
-                 lam: float = 0.001,
+                 lam: float = AC_DEFAULT_LAMBDA,
                  eta: float = 0.10,
                  total_steps: int = 2880):
         self.fractions = get_action_fractions(n_state_dims)
@@ -284,7 +310,7 @@ class AdaptiveACPolicy:
 
     def __init__(self, n_state_dims: int = 12,
                  sigma_ref: float = 0.20,
-                 lam: float = 0.001,
+                 lam: float = AC_DEFAULT_LAMBDA,
                  eta: float = 0.10,
                  total_steps: int = 2880):
         self.fractions = get_action_fractions(n_state_dims)
@@ -590,6 +616,7 @@ def evaluate_all_strategies_on_date(
     adversarial: bool = False,
     fixed_steps: bool = True,
     fixed_size: bool = True,
+    ac_lambda: float = AC_DEFAULT_LAMBDA,
 ) -> dict:
     """
     Evaluate all 5 strategies on the same counterfactual LOB
@@ -599,12 +626,19 @@ def evaluate_all_strategies_on_date(
     Replaces the mixed-framework comparison where TWAP/Heuristic
     used research-sim (Monte Carlo + square-root impact) and RL
     used evaluate.py (real LOB + OW impact).
+
+    ac_lambda: risk-aversion parameter shared by both AC-family policies
+    (AC Optimal and Adaptive AC) in this comparison -- exposed here rather
+    than left as a hardcoded default so the AC baseline isn't a strawman
+    (lambda too low) or an unbeatable wall (lambda too high) chosen
+    invisibly. See AC_DEFAULT_LAMBDA for the Rust/Python default mismatch
+    this parameter exists to let a caller work around.
     """
     policies = {
         "twap": TWAPPolicy(n_state_dims),
         "heuristic": HeuristicPolicy(n_state_dims),
-        "ac_optimal": ACOptimalPolicy(n_state_dims),
-        "adaptive_ac": AdaptiveACPolicy(n_state_dims),
+        "ac_optimal": ACOptimalPolicy(n_state_dims, lam=ac_lambda),
+        "adaptive_ac": AdaptiveACPolicy(n_state_dims, lam=ac_lambda),
         "rl_agent": rl_model,
     }
 
@@ -782,8 +816,24 @@ def run_full_analysis(
     eval_counterfactual: bool = False,
     btc_target: float = 50000.0,
     include_test_dates: bool = False,
-    unified_comparison: bool = False,
+    unified_comparison: bool = True,
+    legacy_mixed_comparison: bool = False,
+    ac_lambda: float = AC_DEFAULT_LAMBDA,
 ):
+    """
+    unified_comparison (default True): run every strategy (TWAP, Heuristic,
+        AC Optimal, Adaptive AC, RL) through the same counterfactual LOB
+        path via evaluate_all_strategies_on_date -- the only methodologically
+        valid cross-strategy comparison in this file.
+    legacy_mixed_comparison (default False): also print/save the OLD
+        strategy-comparison table that puts Monte-Carlo-sourced TWAP/
+        Heuristic/AC constants (STATIC_OPTIMAL_IS etc.) next to live
+        LOB-replay RL numbers. This mixes two different simulators and is
+        not a valid comparison -- only enable it for historical/debugging
+        reference, never to support a beats-AC claim.
+    ac_lambda: risk-aversion for the AC-family baselines in the unified
+        comparison (see AC_DEFAULT_LAMBDA).
+    """
     os.makedirs(output_dir, exist_ok=True)
 
     passive_model = load_model(passive_model_path)
@@ -812,18 +862,9 @@ def run_full_analysis(
             n_episodes=n_episodes,
             n_state_dims=n_state_dims)
 
-        stat_test = test_vs_baseline(
-            pr["is_samples"],
-            STATIC_OPTIMAL_IS[date],
-        )
-
         row = {
             "date": date,
             "regime": regime,
-            "twap_IS": TWAP_IS.get(date),
-            "heuristic_IS": HEURISTIC_IS.get(date),
-            "static_optimal_IS": STATIC_OPTIMAL_IS[date],
-            "adaptive_optimal_IS": ADAPTIVE_OPTIMAL_IS[date],
             "rl_passive_IS": pr["mean_IS"],
             "rl_passive_var": pr["var_IS"],
             "rl_passive_cvar95": pr["cvar95"],
@@ -833,10 +874,6 @@ def run_full_analysis(
             "mean_action": pr["mean_action"],
             "action_entropy": pr["action_entropy"],
             "action_distribution": pr["action_distribution"],
-            "p_value_vs_ac": stat_test["p_value"],
-            "ci_lower": stat_test["ci_lower"],
-            "ci_upper": stat_test["ci_upper"],
-            "significantly_better": stat_test["significantly_better"],
         }
 
         print(f"  Mean action: {pr['mean_action']:.2f}")
@@ -846,24 +883,47 @@ def run_full_analysis(
             key=lambda x: -x[1],
         )[:3]
         print(f"  Top 3 actions: {top3}")
-        baseline = STATIC_OPTIMAL_IS[date]
-        print(
-            f"  RL IS: {pr['mean_IS']:.4f}% "
-            f"[{stat_test['ci_lower']:.4f}%, "
-            f"{stat_test['ci_upper']:.4f}%] 95% CI"
-        )
-        if stat_test["p_value"] is None:
-            print(
-                f"  vs AC ({baseline:.4f}%): "
-                f"p=N/A (zero variance — deterministic policy)"
+        print(f"  RL IS (LOB replay): {pr['mean_IS']:.4f}%")
+
+        if legacy_mixed_comparison:
+            # WARNING: STATIC_OPTIMAL_IS is a Monte Carlo point estimate,
+            # pr["is_samples"] are counterfactual-LOB-replay samples. This
+            # t-test compares across two different simulators and is not a
+            # methodologically valid significance test -- see
+            # evaluate_all_strategies_on_date for the valid comparison.
+            stat_test = test_vs_baseline(
+                pr["is_samples"],
+                STATIC_OPTIMAL_IS[date],
             )
-        else:
-            sig = stat_test["significantly_better"]
-            label = "SIGNIFICANT" if sig else "not significant"
+            row.update({
+                "twap_IS_MONTE_CARLO_DO_NOT_COMPARE": TWAP_IS.get(date),
+                "heuristic_IS_MONTE_CARLO_DO_NOT_COMPARE": HEURISTIC_IS.get(date),
+                "static_optimal_IS_MONTE_CARLO_DO_NOT_COMPARE": STATIC_OPTIMAL_IS[date],
+                "adaptive_optimal_IS_MONTE_CARLO_DO_NOT_COMPARE": ADAPTIVE_OPTIMAL_IS[date],
+                "p_value_vs_ac_INVALID_MIXED_SIMULATOR": stat_test["p_value"],
+                "ci_lower": stat_test["ci_lower"],
+                "ci_upper": stat_test["ci_upper"],
+                "significantly_better_INVALID_MIXED_SIMULATOR":
+                    stat_test["significantly_better"],
+            })
+            baseline = STATIC_OPTIMAL_IS[date]
             print(
-                f"  vs AC ({baseline:.4f}%): "
-                f"p={stat_test['p_value']:.4f} {label}"
+                f"  [LEGACY, MIXED SIMULATORS -- NOT A VALID COMPARISON] "
+                f"RL 95% CI [{stat_test['ci_lower']:.4f}%, "
+                f"{stat_test['ci_upper']:.4f}%]"
             )
+            if stat_test["p_value"] is None:
+                print(
+                    f"  [LEGACY] vs AC Monte Carlo ({baseline:.4f}%): "
+                    f"p=N/A (zero variance — deterministic policy)"
+                )
+            else:
+                sig = stat_test["significantly_better"]
+                label = "SIGNIFICANT" if sig else "not significant"
+                print(
+                    f"  [LEGACY] vs AC Monte Carlo ({baseline:.4f}%): "
+                    f"p={stat_test['p_value']:.4f} {label}"
+                )
 
         if adv_model:
             ar = evaluate_model_on_date(
@@ -884,37 +944,43 @@ def run_full_analysis(
 
     df = pd.DataFrame(results)
 
-    print("\n" + "=" * 90)
-    print("STRATEGY COMPARISON - IS% across 5 dates")
-    print("=" * 90)
+    if legacy_mixed_comparison:
+        print("\n" + "=" * 90)
+        print("[LEGACY, MIXED SIMULATORS -- NOT A VALID COMPARISON]")
+        print("STRATEGY COMPARISON - IS% across 5 dates")
+        print("TWAP/Heuristic/StatOpt/AdaptOpt are Monte Carlo point estimates;")
+        print("RL-Pass is a live counterfactual-LOB-replay mean. Different")
+        print("simulators -- see evaluate_all_strategies_on_date for the valid")
+        print("apples-to-apples comparison instead.")
+        print("=" * 90)
 
-    header = (
-        f"{'Date':<12} {'Regime':<22} "
-        f"{'TWAP':>8} {'Heuristic':>10} "
-        f"{'StatOpt':>8} {'AdaptOpt':>9} {'RL-Pass':>8}"
-    )
-    if adv_model:
-        header += f" {'RL-Adv':>8}"
-    print(header)
-    print("-" * len(header))
-
-    for _, row in df.iterrows():
-        twap = row.get("twap_IS")
-        heur = row.get("heuristic_IS")
-        twap_s = f"{twap:>7.3f}%" if twap is not None else f"{'N/A':>8}"
-        heur_s = (
-            f"{heur:>9.3f}%" if heur is not None else f"{'N/A':>10}"
-        )
-        line = (
-            f"{row['date']:<12} {row['regime']:<22} "
-            f"{twap_s} {heur_s} "
-            f"{row['static_optimal_IS']:>7.3f}% "
-            f"{row['adaptive_optimal_IS']:>8.3f}% "
-            f"{row['rl_passive_IS']:>7.3f}%"
+        header = (
+            f"{'Date':<12} {'Regime':<22} "
+            f"{'TWAP':>8} {'Heuristic':>10} "
+            f"{'StatOpt':>8} {'AdaptOpt':>9} {'RL-Pass':>8}"
         )
         if adv_model:
-            line += f" {row['rl_adv_IS']:>7.3f}%"
-        print(line)
+            header += f" {'RL-Adv':>8}"
+        print(header)
+        print("-" * len(header))
+
+        for _, row in df.iterrows():
+            twap = row.get("twap_IS_MONTE_CARLO_DO_NOT_COMPARE")
+            heur = row.get("heuristic_IS_MONTE_CARLO_DO_NOT_COMPARE")
+            twap_s = f"{twap:>7.3f}%" if twap is not None else f"{'N/A':>8}"
+            heur_s = (
+                f"{heur:>9.3f}%" if heur is not None else f"{'N/A':>10}"
+            )
+            line = (
+                f"{row['date']:<12} {row['regime']:<22} "
+                f"{twap_s} {heur_s} "
+                f"{row['static_optimal_IS_MONTE_CARLO_DO_NOT_COMPARE']:>7.3f}% "
+                f"{row['adaptive_optimal_IS_MONTE_CARLO_DO_NOT_COMPARE']:>8.3f}% "
+                f"{row['rl_passive_IS']:>7.3f}%"
+            )
+            if adv_model:
+                line += f" {row['rl_adv_IS']:>7.3f}%"
+            print(line)
 
     print("\n" + "=" * 70)
     print("SIM-TO-REAL DEGRADATION - RL (passive training)")
@@ -1054,6 +1120,7 @@ def run_full_analysis(
                 date=date,
                 n_episodes=n_episodes,
                 n_state_dims=n_state_dims,
+                ac_lambda=ac_lambda,
             )
             unified_results[date] = date_results
 
@@ -1091,9 +1158,21 @@ if __name__ == "__main__":
     p.add_argument("--btc-target", type=float, default=50000.0)
     p.add_argument("--include-test-dates", action="store_true",
         help="Also evaluate on held-out test dates")
-    p.add_argument("--unified-comparison", action="store_true",
-        help="Run all 5 strategies in same counterfactual LOB "
-             "for methodologically valid comparison")
+    p.add_argument("--unified-comparison", action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Run all 5 strategies in same counterfactual LOB for "
+             "methodologically valid comparison (default: on). Use "
+             "--no-unified-comparison to skip it.")
+    p.add_argument("--legacy-mixed-comparison", action="store_true",
+        help="Also print/save the OLD strategy-comparison table that mixes "
+             "Monte-Carlo-sourced TWAP/Heuristic/AC constants with live "
+             "LOB-replay RL numbers. NOT a valid comparison -- historical "
+             "reference only, off by default.")
+    p.add_argument("--ac-lambda", type=float, default=AC_DEFAULT_LAMBDA,
+        help=f"Risk-aversion for the AC-family baselines in the unified "
+             f"comparison (default {AC_DEFAULT_LAMBDA}; Rust research-sim's "
+             f"default is 1e-4 -- the two were never reconciled, override "
+             f"explicitly if you need to match one).")
     args = p.parse_args()
 
     run_full_analysis(
@@ -1105,4 +1184,6 @@ if __name__ == "__main__":
         btc_target=args.btc_target,
         include_test_dates=args.include_test_dates,
         unified_comparison=args.unified_comparison,
+        legacy_mixed_comparison=args.legacy_mixed_comparison,
+        ac_lambda=args.ac_lambda,
     )

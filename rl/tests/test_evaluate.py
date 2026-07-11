@@ -7,7 +7,12 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from evaluate import compute_cvar_95
+from evaluate import (
+    compute_cvar_95,
+    ACOptimalPolicy,
+    AdaptiveACPolicy,
+    AC_DEFAULT_LAMBDA,
+)
 
 
 class TestComputeCvar95:
@@ -50,3 +55,41 @@ class TestComputeCvar95:
 
     def test_single_sample(self):
         assert compute_cvar_95(np.array([-3.0])) == -3.0
+
+
+class TestAcLambdaOverride:
+    """
+    Regression coverage for the AC risk-aversion config gap: ACOptimalPolicy
+    and AdaptiveACPolicy previously hardcoded lam=0.001 with no way for a
+    caller to override it (Rust research-sim's own AC default is 1e-4, an
+    order of magnitude different, and neither reconciled with the other).
+    A baseline whose risk-aversion can't be set is either an invisible
+    strawman or an invisible wall -- these tests confirm the override
+    actually reaches the schedule, not just the constructor argument.
+    """
+
+    def test_ac_optimal_default_matches_documented_constant(self):
+        assert ACOptimalPolicy().kappa == pytest.approx(
+            ACOptimalPolicy(lam=AC_DEFAULT_LAMBDA).kappa
+        )
+
+    def test_ac_optimal_lambda_override_changes_schedule(self):
+        # Higher lambda (more risk-averse) should front-load execution:
+        # kappa increases with lambda, which sharpens the sinh() decay and
+        # shifts probability mass toward earlier steps.
+        low = ACOptimalPolicy(lam=1e-6)
+        high = ACOptimalPolicy(lam=0.1)
+        assert low.kappa != high.kappa
+        # Front-loading: the high-lambda schedule should sell a larger
+        # fraction of inventory in the first 10% of steps than the
+        # low-lambda (patient) schedule.
+        n = len(low._schedule)
+        head = max(1, n // 10)
+        assert high._schedule[:head].sum() > low._schedule[:head].sum()
+
+    def test_adaptive_ac_lambda_override_reaches_schedule_builder(self):
+        low = AdaptiveACPolicy(lam=1e-6)
+        high = AdaptiveACPolicy(lam=0.1)
+        sched_low = low._get_schedule(0.20)
+        sched_high = high._get_schedule(0.20)
+        assert not np.allclose(sched_low, sched_high)
