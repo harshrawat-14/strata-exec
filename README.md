@@ -8,7 +8,7 @@
 </p>
 
 <p align="center">
-  <code>Rust + Python + React</code> · <code>420 Rust + 80 Pytest + 25 Vitest tests</code> · <code>zero warnings</code>
+  <code>Rust + Python + React</code> · <code>428 Rust + 93 Pytest + 25 Vitest tests</code> · <code>zero warnings</code>
 </p>
 
 <p align="center">
@@ -159,8 +159,11 @@ alternatives for identified, specific reasons rather than vague
   the Python RL stack are separate processes exchanging newline-delimited
   JSON, avoiding ABI coupling between the two toolchains (see
   [ADR-001](docs/system_design/ADR.md#adr-001-json-over-stdinstdout-for-ipc)).
-- **420 Rust tests, zero compiler warnings, zero `unwrap()` in production
-  code** — enforced by CI (`.github/workflows/ci.yml`) on every push.
+- **428 Rust tests, zero compiler warnings** — enforced by CI
+  (`.github/workflows/ci.yml`) on every push. (`unwrap()`/`panic!()` remain
+  in a few places outside the LOB-ingestion hot path; see Phase S's
+  graceful-degradation work in `docs/system_design/phase_s_baseline.md`
+  for what was specifically hardened and why.)
 - **Unified comparison framework** — TWAP, Heuristic, AC Optimal, and
   Adaptive AC each implement the same `.predict(obs, state, episode_start,
   deterministic)` interface as the RL agent's RecurrentPPO policy, so all
@@ -388,7 +391,7 @@ cargo build --release
 ### Quick Smoke Test
 
 ```bash
-# Run all 420 tests (no RPC / network needed)
+# Run all 428 tests (no RPC / network needed)
 cargo test
 
 # Run a quick research simulation (no .env needed)
@@ -882,10 +885,10 @@ The stack components are:
 StrataExec implements a comprehensive, multi-layered testing strategy spanning the core execution engine (Rust), the backend services (Pytest), and the user interface (Vitest).
 
 ### 1. Rust Core Engine Simulation Tests
-The Rust core backtester contains **420 tests** checking mathematics, order routing, event priority queues, volatility estimation, and market impact models.
+The Rust core backtester contains **428 tests** checking mathematics, order routing, event priority queues, volatility estimation, and market impact models.
 
 ```bash
-# Run all 420 core Rust tests (requires no database or RPC endpoint)
+# Run all 428 core Rust tests (requires no database or RPC endpoint)
 cargo test
 
 # Run specific strategy tests

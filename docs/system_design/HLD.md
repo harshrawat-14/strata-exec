@@ -138,6 +138,74 @@ Client → POST /api/evaluate {dates: [...]}
   → Client fetches /api/evaluate/result/{job_id}
 ```
 
+## Phase S — Systems Rework: Caching, Allocations, Batched Transport
+
+Measured, not asserted (see [ADR-006](ADR.md#adr-006-arrow-ipc-over-a-unix-domain-socket-for-the-batched-hot-loop-transport-plus-per-date-data-caching),
+[phase_s_baseline.md](phase_s_baseline.md), [phase_s_regression_report.md](phase_s_regression_report.md)).
+Scoped to this offline research platform, not live-trading infra (see Phase S's explicit
+scope boundary in the project plan) — no live-clock abstraction, no lock-free live
+dispatch, no distributed training added here.
+
+**What the baseline profiling actually found** (before assuming the transport was the
+bottleneck): `RlEnv::reset()` — not `step()` — dominated episode wall time. It re-parses
+the entire historical CSV (1M+-row aggTrades, 28.8K-row bookDepth) from disk on *every*
+episode, ~239ms and ~99% of a historical episode's allocations, while the 2880-step
+`step()` loop that follows it is comparatively free at the wall-clock level (16
+allocations/step). The per-step JSON transport ADR-001 called "negligible" turned out to
+still be true — the redundant per-episode I/O was the real cost, and was never measured
+before.
+
+**Changes made, in the order their measured impact motivated them:**
+
+1. **Per-date `MarketDataCache`** — parse each date's CSV once per process, `Arc`-share
+   the immutable snapshot data across every subsequent `reset()` (and across a batched
+   env's N instances). This is the change that mattered most.
+2. **Hot-loop allocation reduction** in `build_state()` (pre-sized `Vec`, no
+   grow-reallocations), `write_msg()` (`serde_json::to_writer` straight to the stream,
+   no intermediate `String`), and the input loop (`read_line` into a reused buffer
+   instead of `BufRead::lines()`'s per-line allocation).
+3. **Graceful degradation**: a missing/corrupt historical file or a LOB replay that
+   yields zero snapshots now force-terminates the episode (`done=true`, a defined
+   `DATA_INGESTION_FAILURE_PENALTY` reward, an explanatory `info.error`) instead of
+   panicking and killing the whole training process.
+4. **`BatchedRlEnv` + Arrow RecordBatch transport** (ADR-006) — N `RlEnv` instances per
+   process, sharing one `MarketDataCache`, driven over a Unix domain socket
+   (`--batch-size N --socket-path PATH`) using length-prefixed Arrow IPC messages
+   (`rl/batched_environment.py` is the Python client). Additive: the default
+   single-instance JSON-over-stdio path (`environment.py` / `rl/evaluate.py`'s every
+   existing call site) is unchanged and still the one every current comparison table
+   uses.
+
+**Measured throughput** (2024-01-15, `TWAPPolicy`, fixed-horizon episodes; steps/sec is
+env `step()` calls/sec, not wall-clock-independent):
+
+| Configuration | steps/sec | episodes/sec |
+|---|---:|---:|
+| Before Phase S (JSON-over-stdio, no cache) | 12,083 | 4.20 |
+| After caching + allocation fixes (JSON-over-stdio, single instance) | ~44,000–46,000 | ~15.3–16.1 |
+| Batched (Arrow/socket), batch_size=1 | 1,186 | — |
+| Batched (Arrow/socket), batch_size=8, aggregate | 18,740 | — |
+| Batched (Arrow/socket), batch_size=32, aggregate | 63,972 | — |
+
+**Honest reading of the batched numbers, not the headline-friendly one:** the caching
+fix alone (row 2) already delivers most of the win and is *faster per-instance* than the
+batched path at small N. The Arrow/socket protocol has real fixed per-call overhead
+(Python-side serialization + one socket round-trip per `step_batch()` call) that is
+*not* amortized until N is large enough — at `batch_size=1` the batched path is ~40x
+*slower* than the equivalent single-instance JSON call once caching is warm. Aggregate
+throughput does scale close to linearly with N (1,186 → 18,740 → 63,972 at N=1/8/32),
+which is the actual value proposition: fewer OS processes, one array handoff instead of
+N separate ones, not a smaller per-step constant. This is reported plainly rather than
+picking the most flattering N — reducing that fixed per-call overhead (e.g. reusing
+Arrow buffers instead of allocating a fresh `BufferOutputStream` per call) is a clear,
+identified next step, not claimed as already solved.
+
+**Regression-verified against Phase 0**: `evaluate_all_strategies_on_date` run against
+the pre-Phase-S binary (`a7fe081`) and the post-Phase-S binary produced byte-for-byte
+identical `mean_IS`/`cvar_95`/`std_IS`/`is_sharpe` for all 5 strategies — confirming
+none of the above changed simulation semantics (full detail in
+[phase_s_regression_report.md](phase_s_regression_report.md)).
+
 ## Scalability Notes
 
 - **Horizontal (API layer):** `web/main.py` is stateless per-request aside
@@ -155,8 +223,15 @@ Client → POST /api/evaluate {dates: [...]}
 - **Demo mode sidesteps scaling entirely** for the public-facing deployment
   — no compute, no worker tier, no Redis dependency required — which is why
   it exists as a first-class deployment mode rather than a test fixture.
+- **Batched training envs** (Phase S): a training loop that needs many
+  parallel environment instances should use `BatchedRlEnv`/
+  `rl/batched_environment.py` rather than N separate `StrataExecEnv`
+  subprocesses — one `rl-env` process holds N instances sharing one
+  `MarketDataCache`, avoiding N-way redundant CSV parsing.
 
 ## Related Documents
 
 - [LLD.md](LLD.md) — struct layouts, wire protocol, state vector, action space
-- [ADR.md](ADR.md) — the 5 architecture decisions with alternatives and consequences
+- [ADR.md](ADR.md) — the 6 architecture decisions with alternatives and consequences
+- [phase_s_baseline.md](phase_s_baseline.md) — Phase S's before-measurement
+- [phase_s_regression_report.md](phase_s_regression_report.md) — Phase S's regression-verify against Phase 0

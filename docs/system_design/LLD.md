@@ -120,6 +120,48 @@ On the final step of an episode, `info` additionally carries
 `total_IS_pct`, `total_is_dollar`, and (only if inventory remained above the
 0.1% threshold at the time horizon) `forced_liquidation_qty`.
 
+If `reset()`'s data-ingestion (LOB/aggTrades file load) fails — missing file, or a
+replay that parses to zero valid snapshots — the response is instead
+`{"reward": -1.0, "done": true, "state": [0.0, ...] (correct width), "info":
+{"error": "<message>", "terminated_reason": "data_ingestion_failure"}}` rather than the
+process panicking (Phase S graceful degradation; see `DATA_INGESTION_FAILURE_PENALTY`
+in `rl_env.rs`).
+
+## Batched Wire Protocol (Phase S, ADR-006)
+
+Additive to the JSON protocol above, used only when `rl-env` is invoked with
+`--batch-size N --socket-path PATH` (`BatchedRlEnv` / `rl/batched_environment.py`).
+Speaks Arrow RecordBatch IPC over a Unix domain socket instead of JSON-over-stdio, one
+persistent connection, N environment instances stepped together per request.
+
+**Framing**: every message (both directions) is a 4-byte little-endian length prefix
+followed by exactly that many bytes of a self-contained Arrow IPC *stream* buffer
+(schema + one `RecordBatch` + EOS marker), parsed from an in-memory buffer rather than
+read directly off the live socket. This is required, not a stylistic choice — an earlier
+version wrote Arrow IPC bytes straight to the socket and relied on Arrow's own EOS
+marker to delimit messages; both `arrow-rs`'s and `pyarrow`'s stream readers may read
+ahead past that marker when the underlying source is a live, continuing byte stream
+(observed concretely: `pyarrow.ipc.open_stream` corrupted the *second* request on a
+shared connection). Framing each message to an exact, bounded byte range removes any
+possibility of over-reading into the next message.
+
+**Reset request** — one `RecordBatch`, schema `{seed: uint64}`, N rows (one seed per
+instance).
+
+**Step request** — one `RecordBatch`, schema `{action: int32}`, N rows.
+
+**Response** (both reset and step) — one `RecordBatch`, schema
+`{s0: float32, s1: float32, ..., s{D-1}: float32, reward: float32, done: bool}`, N rows
+— column-oriented so the Python side reads each state dimension as one zero-copy
+`to_numpy(zero_copy_only=True)` buffer view (`D` = 12 or 16, matching the JSON protocol's
+state width). The server distinguishes a reset vs. step request by column name (`seed`
+vs. `action`) rather than a separate message-type field.
+
+`BatchedRlEnv` shares one `MarketDataCache` (`Rc<RefCell<_>>`) across its N `RlEnv`
+instances, so a date replayed by multiple instances in the batch is parsed from disk
+once between them, not N times (see `MarketDataCache`'s doc comment in `rl_env.rs` and
+[phase_s_baseline.md](phase_s_baseline.md) for the measurement this design responds to).
+
 ## State Vector (12-dim v5 / 16-dim v6)
 
 | Index | Name | Formula | Range | Rationale |
@@ -247,4 +289,4 @@ directly comparable step-for-step.
 ## Related Documents
 
 - [HLD.md](HLD.md) — component diagram, data flow, scalability
-- [ADR.md](ADR.md) — the 5 architecture decisions with alternatives and consequences
+- [ADR.md](ADR.md) — the 6 architecture decisions with alternatives and consequences
