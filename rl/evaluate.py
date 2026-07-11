@@ -15,6 +15,7 @@ import io
 import zipfile
 import tempfile
 import torch
+import mlflow
 
 TEST_DATES = {
     "2024-04-15": "BTC correction",
@@ -1030,6 +1031,75 @@ def print_unified_comparison(all_results: dict):
                 else:
                     print(f"  {'N/A':>10}", end="")
             print()
+
+
+def log_eval_results_to_mlflow(
+    run_id: str,
+    unified_results: dict,
+    strategies: list = None,
+) -> None:
+    """
+    Phase 3 (concurrent with Phase 2): log final per-date evaluation metrics
+    to an EXISTING mlflow run by run_id, rather than starting a fresh
+    untracked run. This is the piece that was missing entirely -- train.py
+    has mlflow.start_run/log_params/log_artifact but zero log_metric calls,
+    and until this function existed, evaluate.py had no mlflow integration
+    at all, so a training run's final eval numbers (the ones that actually
+    matter -- mean IS, CVaR-95 per date) were never attached to that run's
+    tracked history. experiment_tracker.py's get_best_run() has always
+    returned {} as a direct consequence: there was nothing to query.
+
+    unified_results: {date: {strategy_key: metrics_dict}}, the return shape
+    of evaluate_all_strategies_on_date collected across multiple dates (see
+    run_full_analysis's --unified-comparison path, or
+    rl/phase1_tail_risk_report.py).
+
+    strategies: which strategy_keys to log (default: just "rl_agent", since
+    for a training run's own tracked history the model's own performance is
+    what's relevant -- the classical baselines don't change run to run and
+    don't need re-logging against every model's run_id).
+
+    Uses mlflow.start_run(run_id=..., nested=False) to REOPEN the existing
+    run rather than create a new one -- this is the standard mlflow pattern
+    for attaching metrics after the original `with mlflow.start_run():`
+    block has already exited (e.g. because this is called from a separate
+    process/script after training finished).
+    """
+    if strategies is None:
+        strategies = ["rl_agent"]
+
+    with mlflow.start_run(run_id=run_id):
+        for date, date_results in unified_results.items():
+            for strategy_key in strategies:
+                r = date_results.get(strategy_key)
+                if r is None:
+                    continue
+                safe_date = date.replace("-", "")
+                mlflow.log_metric(f"eval_mean_is_{safe_date}_{strategy_key}", r["mean_IS"])
+                mlflow.log_metric(f"eval_cvar95_{safe_date}_{strategy_key}", r["cvar_95"])
+                if "cvar_95_ci_lower" in r:
+                    mlflow.log_metric(f"eval_cvar95_ci_lower_{safe_date}_{strategy_key}", r["cvar_95_ci_lower"])
+                    mlflow.log_metric(f"eval_cvar95_ci_upper_{safe_date}_{strategy_key}", r["cvar_95_ci_upper"])
+                mlflow.log_metric(f"eval_forced_liq_{safe_date}_{strategy_key}", r["forced_liquidation_rate"])
+
+        # Aggregate summary metrics across all logged dates, so
+        # get_best_run(metric="eval_mean_is_avg", ...) has something to
+        # compare across runs without needing to know every date's name.
+        for strategy_key in strategies:
+            means = [
+                date_results[strategy_key]["mean_IS"]
+                for date_results in unified_results.values()
+                if strategy_key in date_results
+            ]
+            cvars = [
+                date_results[strategy_key]["cvar_95"]
+                for date_results in unified_results.values()
+                if strategy_key in date_results
+            ]
+            if means:
+                mlflow.log_metric(f"eval_mean_is_avg_{strategy_key}", float(np.mean(means)))
+            if cvars:
+                mlflow.log_metric(f"eval_cvar95_avg_{strategy_key}", float(np.mean(cvars)))
 
 
 def run_full_analysis(

@@ -2,7 +2,7 @@ from sb3_contrib import RecurrentPPO
 from stable_baselines3.common.env_util import make_vec_env
 from stable_baselines3.common.vec_env import SubprocVecEnv, DummyVecEnv
 from stable_baselines3.common.callbacks import (
-    EvalCallback, CheckpointCallback)
+    BaseCallback, EvalCallback, CheckpointCallback)
 from stable_baselines3.common.monitor import Monitor
 from environment import StrataExecEnv
 import mlflow
@@ -11,6 +11,31 @@ import torch.nn as nn
 import argparse
 import math
 import os
+
+
+class MLflowMetricsCallback(BaseCallback):
+    """
+    Forwards SB3's own rollout/train metrics (entropy, ep_len_mean, loss,
+    approx_kl, explained_variance, etc.) to mlflow.log_metric at the end of
+    every rollout, so training-time telemetry is captured continuously
+    rather than only as a final snapshot after model.learn() returns.
+
+    Phase 3 gap this closes: train.py previously had mlflow.start_run /
+    log_params / log_artifact but ZERO log_metric calls anywhere -- every
+    training run's loss curves, entropy decay, and episode-length growth
+    were computed by SB3 internally (visible only in the TensorBoard log
+    directory) and never reached mlflow, which is why
+    experiment_tracker.py's get_best_run() always returned {} (nothing was
+    ever logged for it to find).
+    """
+
+    def _on_step(self) -> bool:
+        return True
+
+    def _on_rollout_end(self) -> None:
+        for key, value in self.model.logger.name_to_value.items():
+            if isinstance(value, (int, float)):
+                mlflow.log_metric(key.replace("/", "_"), value, step=self.num_timesteps)
 
 
 def get_device() -> str:
@@ -332,6 +357,7 @@ def train(
                 save_path=f"{save_path}checkpoints/{run_name}/",
                 name_prefix="ckpt",
             ),
+            MLflowMetricsCallback(),
         ]
 
         model.learn(
@@ -339,6 +365,14 @@ def train(
             callback=callbacks,
             progress_bar=True,
         )
+
+        final_metrics = {
+            f"final_{k.replace('/', '_')}": v
+            for k, v in model.logger.name_to_value.items()
+            if isinstance(v, (int, float))
+        }
+        if final_metrics:
+            mlflow.log_metrics(final_metrics)
 
         final_path = f"{save_path}{run_name}_final"
         model.save(final_path)

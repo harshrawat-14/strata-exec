@@ -17,7 +17,13 @@ import os
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from train import cosine_with_restarts, get_lr_schedule, make_env, train  # noqa: E402
+from train import (  # noqa: E402
+    cosine_with_restarts,
+    get_lr_schedule,
+    make_env,
+    train,
+    MLflowMetricsCallback,
+)
 
 
 class TestCosineWithRestarts:
@@ -136,3 +142,44 @@ def test_train_module_level_import_succeeds():
     import train as train_module
     importlib.reload(train_module)
     assert hasattr(train_module, "train")
+
+
+class TestMLflowMetricsCallback:
+    """
+    Regression coverage for the Phase 3 gap: train.py had mlflow.start_run/
+    log_params/log_artifact but ZERO log_metric calls anywhere, so no
+    training run's loss curves/entropy/episode-length ever reached mlflow.
+    Tests the callback in isolation (bypassing full SB3 lifecycle, which
+    needs a real env) against a real temp mlflow tracking store.
+    """
+
+    def test_on_rollout_end_logs_numeric_metrics_to_mlflow(self, tmp_path):
+        import mlflow
+
+        class _FakeLogger:
+            name_to_value = {
+                "rollout/ep_len_mean": 42.0,
+                "train/entropy_loss": -1.5,
+                "train/some_string_value": "not-a-number",  # must be skipped
+            }
+
+        class _FakeModel:
+            logger = _FakeLogger()
+
+        original_uri = mlflow.get_tracking_uri()
+        mlflow.set_tracking_uri(f"file://{tmp_path}/mlruns")
+        mlflow.set_experiment("test_callback")
+        try:
+            with mlflow.start_run(run_name="callback_test") as run:
+                callback = MLflowMetricsCallback()
+                callback.model = _FakeModel()
+                callback.num_timesteps = 1000
+                callback._on_rollout_end()
+
+            client = mlflow.tracking.MlflowClient()
+            metrics = client.get_run(run.info.run_id).data.metrics
+            assert metrics["rollout_ep_len_mean"] == 42.0
+            assert metrics["train_entropy_loss"] == -1.5
+            assert "train_some_string_value" not in metrics
+        finally:
+            mlflow.set_tracking_uri(original_uri)
