@@ -1391,6 +1391,33 @@ impl BatchedRlEnv {
         self.collect(|env, i| env.step(actions[i]))
     }
 
+    /// Reset only the given subset of instances (identified by index into the
+    /// batch), each with its own seed, leaving every other instance's
+    /// in-progress episode untouched. Required for the SB3 `VecEnv` contract:
+    /// when instances finish episodes at different step counts (the normal
+    /// case whenever `fixed_steps=False`, i.e. real training with randomised
+    /// per-episode horizons -- not the fixed-horizon eval configuration Phase
+    /// 0's harness uses), only the just-finished sub-envs auto-reset, not the
+    /// whole batch. Returns a result sized to `indices.len()`, not
+    /// `batch_size` -- the caller splices these rows into the right batch
+    /// positions itself (see `BatchedStrataExecVecEnv.step_wait` in
+    /// rl/batched_vec_env.py).
+    pub fn reset_indices(&mut self, indices: &[usize], seeds: &[u64]) -> BatchStepResult {
+        assert_eq!(indices.len(), seeds.len(), "indices.len() must equal seeds.len()");
+        let d = self.n_state_dims;
+        let mut states = Vec::with_capacity(indices.len() * d);
+        let mut rewards = Vec::with_capacity(indices.len());
+        let mut dones = Vec::with_capacity(indices.len());
+        for (k, &idx) in indices.iter().enumerate() {
+            let r = self.envs[idx].reset(Some(seeds[k]));
+            debug_assert_eq!(r.state.len(), d);
+            states.extend(r.state.iter().map(|&x| x as f32));
+            rewards.push(r.reward as f32);
+            dones.push(r.done);
+        }
+        BatchStepResult { states, rewards, dones, n: indices.len(), d }
+    }
+
     fn collect(&mut self, mut f: impl FnMut(&mut RlEnv, usize) -> StepResult) -> BatchStepResult {
         let n = self.envs.len();
         let d = self.n_state_dims;
@@ -1414,7 +1441,7 @@ impl BatchedRlEnv {
 
 mod batch_arrow {
     use super::BatchStepResult;
-    use arrow::array::{ArrayRef, BooleanArray, Float32Array, Int32Array, UInt64Array};
+    use arrow::array::{ArrayRef, BooleanArray, Float32Array, Int32Array, UInt32Array, UInt64Array};
     use arrow::datatypes::{DataType, Field, Schema};
     use arrow::record_batch::RecordBatch;
     use std::sync::Arc as StdArc;
@@ -1503,6 +1530,49 @@ mod batch_arrow {
             .downcast_ref::<UInt64Array>()
             .expect("'seed' column must be UInt64");
         (0..col.len()).map(|i| col.value(i)).collect()
+    }
+
+    /// Indexed-reset request schema: `{index: uint32, seed: uint64}`, one row
+    /// per instance to reset. Distinguished from a full reset_batch request
+    /// (which has a "seed" column but no "index" column) by the presence of
+    /// "index" -- checked first by the server dispatch.
+    #[cfg(test)]
+    pub fn request_schema_reset_indices() -> Schema {
+        Schema::new(vec![
+            Field::new("index", DataType::UInt32, false),
+            Field::new("seed", DataType::UInt64, false),
+        ])
+    }
+
+    #[cfg(test)]
+    pub fn encode_reset_indices_request(indices: &[usize], seeds: &[u64]) -> RecordBatch {
+        let idx_values: Vec<u32> = indices.iter().map(|&i| i as u32).collect();
+        RecordBatch::try_new(
+            StdArc::new(request_schema_reset_indices()),
+            vec![
+                StdArc::new(UInt32Array::from(idx_values)),
+                StdArc::new(UInt64Array::from(seeds.to_vec())),
+            ],
+        )
+        .expect("encode_reset_indices_request: schema mismatch")
+    }
+
+    pub fn decode_reset_indices_request(batch: &RecordBatch) -> (Vec<usize>, Vec<u64>) {
+        let idx_col = batch
+            .column_by_name("index")
+            .expect("reset_indices request batch missing 'index' column")
+            .as_any()
+            .downcast_ref::<UInt32Array>()
+            .expect("'index' column must be UInt32");
+        let seed_col = batch
+            .column_by_name("seed")
+            .expect("reset_indices request batch missing 'seed' column")
+            .as_any()
+            .downcast_ref::<UInt64Array>()
+            .expect("'seed' column must be UInt64");
+        let indices = (0..idx_col.len()).map(|i| idx_col.value(i) as usize).collect();
+        let seeds = (0..seed_col.len()).map(|i| seed_col.value(i)).collect();
+        (indices, seeds)
     }
 }
 
@@ -1735,14 +1805,19 @@ fn run_batch_server(cfg_template: EnvConfig, batch_size: usize, socket_path: &st
         }
         let Some(request) = got_batch else { break };
 
-        let result = if request.column_by_name("seed").is_some() {
+        let result = if request.column_by_name("index").is_some()
+            && request.column_by_name("seed").is_some()
+        {
+            let (indices, seeds) = batch_arrow::decode_reset_indices_request(&request);
+            batched.reset_indices(&indices, &seeds)
+        } else if request.column_by_name("seed").is_some() {
             let seeds = batch_arrow::decode_reset_request(&request);
             batched.reset_batch(&seeds)
         } else if request.column_by_name("action").is_some() {
             let actions = batch_arrow::decode_step_request(&request);
             batched.step_batch(&actions)
         } else {
-            eprintln!("[rl-env batch] request has neither 'seed' nor 'action' column");
+            eprintln!("[rl-env batch] request has neither 'seed'/'index' nor 'action' column");
             break;
         };
 
@@ -2436,6 +2511,66 @@ mod tests {
     }
 
     #[test]
+    fn reset_indices_only_resets_specified_instances() {
+        // Correctness guard for the SB3 VecEnv auto-reset-on-done contract:
+        // reset_indices must reset ONLY the specified instances and leave
+        // every other instance's in-progress episode completely untouched
+        // (same remaining inventory, same step_idx) -- a batched training
+        // wrapper that reset the whole batch when only one instance finished
+        // would silently truncate every other instance's episode.
+        let n = 4;
+        let mut batched = BatchedRlEnv::new(synthetic_cfg_template(), n);
+        batched.reset_batch(&[10, 20, 30, 40]);
+        // Advance all 4 by a few steps so they have observable in-progress state.
+        batched.step_batch(&[5, 5, 5, 5]);
+        batched.step_batch(&[5, 5, 5, 5]);
+        let before = batched.step_batch(&[5, 5, 5, 5]);
+
+        // Reset only instances 1 and 3.
+        let reset_result = batched.reset_indices(&[1, 3], &[99, 100]);
+        assert_eq!(reset_result.n, 2);
+
+        // Instances 1 and 3 must match what a fresh reset(seed) produces.
+        let mut fresh1 = RlEnv::new(synthetic_cfg_template());
+        let fresh1_state = fresh1.reset(Some(99));
+        let expected1: Vec<f32> = fresh1_state.state.iter().map(|&x| x as f32).collect();
+        assert_eq!(&reset_result.states[0..reset_result.d], expected1.as_slice());
+
+        let mut fresh3 = RlEnv::new(synthetic_cfg_template());
+        let fresh3_state = fresh3.reset(Some(100));
+        let expected3: Vec<f32> = fresh3_state.state.iter().map(|&x| x as f32).collect();
+        assert_eq!(&reset_result.states[reset_result.d..2 * reset_result.d], expected3.as_slice());
+
+        // Instances 0 and 2 must be UNTOUCHED: stepping them further must
+        // continue their existing (3-steps-in) trajectory, not a fresh episode.
+        let after = batched.step_batch(&[5, 5, 5, 5]);
+        let mut continued0 = RlEnv::new(synthetic_cfg_template());
+        continued0.reset(Some(10));
+        continued0.step(5);
+        continued0.step(5);
+        continued0.step(5);
+        let expected0_step4 = continued0.step(5);
+        let expected0: Vec<f32> = expected0_step4.state.iter().map(|&x| x as f32).collect();
+        assert_eq!(
+            &after.states[0 * after.d..1 * after.d], expected0.as_slice(),
+            "instance 0 (not reset) must continue its pre-existing trajectory unchanged"
+        );
+
+        let mut continued2 = RlEnv::new(synthetic_cfg_template());
+        continued2.reset(Some(30));
+        continued2.step(5);
+        continued2.step(5);
+        continued2.step(5);
+        let expected2_step4 = continued2.step(5);
+        let expected2: Vec<f32> = expected2_step4.state.iter().map(|&x| x as f32).collect();
+        assert_eq!(
+            &after.states[2 * after.d..3 * after.d], expected2.as_slice(),
+            "instance 2 (not reset) must continue its pre-existing trajectory unchanged"
+        );
+        let _ = before; // used only to advance state; no direct assertion needed
+    }
+
+    #[test]
     fn batch_arrow_round_trip_preserves_values() {
         // Encode a BatchStepResult to Arrow, decode the request columns back,
         // and confirm nothing is lost/reordered in the RecordBatch conversion
@@ -2527,6 +2662,14 @@ mod tests {
         let actions = vec![5usize, 6, 7];
         let response = request_response(&mut stream, batch_arrow::encode_step_request(&actions));
         assert_eq!(response.num_rows(), 3);
+
+        // -- reset_indices (partial reset over the wire, the SB3 VecEnv
+        // auto-reset path) -- 4th message, only 2 of the 3 instances --
+        let response = request_response(
+            &mut stream,
+            batch_arrow::encode_reset_indices_request(&[0, 2], &[111, 222]),
+        );
+        assert_eq!(response.num_rows(), 2, "partial reset must return exactly len(indices) rows");
 
         drop(stream); // closes the connection; server loop exits on next read
         let _ = handle.join();
