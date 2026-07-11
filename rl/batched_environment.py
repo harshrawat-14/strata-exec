@@ -156,6 +156,27 @@ class BatchedStrataExecEnv:
         batch = self._send_and_recv(table)
         return self._extract_states(batch)
 
+    def reset_indices(self, indices: list[int], seeds: list[int]) -> np.ndarray:
+        """
+        Reset only the given subset of instances (by index into the batch),
+        each with its own seed, leaving every other instance's in-progress
+        episode untouched. Returns states shaped (len(indices), n_state_dims),
+        not (batch_size, n_state_dims) -- the caller splices these rows into
+        the right batch positions (see BatchedStrataExecVecEnv.step_wait in
+        batched_vec_env.py, the SB3 VecEnv auto-reset-on-done path this
+        exists for).
+        """
+        if len(indices) != len(seeds):
+            raise ValueError("indices and seeds must be the same length")
+        if not indices:
+            return np.zeros((0, self.n_state_dims), dtype=np.float32)
+        table = pa.table({
+            "index": pa.array(indices, type=pa.uint32()),
+            "seed": pa.array(seeds, type=pa.uint64()),
+        })
+        batch = self._send_and_recv(table)
+        return self._extract_states(batch)
+
     def step_batch(self, actions: list[int]):
         if len(actions) != self.batch_size:
             raise ValueError(f"expected {self.batch_size} actions, got {len(actions)}")

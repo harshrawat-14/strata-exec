@@ -46,19 +46,64 @@ the `build_state()`/`write_msg()`/input-loop allocation changes, and the gracefu
 `Result`-based error handling on the LOB/aggTrades load path are behavior-preserving for
 the successful (non-error) path, which is the only path Phase 0's harness exercises.
 
-## Scope note
+## Scope note (original)
 
-This verifies the single-instance JSON-over-stdio path — the one Phase 0's harness
-(`evaluate_all_strategies_on_date`) and every existing evaluation call site actually use.
-The new batched Arrow-transport path (`BatchedRlEnv` / `rl/batched_environment.py`) is a
-genuinely new code path with its own tests (numeric equivalence against N single-instance
-`RlEnv`s, proven in `src/bin/rl_env.rs`'s `batched_env_reset_and_step_match_n_single_instances`
-test) rather than a regression target, since nothing used it before Phase S.
+This first check verified the single-instance JSON-over-stdio path — the one Phase 0's
+harness (`evaluate_all_strategies_on_date`) and every existing evaluation call site
+actually use. It did **not** cover the new batched Arrow-transport path (`BatchedRlEnv` /
+`rl/batched_environment.py`), and specifically did not run through an SB3 `VecEnv`
+wrapper — no such wrapper existed yet at the time this section was first written, and
+`rl/train.py`'s own wrapper is non-functional for a reason predating and unrelated to
+Phase S (a `no_regime_impact` kwarg mismatch, deferred to Phase 2). **This gap was flagged
+in review and is closed below.**
 
-This check was **not** run through `rl/train.py`'s SB3 `VecEnv` wrapper, because
-`rl/train.py` is currently non-functional for a reason predating and unrelated to Phase S
-(the Phase -1 audit found it passes a `no_regime_impact` kwarg `StrataExecEnv.__init__`
-doesn't accept — a `TypeError` on every invocation). Fixing that is explicitly scoped to
-Phase 2's start, by prior agreement — this regression check instead used
-`evaluate_all_strategies_on_date`, which is Phase 0's actual hardened harness and the one
-every existing comparison table in this project is built on.
+## Follow-up: regression-verify through the actual SB3 VecEnv training wrapper
+
+A standalone-harness pass, however clean, doesn't establish that the batched-env → VecEnv
+adapter (batch ordering, reset semantics, done-flag handling, observation dtype/shape) is
+correct — that's a different code path from `evaluate_all_strategies_on_date` entirely,
+and exactly where a silent regression would hide. No such adapter existed before this
+follow-up: `BatchedStrataExecVecEnv` (`rl/batched_vec_env.py`) was built specifically to
+close this gap, implementing SB3's `VecEnv` abstract interface (`reset`, `step_async`,
+`step_wait`, `close`, `get_attr`, `set_attr`, `env_method`, `env_is_wrapped`) around
+`BatchedStrataExecEnv`.
+
+**The auto-reset-on-done contract is the specific risk.** SB3's `VecEnv` requires that
+when one instance's episode ends, *only that instance* resets (with the new episode's
+observation spliced into its slot and the true final observation stashed in
+`info["terminal_observation"]`), while every other in-progress instance continues
+untouched. `BatchedRlEnv` had no way to do this — `reset_batch` always reset all N
+instances together. Built `BatchedRlEnv::reset_indices` (Rust) plus a matching
+`reset_indices` method (`rl/batched_environment.py`) and a third wire-protocol request
+shape (`{index: uint32, seed: uint64}`) specifically for this, with its own correctness
+test (`reset_indices_only_resets_specified_instances` — proves untouched instances'
+trajectories are bit-identical to continuing them directly, not silently reset).
+
+**Test** (`rl/tests/test_batched_vec_env.py::test_batched_vec_env_matches_single_instance_json_path`):
+drove `BatchedStrataExecVecEnv` with `batch_size=4`, real `2024-01-15` historical data,
+and — critically — `fixed_steps=False, fixed_size=False` (real training config:
+randomised per-episode horizons), so different instances genuinely finish episodes at
+different global step counts, actually exercising the auto-reset path (Phase 0's harness
+always uses `fixed_steps=True`, where every instance finishes together and this whole
+distinction is invisible). Ran 400 steps, logging every reset (initial + auto-reset) with
+its seed via an instrumentation hook (`VecEnv.reset_log`), then replayed each of those
+exact per-slot episode segments through the single-instance JSON path
+(`environment.py`'s `StrataExecEnv`, the same transport `evaluate.py` uses) with the same
+seed and the same per-step actions, comparing every observation array.
+
+**Result:**
+
+```
+batched-VecEnv vs single-instance JSON: 84 episode segments, 1604 observation points, all matched exactly
+```
+
+84 independent episodes across the 4 slots over 400 steps (confirming randomised horizons
+did cause staggered episode endings — the auto-reset path was genuinely exercised, not
+skipped), 1,604 observation points, `np.array_equal` on every one (exact match, not just
+within tolerance). Additionally smoke-tested with the real `ppo_lstm_v5_adaptive_best`
+`RecurrentPPO` model driving `predict()` through the VecEnv for 30 steps, confirming
+observation shape `(4, 12)` and dtype `float32` are exactly what the policy expects.
+
+**Verdict: PASSED.** The batched-env → VecEnv adapter Phase 2's retrain will actually
+train through has now been regression-verified, not just the standalone harness. Phase 2
+is no longer blocked on this.

@@ -203,8 +203,23 @@ identified next step, not claimed as already solved.
 **Regression-verified against Phase 0**: `evaluate_all_strategies_on_date` run against
 the pre-Phase-S binary (`a7fe081`) and the post-Phase-S binary produced byte-for-byte
 identical `mean_IS`/`cvar_95`/`std_IS`/`is_sharpe` for all 5 strategies — confirming
-none of the above changed simulation semantics (full detail in
-[phase_s_regression_report.md](phase_s_regression_report.md)).
+none of the above changed simulation semantics. **Also regression-verified through the
+actual SB3 `VecEnv` training wrapper** (`BatchedStrataExecVecEnv`,
+`rl/batched_vec_env.py`), not just the standalone harness above: 84 episode segments /
+1,604 observation points, randomised-horizon config so instances genuinely finish at
+different times (exercising the auto-reset-on-done path), all matched the single-instance
+JSON path exactly. This closed a real gap found in review — building the adapter
+surfaced that `BatchedRlEnv` had no way to reset a single instance independently
+(`reset_indices`, added specifically for this). Full detail in
+[phase_s_regression_report.md](phase_s_regression_report.md).
+
+**Allocation-time follow-up**: the `step()` allocation reduction (20.01 → 15.01
+allocs/step) was a count reduction, not elimination, against Phase S's literal
+"zero allocations" wording. Measured directly (a timing-instrumented allocator, not
+inferred from the count): allocation is 147 ns/step out of 1,556 ns/step of Rust-side
+compute (9.5%), and ~0.7% of the full ~21,600+ ns/step round trip a Python training loop
+observes end-to-end. Treated as acceptable and not pursued further — full reasoning in
+[phase_s_baseline.md](phase_s_baseline.md) section 6.
 
 ## Scalability Notes
 
