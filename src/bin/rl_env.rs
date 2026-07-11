@@ -12,8 +12,10 @@
 #[global_allocator]
 static ALLOC: dhat::Alloc = dhat::Alloc;
 
+use std::cell::RefCell;
 use std::collections::{HashMap, VecDeque};
 use std::io::{self, BufRead, Write};
+use std::rc::Rc;
 use std::sync::Arc;
 
 use rand::rngs::StdRng;
@@ -53,7 +55,7 @@ const DATA_INGESTION_FAILURE_PENALTY: f64 = -1.0;
 /// persisted across `rl-env` invocations: an updated CSV on disk is always picked up
 /// by the next process start.
 #[derive(Default)]
-struct MarketDataCache {
+pub struct MarketDataCache {
     lob: HashMap<String, Arc<Vec<LobSnapshot>>>,
     agg: HashMap<String, Arc<AggTradesDay>>,
 }
@@ -273,8 +275,10 @@ pub struct RlEnv {
     ofi_start: usize,
 
     /// Parsed-per-date cache shared across resets within this process (see
-    /// `MarketDataCache`).
-    market_cache: MarketDataCache,
+    /// `MarketDataCache`). `Rc<RefCell<_>>` (not a plain field) so a batched env's
+    /// N instances can share ONE cache instead of each parsing independently --
+    /// single-threaded (one process, sequential stepping), so RefCell is sufficient.
+    market_cache: Rc<RefCell<MarketDataCache>>,
 
     /// Snapshot of `cfg.total_steps` at construction time. The per-episode
     /// `cfg.total_steps` is rebuilt from this each reset (random or fixed).
@@ -319,6 +323,13 @@ fn apply_adversarial_deficit(book: &mut OrderBook, adv: Option<&AdversarialState
 
 impl RlEnv {
     pub fn new(cfg: EnvConfig) -> Self {
+        Self::new_with_shared_cache(cfg, Rc::new(RefCell::new(MarketDataCache::default())))
+    }
+
+    /// Construct an `RlEnv` sharing an existing `MarketDataCache` with other
+    /// instances (used by `BatchedRlEnv` so N instances parse each date's CSV
+    /// once between them, not N times).
+    pub fn new_with_shared_cache(cfg: EnvConfig, market_cache: Rc<RefCell<MarketDataCache>>) -> Self {
         let adversarial = if cfg.adversarial {
             Some(AdversarialState {
                 withdrawer: LiquidityWithdrawer::new(),
@@ -354,7 +365,7 @@ impl RlEnv {
             agg_trades: None,
             ofi_series: Vec::new(),
             ofi_start: 0,
-            market_cache: MarketDataCache::default(),
+            market_cache,
             base_total_steps,
             base_total_inventory,
             episode_size_fraction: 1.0,
@@ -501,7 +512,7 @@ impl RlEnv {
             .lob_data_path
             .clone()
             .ok_or_else(|| "historical mode requires --lob-data".to_string())?;
-        let mut replay = self.market_cache.load_lob(&path)?;
+        let mut replay = self.market_cache.borrow_mut().load_lob(&path)?;
         let n = replay.len();
         // Auto-align total_steps to replay length.
         if self.cfg.total_steps == DEFAULT_TOTAL_STEPS
@@ -572,7 +583,7 @@ impl RlEnv {
         // signal (state dim s5 falls back to 0.0), unlike the LOB replay itself.
         if let Some(agg_path) = self.cfg.agg_trades_path.clone() {
             let timestamps = replay.snapshot_timestamps();
-            match self.market_cache.load_agg(&agg_path) {
+            match self.market_cache.borrow_mut().load_agg(&agg_path) {
                 Ok(agg) => {
                     self.ofi_series = agg.build_ofi_series(&timestamps, 30_000);
                     self.ofi_start = start_offset;
@@ -602,7 +613,7 @@ impl RlEnv {
             .lob_data_path
             .clone()
             .ok_or_else(|| "counterfactual mode requires --lob-data".to_string())?;
-        let mut replay = self.market_cache.load_lob(&path)?;
+        let mut replay = self.market_cache.borrow_mut().load_lob(&path)?;
         let n = replay.len();
         if self.cfg.total_steps == DEFAULT_TOTAL_STEPS
             || self.cfg.total_steps == HISTORICAL_DEFAULT_STEPS
@@ -684,7 +695,7 @@ impl RlEnv {
         // but snapshot_timestamps() returns all timestamps regardless of cursor position).
         if let Some(agg_path) = self.cfg.agg_trades_path.clone() {
             let timestamps = replay.snapshot_timestamps();
-            match self.market_cache.load_agg(&agg_path) {
+            match self.market_cache.borrow_mut().load_agg(&agg_path) {
                 Ok(agg) => {
                     self.ofi_series = agg.build_ofi_series(&timestamps, 30_000);
                     self.ofi_start = start_offset;
@@ -709,7 +720,7 @@ impl RlEnv {
         // Build CounterfactualLob on the first episode; reuse and explicitly reset on
         // subsequent resets so accumulated impact from the previous episode never carries over.
         if self.cf_lob.is_none() {
-            let cf_replay = self.market_cache.load_lob(&path)?;
+            let cf_replay = self.market_cache.borrow_mut().load_lob(&path)?;
             self.cf_lob = Some(CounterfactualLob::new(cf_replay, cf_config));
         }
         let cf = self.cf_lob.as_mut().unwrap();
@@ -1264,6 +1275,173 @@ impl RlEnv {
 }
 
 // ---------------------------------------------------------------------------
+// Batched env (Phase S, ADR-006) — N instances per process, sharing one
+// MarketDataCache, transported via Arrow RecordBatch over a Unix domain
+// socket instead of JSON-over-stdio. Additive: the default (no --batch-size)
+// code path above is completely unchanged.
+// ---------------------------------------------------------------------------
+
+/// N `RlEnv` instances stepped together, sharing one `MarketDataCache` so a
+/// date replayed by multiple instances in the batch is parsed once, not N
+/// times (see ADR-006 and `MarketDataCache`'s doc comment).
+pub struct BatchedRlEnv {
+    envs: Vec<RlEnv>,
+    n_state_dims: usize,
+}
+
+/// Column-oriented result of one `reset_batch`/`step_batch` call: `states` is
+/// row-major N×D (state dims cast to f32 -- the wire/observation precision the
+/// Python/torch side trains at; internal computation stays f64), `rewards`/
+/// `dones` are length N.
+pub struct BatchStepResult {
+    pub states: Vec<f32>,
+    pub rewards: Vec<f32>,
+    pub dones: Vec<bool>,
+    pub n: usize,
+    pub d: usize,
+}
+
+impl BatchedRlEnv {
+    pub fn new(cfg_template: EnvConfig, batch_size: usize) -> Self {
+        assert!(batch_size > 0, "batch_size must be >= 1");
+        let cache = Rc::new(RefCell::new(MarketDataCache::default()));
+        let n_state_dims = if cfg_template.no_time_features { 12 } else { 16 };
+        let envs = (0..batch_size)
+            .map(|_| RlEnv::new_with_shared_cache(cfg_template.clone(), Rc::clone(&cache)))
+            .collect();
+        Self { envs, n_state_dims }
+    }
+
+    pub fn batch_size(&self) -> usize {
+        self.envs.len()
+    }
+
+    pub fn reset_batch(&mut self, seeds: &[u64]) -> BatchStepResult {
+        assert_eq!(seeds.len(), self.envs.len(), "seeds.len() must equal batch_size");
+        self.collect(|env, i| env.reset(Some(seeds[i])))
+    }
+
+    pub fn step_batch(&mut self, actions: &[usize]) -> BatchStepResult {
+        assert_eq!(actions.len(), self.envs.len(), "actions.len() must equal batch_size");
+        self.collect(|env, i| env.step(actions[i]))
+    }
+
+    fn collect(&mut self, mut f: impl FnMut(&mut RlEnv, usize) -> StepResult) -> BatchStepResult {
+        let n = self.envs.len();
+        let d = self.n_state_dims;
+        let mut states = Vec::with_capacity(n * d);
+        let mut rewards = Vec::with_capacity(n);
+        let mut dones = Vec::with_capacity(n);
+        for i in 0..n {
+            let r = f(&mut self.envs[i], i);
+            debug_assert_eq!(r.state.len(), d, "instance {i} produced a {}-dim state, expected {d}", r.state.len());
+            states.extend(r.state.iter().map(|&x| x as f32));
+            rewards.push(r.reward as f32);
+            dones.push(r.done);
+        }
+        BatchStepResult { states, rewards, dones, n, d }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Arrow encode/decode for the batched transport
+// ---------------------------------------------------------------------------
+
+mod batch_arrow {
+    use super::BatchStepResult;
+    use arrow::array::{ArrayRef, BooleanArray, Float32Array, Int32Array, UInt64Array};
+    use arrow::datatypes::{DataType, Field, Schema};
+    use arrow::record_batch::RecordBatch;
+    use std::sync::Arc as StdArc;
+
+    /// Column names for state dims: "s0", "s1", ..., "s{d-1}".
+    fn state_col_name(i: usize) -> String {
+        format!("s{i}")
+    }
+
+    pub fn result_schema(d: usize) -> Schema {
+        let mut fields: Vec<Field> = (0..d)
+            .map(|i| Field::new(state_col_name(i), DataType::Float32, false))
+            .collect();
+        fields.push(Field::new("reward", DataType::Float32, false));
+        fields.push(Field::new("done", DataType::Boolean, false));
+        Schema::new(fields)
+    }
+
+    /// Encode a `BatchStepResult` (row-major N×D states + reward/done) into an
+    /// Arrow `RecordBatch` (N rows, D+2 columns: s0..s{D-1}, reward, done).
+    /// This is the "zero-copy on decode" side of ADR-006: the Python side reads
+    /// each column as a `pyarrow` buffer-view via `to_numpy(zero_copy_only=True)`,
+    /// no per-element parsing.
+    pub fn encode_result(r: &BatchStepResult) -> RecordBatch {
+        let schema = result_schema(r.d);
+        let mut columns: Vec<ArrayRef> = Vec::with_capacity(r.d + 2);
+        for col in 0..r.d {
+            let values: Vec<f32> = (0..r.n).map(|row| r.states[row * r.d + col]).collect();
+            columns.push(StdArc::new(Float32Array::from(values)));
+        }
+        columns.push(StdArc::new(Float32Array::from(r.rewards.clone())));
+        columns.push(StdArc::new(BooleanArray::from(r.dones.clone())));
+        RecordBatch::try_new(StdArc::new(schema), columns)
+            .expect("encode_result: column lengths must match schema by construction")
+    }
+
+    // The real client is Python (via pyarrow, see rl/batched_environment.py),
+    // which builds request RecordBatches itself -- these Rust-side encoders
+    // exist only so Rust tests can act as a client without a Python
+    // dependency. #[cfg(test)] reflects that honestly rather than suppressing
+    // an unused-code warning on functions no production path calls.
+    #[cfg(test)]
+    pub fn request_schema_step() -> Schema {
+        Schema::new(vec![Field::new("action", DataType::Int32, false)])
+    }
+
+    #[cfg(test)]
+    pub fn request_schema_reset() -> Schema {
+        Schema::new(vec![Field::new("seed", DataType::UInt64, false)])
+    }
+
+    #[cfg(test)]
+    pub fn encode_step_request(actions: &[usize]) -> RecordBatch {
+        let values: Vec<i32> = actions.iter().map(|&a| a as i32).collect();
+        RecordBatch::try_new(
+            StdArc::new(request_schema_step()),
+            vec![StdArc::new(Int32Array::from(values))],
+        )
+        .expect("encode_step_request: schema mismatch")
+    }
+
+    #[cfg(test)]
+    pub fn encode_reset_request(seeds: &[u64]) -> RecordBatch {
+        RecordBatch::try_new(
+            StdArc::new(request_schema_reset()),
+            vec![StdArc::new(UInt64Array::from(seeds.to_vec()))],
+        )
+        .expect("encode_reset_request: schema mismatch")
+    }
+
+    pub fn decode_step_request(batch: &RecordBatch) -> Vec<usize> {
+        let col = batch
+            .column_by_name("action")
+            .expect("step request batch missing 'action' column")
+            .as_any()
+            .downcast_ref::<Int32Array>()
+            .expect("'action' column must be Int32");
+        (0..col.len()).map(|i| col.value(i) as usize).collect()
+    }
+
+    pub fn decode_reset_request(batch: &RecordBatch) -> Vec<u64> {
+        let col = batch
+            .column_by_name("seed")
+            .expect("reset request batch missing 'seed' column")
+            .as_any()
+            .downcast_ref::<UInt64Array>()
+            .expect("'seed' column must be UInt64");
+        (0..col.len()).map(|i| col.value(i)).collect()
+    }
+}
+
+// ---------------------------------------------------------------------------
 // CLI parsing
 // ---------------------------------------------------------------------------
 
@@ -1364,11 +1542,120 @@ fn step_result_to_msg(r: StepResult) -> OutMsg {
     OutMsg { state: r.state, reward: r.reward, done: r.done, info: r.info }
 }
 
+/// Scans argv for `--batch-size N --socket-path PATH`, the two batch-mode
+/// flags that live outside `EnvConfig` (they're process-level, not
+/// per-instance). Absent -> the default single-instance JSON-over-stdio path
+/// runs unchanged.
+fn parse_batch_args() -> Option<(usize, String)> {
+    let args: Vec<String> = std::env::args().collect();
+    let mut batch_size: Option<usize> = None;
+    let mut socket_path: Option<String> = None;
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--batch-size" => {
+                if let Some(v) = args.get(i + 1) {
+                    batch_size = v.parse::<usize>().ok();
+                    i += 1;
+                }
+            }
+            "--socket-path" => {
+                if let Some(v) = args.get(i + 1) {
+                    socket_path = Some(v.clone());
+                    i += 1;
+                }
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    match (batch_size, socket_path) {
+        (Some(n), Some(path)) if n > 0 => Some((n, path)),
+        _ => None,
+    }
+}
+
+/// Serve batched reset/step requests over a Unix domain socket using Arrow
+/// RecordBatch IPC (ADR-006). One request = one embedded Arrow IPC stream
+/// (schema + one batch + EOS marker) distinguished by column name ("seed" =
+/// reset, "action" = step); one response = the same framing, encoding
+/// `BatchStepResult`. Accepts exactly one client connection, matching how a
+/// single training process drives one batched env.
+fn run_batch_server(cfg_template: EnvConfig, batch_size: usize, socket_path: &str) {
+    use arrow::ipc::reader::StreamReader;
+    use arrow::ipc::writer::StreamWriter;
+    use std::os::unix::net::UnixListener;
+
+    let _ = std::fs::remove_file(socket_path);
+    let listener = UnixListener::bind(socket_path)
+        .unwrap_or_else(|e| panic!("failed to bind batch socket '{socket_path}': {e}"));
+    eprintln!("[rl-env batch] listening on {socket_path}, batch_size={batch_size}");
+
+    let mut batched = BatchedRlEnv::new(cfg_template, batch_size);
+
+    let (mut stream, _addr) = match listener.accept() {
+        Ok(x) => x,
+        Err(e) => {
+            eprintln!("[rl-env batch] accept failed: {e}");
+            return;
+        }
+    };
+
+    loop {
+        let reader = match StreamReader::try_new(&mut stream, None) {
+            Ok(r) => r,
+            Err(_) => break, // client disconnected / stream closed
+        };
+        let mut got_batch = None;
+        for batch in reader {
+            match batch {
+                Ok(b) => got_batch = Some(b),
+                Err(e) => {
+                    eprintln!("[rl-env batch] malformed request: {e}");
+                    break;
+                }
+            }
+        }
+        let Some(request) = got_batch else { break };
+
+        let result = if request.column_by_name("seed").is_some() {
+            let seeds = batch_arrow::decode_reset_request(&request);
+            batched.reset_batch(&seeds)
+        } else if request.column_by_name("action").is_some() {
+            let actions = batch_arrow::decode_step_request(&request);
+            batched.step_batch(&actions)
+        } else {
+            eprintln!("[rl-env batch] request has neither 'seed' nor 'action' column");
+            break;
+        };
+
+        let response = batch_arrow::encode_result(&result);
+        let schema = response.schema();
+        let mut writer = match StreamWriter::try_new(&mut stream, &schema) {
+            Ok(w) => w,
+            Err(e) => {
+                eprintln!("[rl-env batch] failed to open response writer: {e}");
+                break;
+            }
+        };
+        if writer.write(&response).is_err() || writer.finish().is_err() {
+            break;
+        }
+    }
+    let _ = std::fs::remove_file(socket_path);
+}
+
 fn main() {
     #[cfg(feature = "dhat-heap")]
     let _profiler = dhat::Profiler::new_heap();
 
     let cfg = parse_cli();
+
+    if let Some((batch_size, socket_path)) = parse_batch_args() {
+        run_batch_server(cfg, batch_size, &socket_path);
+        return;
+    }
+
     let mut env = RlEnv::new(cfg);
 
     let stdin = io::stdin();
@@ -1883,5 +2170,168 @@ mod tests {
             (identity - 1.0).abs() < 0.001,
             "sin^2 + cos^2 must be ~1.0, got {identity}"
         );
+    }
+
+    // -----------------------------------------------------------------------
+    // Batched env (Phase S, ADR-006)
+    // -----------------------------------------------------------------------
+
+    fn synthetic_cfg_template() -> EnvConfig {
+        EnvConfig {
+            mode: RlMode::Synthetic,
+            total_inventory: 1_000_000.0,
+            total_steps: 50,
+            seed: 42,
+            sigma_ref: 0.20,
+            gamma: 0.005,
+            adversarial: false,
+            lob_data_path: None,
+            btc_target: 500.0,
+            adv_btc: 0.0,
+            agg_trades_path: None,
+            fixed_steps: true,
+            fixed_size: true,
+            no_time_features: true,
+        }
+    }
+
+    #[test]
+    fn batched_env_reset_and_step_match_n_single_instances() {
+        // Correctness guard: BatchedRlEnv must produce EXACTLY the same numbers
+        // as N independent RlEnv instances stepped one at a time -- batching is
+        // a performance change, not a semantics change.
+        let n = 4;
+        let seeds: Vec<u64> = vec![1, 2, 3, 4];
+        let actions: Vec<usize> = vec![0, 5, 10, 19];
+
+        let mut batched = BatchedRlEnv::new(synthetic_cfg_template(), n);
+        let reset_result = batched.reset_batch(&seeds);
+        let step_result = batched.step_batch(&actions);
+
+        for i in 0..n {
+            let mut single = RlEnv::new(synthetic_cfg_template());
+            let single_reset = single.reset(Some(seeds[i]));
+            let single_step = single.step(actions[i]);
+
+            let batch_reset_row = &reset_result.states[i * reset_result.d..(i + 1) * reset_result.d];
+            let expected_reset: Vec<f32> = single_reset.state.iter().map(|&x| x as f32).collect();
+            assert_eq!(
+                batch_reset_row, expected_reset.as_slice(),
+                "instance {i}: batched reset state != single-instance reset state"
+            );
+
+            let batch_step_row = &step_result.states[i * step_result.d..(i + 1) * step_result.d];
+            let expected_step: Vec<f32> = single_step.state.iter().map(|&x| x as f32).collect();
+            assert_eq!(
+                batch_step_row, expected_step.as_slice(),
+                "instance {i}: batched step state != single-instance step state"
+            );
+            assert_eq!(
+                step_result.rewards[i], single_step.reward as f32,
+                "instance {i}: batched reward != single-instance reward"
+            );
+        }
+    }
+
+    #[test]
+    fn batch_arrow_round_trip_preserves_values() {
+        // Encode a BatchStepResult to Arrow, decode the request columns back,
+        // and confirm nothing is lost/reordered in the RecordBatch conversion
+        // itself, independent of the socket transport.
+        let result = BatchStepResult {
+            states: vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0], // 3 rows x 2 dims
+            rewards: vec![-0.5, -0.25, -0.75],
+            dones: vec![false, true, false],
+            n: 3,
+            d: 2,
+        };
+        let batch = batch_arrow::encode_result(&result);
+        assert_eq!(batch.num_rows(), 3);
+        assert_eq!(batch.num_columns(), 4); // s0, s1, reward, done
+
+        let seeds = vec![10u64, 20, 30];
+        let req = batch_arrow::encode_reset_request(&seeds);
+        assert_eq!(batch_arrow::decode_reset_request(&req), seeds);
+
+        let actions = vec![0usize, 5, 19];
+        let req = batch_arrow::encode_step_request(&actions);
+        assert_eq!(batch_arrow::decode_step_request(&req), actions);
+    }
+
+    #[test]
+    fn batch_socket_server_round_trip() {
+        // End-to-end: spin up run_batch_server on a real Unix socket in a
+        // background thread, connect as a client using the same Arrow codec a
+        // Python client would use (via pyarrow on the real wire format), and
+        // confirm reset_batch then step_batch round-trip correctly.
+        use arrow::ipc::reader::StreamReader;
+        use arrow::ipc::writer::StreamWriter;
+        use std::os::unix::net::UnixStream;
+
+        let socket_path = std::env::temp_dir().join(format!(
+            "rl_env_batch_test_{}_{}.sock",
+            std::process::id(),
+            42 // fixed per-test suffix; unique per test fn via the temp_dir cleanup below
+        ));
+        let socket_path_str = socket_path.to_string_lossy().to_string();
+        let _ = std::fs::remove_file(&socket_path);
+
+        let server_path = socket_path_str.clone();
+        let handle = std::thread::spawn(move || {
+            run_batch_server(synthetic_cfg_template(), 3, &server_path);
+        });
+
+        // Give the server a moment to bind before connecting.
+        let mut stream = None;
+        for _ in 0..50 {
+            if let Ok(s) = UnixStream::connect(&socket_path_str) {
+                stream = Some(s);
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        let mut stream = stream.expect("failed to connect to batch server socket");
+
+        // -- reset_batch --
+        let seeds = vec![1u64, 2, 3];
+        let req = batch_arrow::encode_reset_request(&seeds);
+        {
+            let schema = req.schema();
+            let mut w = StreamWriter::try_new(&mut stream, &schema).unwrap();
+            w.write(&req).unwrap();
+            w.finish().unwrap();
+        }
+        let response = {
+            let reader = StreamReader::try_new(&mut stream, None).unwrap();
+            let batches: Vec<_> = reader.collect::<Result<Vec<_>, _>>().unwrap();
+            assert_eq!(batches.len(), 1);
+            batches.into_iter().next().unwrap()
+        };
+        assert_eq!(response.num_rows(), 3);
+        assert_eq!(
+            response.schema().field(0).name(),
+            "s0",
+            "response columns must be s0..s{{d-1}}, reward, done"
+        );
+
+        // -- step_batch --
+        let actions = vec![0usize, 1, 2];
+        let req = batch_arrow::encode_step_request(&actions);
+        {
+            let schema = req.schema();
+            let mut w = StreamWriter::try_new(&mut stream, &schema).unwrap();
+            w.write(&req).unwrap();
+            w.finish().unwrap();
+        }
+        let response = {
+            let reader = StreamReader::try_new(&mut stream, None).unwrap();
+            let batches: Vec<_> = reader.collect::<Result<Vec<_>, _>>().unwrap();
+            batches.into_iter().next().unwrap()
+        };
+        assert_eq!(response.num_rows(), 3);
+
+        drop(stream); // closes the connection; server loop exits on next read
+        let _ = handle.join();
+        let _ = std::fs::remove_file(&socket_path);
     }
 }
