@@ -88,6 +88,23 @@ def nearest_action(target_frac: float, fractions: list) -> int:
     return int(np.argmin(diffs))
 
 
+def compute_cvar_95(arr: np.ndarray) -> float:
+    """
+    CVaR-95: mean of the worst 5% of IS values (the tail mean, not a single
+    percentile). Sign convention: more negative IS = worse execution cost
+    (see _run_episode). Previously several call sites used
+    np.percentile(arr, 5) here, which is VaR-5 (a single point on the
+    distribution), not CVaR-95 (a tail mean) -- directionally correct but
+    statistically the wrong quantity. This is the one implementation all
+    evaluation functions should share.
+    """
+    if len(arr) == 0:
+        return float("nan")
+    n_tail = max(1, len(arr) // 20)
+    sorted_asc = np.sort(arr)
+    return float(np.mean(sorted_asc[:n_tail]))
+
+
 def test_vs_baseline(rl_is_samples: list, baseline_is: float) -> dict:
     """
     Test whether RL IS is significantly better than the static AC baseline.
@@ -486,7 +503,7 @@ def evaluate_model_on_date(
         "mean_IS": float(np.mean(arr)),
         "std_IS": float(np.std(arr)),
         "var_IS": float(np.var(arr)),
-        "cvar95": float(np.percentile(arr, 5)),
+        "cvar95": compute_cvar_95(arr),
         "mean_reward": float(np.mean(all_rewards)),
         "forced_liquidation_rate": forced_liquidations / n_episodes,
         "n_episodes": n_episodes,
@@ -533,7 +550,7 @@ def evaluate_model_counterfactual(
         "mean_IS": float(np.mean(arr)),
         "std_IS":  float(np.std(arr)),
         "var_IS":  float(np.var(arr)),
-        "cvar95":  float(np.percentile(arr, 5)),
+        "cvar95":  compute_cvar_95(arr),
         "forced_liquidation_rate": forced_liquidations / n_episodes,
     }
 
@@ -561,7 +578,7 @@ def evaluate_on_synthetic(model, n_episodes=200, n_state_dims=8) -> dict:
     return {
         "mean_IS": float(np.mean(arr)),
         "var_IS": float(np.var(arr)),
-        "cvar95": float(np.percentile(arr, 5)),
+        "cvar95": compute_cvar_95(arr),
     }
 
 
@@ -642,10 +659,7 @@ def evaluate_all_strategies_on_date(
             for a in sorted(action_counts.keys())
         }
 
-        # CVaR-95: average of worst 5% of IS values (most negative)
-        n_tail = max(1, len(arr) // 20)
-        sorted_asc = np.sort(arr)
-        cvar_95 = float(np.mean(sorted_asc[:n_tail]))
+        cvar_95 = compute_cvar_95(arr)
 
         results[strategy_key] = {
             "strategy": strategy_labels[strategy_key],

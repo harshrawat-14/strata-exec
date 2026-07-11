@@ -28,10 +28,23 @@ impl DistributionStats {
     /// The input slice is **not** mutated; values are copied and sorted
     /// internally.  Returns `None` if the input is empty.
     ///
+    /// ## Sign convention
+    ///
+    /// Every current caller feeds this struct implementation-shortfall or
+    /// AC-objective samples from [`crate::analytics::metrics::ExecutionMetrics`],
+    /// where **more negative is worse** (see
+    /// `shortfall_is_negative_for_adverse_sell_execution` in `metrics.rs`).
+    /// `var_95`/`cvar_95` (and the `_99` variants) are defined against that
+    /// convention: they describe the **lower** tail (the worst outcomes), not
+    /// the upper tail. Do not feed this struct a "losses are positive"-style
+    /// sample without accounting for this.
+    ///
     /// ## Formulas
     ///
-    /// - **VaR α** = `percentile(α)` of the cost distribution.
-    /// - **CVaR α** = mean of all values ≥ VaR α (expected tail loss).
+    /// - **VaR α** = the `(100 − α)`-th percentile of the sample — the
+    ///   threshold below which only the worst `(100 − α)`% of outcomes fall.
+    /// - **CVaR α** = mean of all values ≤ VaR α (expected tail loss, i.e.
+    ///   the average of the worst `(100 − α)`% of outcomes).
     /// - **Skewness** = `E[(X − μ)³] / σ³`  (population skewness).
     /// - **Kurtosis** = `E[(X − μ)⁴] / σ⁴ − 3`  (excess kurtosis; 0 for normal).
     pub fn from_samples(samples: &[f64]) -> Option<Self> {
@@ -75,8 +88,10 @@ impl DistributionStats {
         let median = percentile_sorted(&sorted, 50.0);
         let p90 = percentile_sorted(&sorted, 90.0);
         let p99 = percentile_sorted(&sorted, 99.0);
-        let var_95 = percentile_sorted(&sorted, 95.0);
-        let var_99 = percentile_sorted(&sorted, 99.0);
+        // Lower-tail VaR: the threshold below which only (100-alpha)% of
+        // outcomes fall, per the sign convention documented above.
+        let var_95 = percentile_sorted(&sorted, 5.0);
+        let var_99 = percentile_sorted(&sorted, 1.0);
         let cvar_95 = cvar_sorted(&sorted, 95.0);
         let cvar_99 = cvar_sorted(&sorted, 99.0);
         let max = sorted[n - 1];
@@ -126,8 +141,12 @@ fn percentile_sorted(sorted: &[f64], p: f64) -> f64 {
 /// Compute CVaR (Conditional Value-at-Risk) at level `alpha` from a
 /// **pre-sorted** slice.
 ///
-/// CVaR α = mean of all samples whose value ≥ the α-th percentile.
-/// This is the expected shortfall in the tail.
+/// CVaR α = mean of all samples whose value ≤ the `(100 - alpha)`-th
+/// percentile — i.e. the mean of the worst `(100 - alpha)`% of outcomes.
+/// This assumes lower values are worse (see the sign-convention note on
+/// [`DistributionStats`]), matching every current caller
+/// (`ExecutionMetrics::shortfall_percent` / `ac_objective_percent`, both
+/// negative-for-an-adverse-sell).
 fn cvar_sorted(sorted: &[f64], alpha: f64) -> f64 {
     debug_assert!(!sorted.is_empty());
 
@@ -136,13 +155,13 @@ fn cvar_sorted(sorted: &[f64], alpha: f64) -> f64 {
         return sorted[0];
     }
 
-    let threshold = percentile_sorted(sorted, alpha);
+    let threshold = percentile_sorted(sorted, 100.0 - alpha);
 
-    // Average all values at or above the threshold.
+    // Average all values at or below the threshold (the worst tail).
     let mut sum = 0.0;
     let mut count = 0usize;
     for &v in sorted {
-        if v >= threshold {
+        if v <= threshold {
             sum += v;
             count += 1;
         }
@@ -203,9 +222,10 @@ mod tests {
         // = sorted[89] + 0.1 * (sorted[90] - sorted[89]) = 90 + 0.1 = 90.1
         assert!((stats.p90 - 90.1).abs() < 1e-10, "p90 = {}", stats.p90);
 
-        // VaR 95: rank = 0.95 * 99 = 94.05 → 95 + 0.05 = 95.05
+        // VaR 95 is a lower-tail threshold (worst 5%): rank = 0.05 * 99 = 4.95
+        // → sorted[4] + 0.95 * (sorted[5] - sorted[4]) = 5 + 0.95 = 5.95
         assert!(
-            (stats.var_95 - 95.05).abs() < 1e-10,
+            (stats.var_95 - 5.95).abs() < 1e-10,
             "var_95 = {}",
             stats.var_95
         );
@@ -240,16 +260,50 @@ mod tests {
 
     #[test]
     fn cvar_is_tail_mean() {
-        // 10 elements: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
-        // VaR 90 = percentile(90) = rank=0.9*9=8.1 → 9+0.1=9.1
-        // CVaR 90 = mean of {9.1-eligible: 10} → values ≥ 9.1 → just 10 → 10.0
+        // 10 elements: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]. CVaR is a lower-tail
+        // (worst-outcomes) statistic: VaR 99 = percentile(1) = rank=0.01*9=0.09
+        // → 1 + 0.09*(2-1) = 1.09. CVaR 99 = mean of values <= 1.09 → just {1} → 1.0.
         let samples: Vec<f64> = (1..=10).map(|x| x as f64).collect();
         let stats = DistributionStats::from_samples(&samples).unwrap();
 
         assert!(
-            (stats.cvar_99 - 10.0).abs() < 1e-10,
+            (stats.cvar_99 - 1.0).abs() < 1e-10,
             "cvar_99 = {}",
             stats.cvar_99
+        );
+    }
+
+    #[test]
+    fn cvar_95_is_worst_tail_not_best_tail() {
+        // Regression test for the sign-inversion bug: cvar_95 must report the
+        // mean of the WORST 5% of outcomes, not the best 5%.
+        //
+        // Hand-constructed distribution using this codebase's real
+        // negative-is-worse shortfall convention (see
+        // shortfall_is_negative_for_adverse_sell_execution in metrics.rs):
+        // 95 "normal day" episodes at a mild -0.5% shortfall, plus 5
+        // "crash day" episodes with catastrophic shortfalls of -10%, -20%,
+        // -30%, -40%, -50%.
+        //
+        // The true worst 5% is unambiguous by eye: {-50, -40, -30, -20, -10},
+        // mean = -30.0. A buggy upper-tail implementation would instead
+        // average the best 5% (all -0.5), returning -0.5 — reporting the
+        // agent as fine when a real 30%-average tail-loss event exists.
+        let mut samples = vec![-0.5_f64; 95];
+        samples.extend_from_slice(&[-50.0, -40.0, -30.0, -20.0, -10.0]);
+
+        let stats = DistributionStats::from_samples(&samples).unwrap();
+
+        assert!(
+            (stats.cvar_95 - (-30.0)).abs() < 1e-9,
+            "cvar_95 must average the worst 5% (-50,-40,-30,-20,-10 => -30.0), got {}",
+            stats.cvar_95
+        );
+        assert!(
+            stats.cvar_95 < -0.5,
+            "cvar_95 ({}) must be worse (more negative) than the mean of normal-day \
+             outcomes (-0.5) — a value >= -0.5 means the wrong (best-case) tail was averaged",
+            stats.cvar_95
         );
     }
 

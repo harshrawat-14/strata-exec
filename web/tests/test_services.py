@@ -83,18 +83,35 @@ class TestAggregateRuns:
         assert abs(strat["mean_is_pct"] - (-0.5)) < 1e-9
 
     def test_cvar95_uses_worst_5_percent(self):
+        """
+        Regression test for a sign-inversion bug: mean_is_pct follows
+        ExecutionMetrics::shortfall_percent's convention (more negative =
+        worse, an adverse sell), so the worst 5% tail is the most NEGATIVE
+        values, not the most positive. A buggy implementation that sorts
+        descending and takes the "top" would instead average the best-case
+        (least negative) paths and report them as the tail risk.
+        """
         from web.services.parallel_sim import aggregate_runs
-        # 100 paths: worst IS = +5.0 (highest cost), rest near 0.0
-        runs = [self._make_run(5, "twap", 0.0) for _ in range(99)]
-        runs.append(self._make_run(5, "twap", 0.0))
-        summaries_good = [self._make_summary("TWAP", 0.0) for _ in range(95)]
-        summaries_bad  = [self._make_summary("TWAP", 5.0) for _ in range(5)]
-        all_summaries = summaries_bad + summaries_good  # worst first
+        # 100 paths: 95 normal days at a mild -0.5% shortfall, 5 crash days
+        # with catastrophic shortfalls of -10%, -20%, -30%, -40%, -50%.
+        # True worst 5% = {-50, -40, -30, -20, -10}, mean = -30.0.
+        runs = [self._make_run(5, "twap", 0.0) for _ in range(100)]
+        summaries_bad = [
+            self._make_summary("TWAP", v)
+            for v in (-50.0, -40.0, -30.0, -20.0, -10.0)
+        ]
+        summaries_normal = [self._make_summary("TWAP", -0.5) for _ in range(95)]
+        all_summaries = summaries_bad + summaries_normal
 
         result = aggregate_runs(runs, all_summaries)
         strat = result["strategies"][0]
-        # CVaR95 should be average of top 5% worst (highest IS) = 5.0
-        assert strat["cvar95"] >= 0.0, "CVaR must capture worst-case tail"
+        assert abs(strat["cvar95"] - (-30.0)) < 1e-9, (
+            f"CVaR95 must average the true worst 5% (-30.0), got {strat['cvar95']}"
+        )
+        assert strat["cvar95"] < -0.5, (
+            "CVaR95 must be worse (more negative) than the normal-day mean (-0.5) "
+            "-- a value >= -0.5 means the wrong (best-case) tail was averaged"
+        )
 
     def test_price_path_averaged_across_runs(self):
         from web.services.parallel_sim import aggregate_runs

@@ -1,6 +1,6 @@
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
-testpaths = ["web/tests"]
+testpaths = ["web/tests", "rl/tests"]
 addopts = "-v --tb=short"
 filterwarnings = [
     # Suppress known pydantic protected-namespace warnings from SB3 / our schemas

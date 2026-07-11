@@ -145,9 +145,11 @@ def aggregate_runs(
             mean_is = float(np.mean(shortfalls))
             # is_variance: variance of IS across paths (cross-path dispersion)
             is_var = float(np.var(shortfalls, ddof=1)) if n > 1 else 0.0
-            # CVaR 95% = average of the worst 5% of outcomes (meaning highest shortfall/cost)
-            # Since shortfall is negative for savings / positive for cost, sort descending
-            sorted_is = sorted(shortfalls, reverse=True)
+            # CVaR 95% = average of the worst 5% of outcomes.
+            # mean_is_pct follows ExecutionMetrics::shortfall_percent's convention:
+            # more negative = worse (adverse sell). Sort ascending so the worst
+            # (most negative) values come first.
+            sorted_is = sorted(shortfalls)
             tail_idx = max(1, int(np.ceil(0.05 * n)))
             cvar95 = float(np.mean(sorted_is[:tail_idx]))
 
