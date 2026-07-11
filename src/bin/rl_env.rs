@@ -2423,6 +2423,41 @@ mod tests {
     }
 
     #[test]
+    fn intraday_vol_ratio_dim_carries_no_information_beyond_s2_no_lookahead() {
+        // Phase 2 acceptance criterion (Global Rule 1 + 7): an EXECUTABLE
+        // leakage guard for state dim [13] (intraday_vol_ratio), not just
+        // the Phase -1 audit's prose verdict. build_state() computes:
+        //   s2  = tanh(current_sigma / sigma_ref)
+        //   s13 = tanh(current_sigma / sigma_ref - 1.0)
+        // i.e. s13 is a pure deterministic function of the SAME
+        // current_sigma/sigma_ref ratio s2 already exposes -- it introduces
+        // no new data source, so it cannot leak anything s2 doesn't already
+        // (and s2's current_sigma is a bounded rolling-window estimator,
+        // never a full-episode/future aggregate -- the classic "daily_vol"
+        // lookahead bug this guard exists to catch would show up here as
+        // s13 diverging from a pure function of s2 at some step).
+        let mut env = make_env_with_time_features();
+        let mut r = env.reset(Some(7));
+        for _ in 0..20 {
+            let s2 = r.state[2];
+            let s13 = r.state[13];
+            // Recover the ratio from s2, then recompute s13 from it.
+            let ratio = s2.clamp(-0.999999, 0.999999).atanh();
+            let expected_s13 = (ratio - 1.0).tanh();
+            assert!(
+                (s13 - expected_s13).abs() < 1e-9,
+                "s13 ({s13}) must be a pure function of s2's ratio ({s2} -> ratio {ratio}), \
+                 got expected {expected_s13} -- any divergence means s13 is drawing on a \
+                 data source s2 doesn't already causally have"
+            );
+            if r.done {
+                break;
+            }
+            r = env.step(5);
+        }
+    }
+
+    #[test]
     fn cyclical_encoding_bounded() {
         let mut env = make_env_with_time_features();
         let r = env.reset(Some(42));
