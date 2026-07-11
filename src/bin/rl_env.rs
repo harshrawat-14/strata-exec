@@ -1406,6 +1406,116 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+
+    /// Bit-for-bit hash of one full episode's trajectory: every state vector
+    /// (hashed via f64::to_bits(), not float comparison, so this is a true
+    /// bit-identity check with no tolerance) plus the terminal reward/inventory.
+    /// Two runs with the same seed must produce the same hash, deterministically,
+    /// or something in the state machine (RNG usage, HashMap iteration order,
+    /// uninitialised memory, the new per-date cache, etc.) is non-deterministic.
+    fn run_episode_and_hash(env: &mut RlEnv, seed: u64) -> u64 {
+        let mut hasher = DefaultHasher::new();
+        let reset_result = env.reset(Some(seed));
+        for bit in reset_result.state.iter().map(|f| f.to_bits()) {
+            bit.hash(&mut hasher);
+        }
+        let mut done = reset_result.done;
+        let mut action_cycle = 0usize;
+        while !done {
+            // Deterministic pseudo-varied action sequence (not RNG-driven) so the
+            // trajectory actually exercises different code paths across steps,
+            // while remaining identical run-to-run for a fixed seed.
+            let action = action_cycle % ACTION_FRACTIONS.len();
+            action_cycle += 1;
+            let r = env.step(action);
+            for bit in r.state.iter().map(|f| f.to_bits()) {
+                bit.hash(&mut hasher);
+            }
+            r.reward.to_bits().hash(&mut hasher);
+            r.done.hash(&mut hasher);
+            done = r.done;
+        }
+        hasher.finish()
+    }
+
+    #[test]
+    fn synthetic_episode_hash_identical_across_100_runs_same_seed() {
+        let seed = 12345;
+        let mut hashes = Vec::with_capacity(100);
+        for _ in 0..100 {
+            let mut env = make_env();
+            hashes.push(run_episode_and_hash(&mut env, seed));
+        }
+        let first = hashes[0];
+        for (i, h) in hashes.iter().enumerate() {
+            assert_eq!(
+                *h, first,
+                "run {i} produced a different trajectory hash than run 0 for the \
+                 same seed -- the environment is not deterministic"
+            );
+        }
+    }
+
+    #[test]
+    fn historical_lob_episode_hash_identical_across_20_runs_same_seed() {
+        // The "Phase S LOB hash" determinism guard called out explicitly by the
+        // Phase S plan: real LobReplay data (not synthetic), same seed, run
+        // repeatedly, must produce a bit-identical trajectory every time. This is
+        // also the guard that would catch a bug in the new per-date MarketDataCache
+        // (e.g. Arc-shared snapshot data accidentally mutated or racily reused).
+        let lob_path = "TradeData/BookDepth/BTCUSDT-bookDepth-2024-01-15.csv";
+        if !std::path::Path::new(lob_path).exists() {
+            eprintln!("skipping: {lob_path} not present in this checkout");
+            return;
+        }
+        let seed = 7;
+        let make_hist_env = || {
+            let cfg = EnvConfig {
+                mode: RlMode::Historical,
+                total_inventory: 1_000_000.0,
+                total_steps: HISTORICAL_DEFAULT_STEPS,
+                seed: 42,
+                sigma_ref: 0.20,
+                gamma: 0.005,
+                adversarial: false,
+                lob_data_path: Some(lob_path.to_string()),
+                btc_target: 50_000.0,
+                adv_btc: 0.0,
+                agg_trades_path: None,
+                fixed_steps: true,
+                fixed_size: true,
+                no_time_features: true,
+            };
+            RlEnv::new(cfg)
+        };
+
+        let mut hashes = Vec::with_capacity(20);
+        for _ in 0..20 {
+            let mut env = make_hist_env();
+            hashes.push(run_episode_and_hash(&mut env, seed));
+        }
+        let first = hashes[0];
+        for (i, h) in hashes.iter().enumerate() {
+            assert_eq!(
+                *h, first,
+                "run {i} produced a different historical-LOB trajectory hash than \
+                 run 0 for the same seed"
+            );
+        }
+    }
+
+    #[test]
+    fn synthetic_episode_hash_differs_across_seeds() {
+        // Sanity check on the hash itself: it must not be a constant that would
+        // make the "identical across runs" test trivially/vacuously pass.
+        let mut env_a = make_env();
+        let mut env_b = make_env();
+        let hash_a = run_episode_and_hash(&mut env_a, 1);
+        let hash_b = run_episode_and_hash(&mut env_b, 2);
+        assert_ne!(hash_a, hash_b, "different seeds must produce different trajectories");
+    }
 
     fn make_env() -> RlEnv {
         let cfg = EnvConfig {
