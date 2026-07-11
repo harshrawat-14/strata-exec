@@ -24,11 +24,53 @@ TEST_DATES = {
 
 DATES = {
     "2024-01-15": "calm bull",
-    "2024-03-05": "BTC breakout",
+    # Was labeled "BTC breakout" -- see HELD_OUT_CRASH_DATES below: this is
+    # actually the cleanest liquidation-cascade signature in the dataset.
+    "2024-03-05": "crash - flash liquidation cascade",
     "2024-06-10": "quiet consolidation",
     "2024-08-05": "crash - Yen unwind",
     "2024-11-06": "post-election surge",
 }
+
+# ── Phase 0 canonical train/eval date split (Global Rule 9) ───────────────
+# Declared here so Phase 2's retrain has one source of truth; enforced by
+# an executable guard (rl/tests/test_date_split.py) rather than left as
+# prose. Do NOT retrain in Phase 0 -- this only declares the split.
+#
+# Stress-day survey: of the 11 dates with clean BookDepth+AggTrades data,
+# only two show a genuine liquidation-cascade signature -- a large adverse
+# intraday move AND book depth thinning coincident (within ~1 min) with the
+# price drop, not just high volume or volatility:
+#   2024-08-05  -15.9% intraday, well-documented Yen-unwind carry-trade
+#               crash (mandatory holdout).
+#   2024-03-05  -13.5% intraday, the cleanest signature of any date: the
+#               bid-depth minimum and the price minimum are 47 seconds
+#               apart, and depth drops to 22% of its daily median right at
+#               the crash. Previously mislabeled "BTC breakout" above.
+# The README's previously-documented --multi-date training invocation
+# included BOTH of these dates, meaning any existing "RL beats AC on the
+# crash day" claim is unverified until a model is retrained on this split
+# (Global Rule 9) -- see README for the corresponding flag on that claim.
+#
+# 2024-04-15 (-5.1% intraday, moderate but real coincident depth thinning,
+# ratio 0.63) is the next most-stressed date and is the only remaining
+# candidate that shows genuine stress rather than plain volatility (checked
+# and rejected: 2024-02-20, 2024-09-15, 2024-10-15, 2024-12-10 all show
+# depth-thinning ratios >= 0.9 at their own price minimum -- volatile but
+# not a liquidity event). It is moved from TEST_DATES into TRAINING_DATES
+# below (approved 2026-07-11) so the training set retains at least one
+# genuine crash-like day without touching either holdout.
+HELD_OUT_CRASH_DATES = ["2024-08-05", "2024-03-05"]
+
+TRAINING_DATES = [
+    "2024-01-15", "2024-02-20", "2024-04-15", "2024-06-10",
+    "2024-09-15", "2024-10-15", "2024-11-06",
+]
+
+assert not (set(TRAINING_DATES) & set(HELD_OUT_CRASH_DATES)), (
+    "TRAINING_DATES / HELD_OUT_CRASH_DATES overlap -- a held-out crash "
+    "date would be trained on, invalidating the crash-day comparison"
+)
 
 # ── DEPRECATED for cross-strategy comparison ──────────────────────────────
 # These four dicts are point estimates from the Rust `research-sim` binary's

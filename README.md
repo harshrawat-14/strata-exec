@@ -68,22 +68,41 @@ Both are genuine null results and are reported as such.
 
 The core RL question: can a learned policy outperform the closed-form AC optimal on real market data?
 
-**Final results — RL (LSTM, counterfactual training) vs Static Optimal AC:**
+> **⚠️ UNVERIFIED — the crash-day and 2024-03-05 rows below are not a
+> trustworthy result.** A Phase 0 audit found that the training set
+> documented for this model (the `--multi-date` invocation below) included
+> **both** 2024-08-05 (the crash day this table is built around) and
+> 2024-03-05 (mislabeled "BTC breakout" here; it is actually the single
+> most severe liquidation-cascade day in the dataset by depth-thinning
+> signature — see `HELD_OUT_CRASH_DATES` in `rl/evaluate.py`). A learned
+> policy evaluated on a date it trained on is partly memorizing that LOB
+> path, and AC/TWAP/Heuristic cannot memorize, so **the "RL beats AC on
+> the crash day" claim in this table is unverified** until the model is
+> retrained on a split that genuinely holds out both dates (Phase 2). The
+> non-crash rows (calm/consolidation/surge dates, and the three original
+> test dates) are unaffected by this specific issue but are also stale
+> pending that retrain, since 2024-04-15 has been moved from the
+> out-of-sample test set into the training set as part of the corrected
+> split (it was the only remaining date with a genuine, if milder, stress
+> signature). This table is left in place for historical reference, not as
+> a current claim.
+
+**Final results — RL (LSTM, counterfactual training) vs Static Optimal AC (PRE-FIX, contains train/eval overlap on the two rows marked below):**
 
 | Date | Regime | AC Optimal | RL Agent | RL wins by |
 |------|--------|-----------|---------|-----------|
 | 2024-01-15 | calm bull | -0.990% | -0.430% | +0.560pp |
-| 2024-03-05 | BTC breakout | -1.228% | -0.459% | +0.769pp |
+| 2024-03-05 | crash — flash liquidation cascade ⚠️ *(was trained on; held out going forward)* | -1.228% | -0.459% | +0.769pp |
 | 2024-06-10 | quiet consolidation | -0.868% | -0.454% | +0.414pp |
-| 2024-08-05 | crash — Yen unwind | -1.071% | -0.482% | +0.589pp |
+| 2024-08-05 | crash — Yen unwind ⚠️ *(was trained on; held out going forward)* | -1.071% | -0.482% | +0.589pp |
 | 2024-11-06 | post-election surge | -1.212% | -0.478% | +0.734pp |
-| **2024-04-15** | BTC correction *(test)* | -1.311% | -0.465% | +0.846pp |
+| **2024-04-15** | BTC correction *(test in this old run; moved into training going forward)* | -1.311% | -0.465% | +0.846pp |
 | **2024-07-10** | mid-summer sideways *(test)* | -1.057% | -0.427% | +0.630pp |
 | **2024-12-10** | December bull run *(test)* | -1.442% | -0.430% | +1.012pp |
 
-**Bold dates are out-of-sample test dates never used during training.**
+**Bold dates were out-of-sample test dates never used during training under the old split.**
 
-Mean sim-to-real degradation: **-0.56pp** (vs synthetic baseline of +0.10%). The RL agent outperforms static AC across all 8 dates including the held-out test set.
+Mean sim-to-real degradation: **-0.56pp** (vs synthetic baseline of +0.10%). This table's claim that "RL outperforms static AC across all 8 dates including the held-out test set" holds for the non-crash rows, but the crash-day rows require the Phase 2 retrain above before they can be re-asserted.
 
 ---
 
@@ -98,12 +117,20 @@ dates it never saw during training?
 evaluation date (seeds 0-49), inside the counterfactual LOB environment
 (real Binance L2 snapshots + accumulated Obizhaeva-Wang own-impact). Eight
 evaluation dates span five market regimes (calm bull, breakout, quiet
-consolidation, crash, post-election surge) plus three held-out
-out-of-sample test dates (April, July, December) that were never included
-in any training run, so the reported test-date results are a genuine
-generalization check rather than in-sample fit. Metrics reported: mean
-implementation shortfall (IS%), 95% CI, CVaR-95, action distribution and
-entropy, and forced-liquidation rate.
+consolidation, crash, post-election surge) plus three dates originally
+documented as held-out out-of-sample tests (April, July, December).
+**Correction (Phase 0 audit):** the "never included in any training run"
+claim was false for the crash-day comparison above — the model's
+documented `--multi-date` training invocation (below) included both
+2024-08-05 and 2024-03-05, the two dates this project's tail-risk/CVaR
+claims center on. July and December were genuinely never trained on. The
+corrected split (`TRAINING_DATES` / `HELD_OUT_CRASH_DATES` in
+`rl/evaluate.py`) holds out both crash dates and moves April into training
+as the one retained stress-like date; results above should be read against
+that correction, not the original claim, until Phase 2 retrains on the
+corrected split. Metrics reported: mean implementation shortfall (IS%),
+95% CI, CVaR-95, action distribution and entropy, and forced-liquidation
+rate.
 
 **Null results, documented honestly:** not every idea worked, and the
 negative results are kept in the write-up rather than quietly dropped —
@@ -596,11 +623,19 @@ pip install sb3-contrib
 ### Train
 
 ```bash
-# Full training run — 8 dates, 3M steps, linear lr decay (~17 hours on M4)
+# Full training run — 7 dates, 3M steps, linear lr decay (~17 hours on M4)
+#
+# CORRECTED per the Phase 0 date-split audit: the previously-documented
+# invocation here included 2024-03-05 and 2024-08-05, the two dates this
+# project's crash-day / CVaR claims are built on -- training on them
+# invalidates any "RL beats AC on the crash day" comparison, since a
+# learned policy can memorize a training date and AC/TWAP/Heuristic can't.
+# This list is TRAINING_DATES in rl/evaluate.py; both crash dates
+# (HELD_OUT_CRASH_DATES) must stay out of --multi-date going forward.
 python rl/train.py \
   --timesteps 3000000 \
   --mode counterfactual \
-  --multi-date 2024-01-15,2024-02-20,2024-03-05,2024-06-10,2024-08-05,2024-09-15,2024-10-15,2024-11-06 \
+  --multi-date 2024-01-15,2024-02-20,2024-04-15,2024-06-10,2024-09-15,2024-10-15,2024-11-06 \
   --btc-target 50000.0 \
   --name ppo_lstm_v4 \
   --lr-schedule linear
