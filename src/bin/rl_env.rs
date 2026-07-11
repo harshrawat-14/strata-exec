@@ -1581,9 +1581,43 @@ fn parse_batch_args() -> Option<(usize, String)> {
 /// reset, "action" = step); one response = the same framing, encoding
 /// `BatchStepResult`. Accepts exactly one client connection, matching how a
 /// single training process drives one batched env.
+/// Read one length-prefixed message: a 4-byte little-endian length followed
+/// by exactly that many bytes. Returns `None` on EOF/error (client
+/// disconnected). See the module doc above `read_framed_message` callers for
+/// why this framing exists instead of writing Arrow IPC stream bytes
+/// directly to the socket.
+fn read_framed_message(stream: &mut impl io::Read) -> Option<Vec<u8>> {
+    let mut len_buf = [0u8; 4];
+    stream.read_exact(&mut len_buf).ok()?;
+    let len = u32::from_le_bytes(len_buf) as usize;
+    let mut buf = vec![0u8; len];
+    stream.read_exact(&mut buf).ok()?;
+    Some(buf)
+}
+
+fn write_framed_message(stream: &mut impl Write, bytes: &[u8]) -> io::Result<()> {
+    stream.write_all(&(bytes.len() as u32).to_le_bytes())?;
+    stream.write_all(bytes)?;
+    stream.flush()
+}
+
+/// Serialize one RecordBatch to a self-contained Arrow IPC stream buffer
+/// (schema + one batch + EOS marker) in memory.
+fn encode_batch_to_bytes(batch: &arrow::record_batch::RecordBatch) -> Vec<u8> {
+    use arrow::ipc::writer::StreamWriter;
+    let mut buf = Vec::new();
+    {
+        let mut writer =
+            StreamWriter::try_new(&mut buf, &batch.schema()).expect("StreamWriter::try_new");
+        writer.write(batch).expect("StreamWriter::write");
+        writer.finish().expect("StreamWriter::finish");
+    }
+    buf
+}
+
 fn run_batch_server(cfg_template: EnvConfig, batch_size: usize, socket_path: &str) {
     use arrow::ipc::reader::StreamReader;
-    use arrow::ipc::writer::StreamWriter;
+    use std::io::Cursor;
     use std::os::unix::net::UnixListener;
 
     let _ = std::fs::remove_file(socket_path);
@@ -1601,10 +1635,28 @@ fn run_batch_server(cfg_template: EnvConfig, batch_size: usize, socket_path: &st
         }
     };
 
+    // NOTE ON FRAMING: each message is length-prefixed (4-byte LE length +
+    // exactly that many raw bytes of a self-contained Arrow IPC stream
+    // buffer), rather than writing Arrow IPC stream bytes directly to the
+    // live socket. pyarrow's high-level stream reader/writer over a shared
+    // persistent connection was found (via the Python client's integration
+    // test) to read ahead past one message's EOS marker into the next
+    // message's bytes, corrupting the second and subsequent exchanges --
+    // Arrow's stream format is designed for "the whole file/stream is one
+    // Arrow stream," not for interleaving independent request/response
+    // messages on one continuous byte channel. Framing each message
+    // explicitly and parsing it from an in-memory buffer (bounded, no
+    // over-read possible) is the standard fix.
     loop {
-        let reader = match StreamReader::try_new(&mut stream, None) {
+        let Some(msg_bytes) = read_framed_message(&mut stream) else {
+            break; // client disconnected
+        };
+        let reader = match StreamReader::try_new(Cursor::new(msg_bytes), None) {
             Ok(r) => r,
-            Err(_) => break, // client disconnected / stream closed
+            Err(e) => {
+                eprintln!("[rl-env batch] malformed request: {e}");
+                break;
+            }
         };
         let mut got_batch = None;
         for batch in reader {
@@ -1630,15 +1682,8 @@ fn run_batch_server(cfg_template: EnvConfig, batch_size: usize, socket_path: &st
         };
 
         let response = batch_arrow::encode_result(&result);
-        let schema = response.schema();
-        let mut writer = match StreamWriter::try_new(&mut stream, &schema) {
-            Ok(w) => w,
-            Err(e) => {
-                eprintln!("[rl-env batch] failed to open response writer: {e}");
-                break;
-            }
-        };
-        if writer.write(&response).is_err() || writer.finish().is_err() {
+        let response_bytes = encode_batch_to_bytes(&response);
+        if write_framed_message(&mut stream, &response_bytes).is_err() {
             break;
         }
     }
@@ -2261,11 +2306,15 @@ mod tests {
     #[test]
     fn batch_socket_server_round_trip() {
         // End-to-end: spin up run_batch_server on a real Unix socket in a
-        // background thread, connect as a client using the same Arrow codec a
-        // Python client would use (via pyarrow on the real wire format), and
-        // confirm reset_batch then step_batch round-trip correctly.
+        // background thread, connect as a client using the same length-prefixed
+        // framing a real client (Python's BatchedStrataExecEnv) uses, and
+        // confirm reset_batch then step_batch round-trip correctly across
+        // MULTIPLE exchanges on one persistent connection. This specific
+        // scenario (2nd+ message on a shared connection) is what caught the
+        // "pyarrow reads ahead past the stream boundary" bug that motivated
+        // the length-prefixed framing in the first place.
         use arrow::ipc::reader::StreamReader;
-        use arrow::ipc::writer::StreamWriter;
+        use std::io::Cursor;
         use std::os::unix::net::UnixStream;
 
         let socket_path = std::env::temp_dir().join(format!(
@@ -2292,21 +2341,19 @@ mod tests {
         }
         let mut stream = stream.expect("failed to connect to batch server socket");
 
-        // -- reset_batch --
-        let seeds = vec![1u64, 2, 3];
-        let req = batch_arrow::encode_reset_request(&seeds);
-        {
-            let schema = req.schema();
-            let mut w = StreamWriter::try_new(&mut stream, &schema).unwrap();
-            w.write(&req).unwrap();
-            w.finish().unwrap();
-        }
-        let response = {
-            let reader = StreamReader::try_new(&mut stream, None).unwrap();
+        let request_response = |stream: &mut UnixStream, req: arrow::record_batch::RecordBatch| {
+            let bytes = encode_batch_to_bytes(&req);
+            write_framed_message(stream, &bytes).unwrap();
+            let resp_bytes = read_framed_message(stream).expect("server closed connection");
+            let reader = StreamReader::try_new(Cursor::new(resp_bytes), None).unwrap();
             let batches: Vec<_> = reader.collect::<Result<Vec<_>, _>>().unwrap();
             assert_eq!(batches.len(), 1);
             batches.into_iter().next().unwrap()
         };
+
+        // -- reset_batch --
+        let seeds = vec![1u64, 2, 3];
+        let response = request_response(&mut stream, batch_arrow::encode_reset_request(&seeds));
         assert_eq!(response.num_rows(), 3);
         assert_eq!(
             response.schema().field(0).name(),
@@ -2314,20 +2361,14 @@ mod tests {
             "response columns must be s0..s{{d-1}}, reward, done"
         );
 
-        // -- step_batch --
+        // -- step_batch (2nd message on the same connection) --
         let actions = vec![0usize, 1, 2];
-        let req = batch_arrow::encode_step_request(&actions);
-        {
-            let schema = req.schema();
-            let mut w = StreamWriter::try_new(&mut stream, &schema).unwrap();
-            w.write(&req).unwrap();
-            w.finish().unwrap();
-        }
-        let response = {
-            let reader = StreamReader::try_new(&mut stream, None).unwrap();
-            let batches: Vec<_> = reader.collect::<Result<Vec<_>, _>>().unwrap();
-            batches.into_iter().next().unwrap()
-        };
+        let response = request_response(&mut stream, batch_arrow::encode_step_request(&actions));
+        assert_eq!(response.num_rows(), 3);
+
+        // -- a 3rd message, to be extra sure framing holds beyond just "2" --
+        let actions = vec![5usize, 6, 7];
+        let response = request_response(&mut stream, batch_arrow::encode_step_request(&actions));
         assert_eq!(response.num_rows(), 3);
 
         drop(stream); // closes the connection; server loop exits on next read
