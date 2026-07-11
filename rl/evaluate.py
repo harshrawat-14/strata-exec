@@ -159,6 +159,53 @@ def compute_cvar_95(arr: np.ndarray) -> float:
     return float(np.mean(sorted_asc[:n_tail]))
 
 
+def bootstrap_cvar_95_ci(
+    arr: np.ndarray,
+    n_bootstrap: int = 10000,
+    ci: float = 0.95,
+    seed: int = 0,
+) -> dict:
+    """
+    Bootstrap confidence interval on the CVaR-95 estimate itself (Global
+    Rule 4), not just on the mean. CVaR-95 on N episodes is the mean of only
+    N//20 tail observations -- e.g. ~2-3 points on 50 episodes -- a very
+    high-variance estimator whose point estimate alone is easy to
+    over-trust. Resample the episode array with replacement n_bootstrap
+    times, recompute compute_cvar_95 on each resample, and report the
+    percentile interval of that distribution.
+
+    Uses a local np.random.Generator (seeded, reproducible per Global Rule 2)
+    rather than the global numpy RNG, so this never interacts with any other
+    code's random state (e.g. test_vs_baseline's bootstrap, which still uses
+    the legacy global np.random API).
+    """
+    n = len(arr)
+    if n == 0:
+        return {"point": float("nan"), "ci_lower": float("nan"), "ci_upper": float("nan"),
+                "n_episodes": 0, "n_tail": 0, "width": float("nan")}
+
+    point = compute_cvar_95(arr)
+    rng = np.random.default_rng(seed)
+    resample_cvars = np.empty(n_bootstrap)
+    for i in range(n_bootstrap):
+        resample = rng.choice(arr, size=n, replace=True)
+        resample_cvars[i] = compute_cvar_95(resample)
+
+    alpha = 1.0 - ci
+    ci_lower = float(np.percentile(resample_cvars, 100 * alpha / 2))
+    ci_upper = float(np.percentile(resample_cvars, 100 * (1 - alpha / 2)))
+    n_tail = max(1, n // 20)
+
+    return {
+        "point": point,
+        "ci_lower": ci_lower,
+        "ci_upper": ci_upper,
+        "n_episodes": n,
+        "n_tail": n_tail,
+        "width": ci_upper - ci_lower,
+    }
+
+
 def test_vs_baseline(rl_is_samples: list, baseline_is: float) -> dict:
     """
     Test whether RL IS is significantly better than the static AC baseline.
@@ -659,6 +706,8 @@ def evaluate_all_strategies_on_date(
     fixed_steps: bool = True,
     fixed_size: bool = True,
     ac_lambda: float = AC_DEFAULT_LAMBDA,
+    n_bootstrap: int = 10000,
+    bootstrap_seed: int = 0,
 ) -> dict:
     """
     Evaluate all 5 strategies on the same counterfactual LOB
@@ -675,6 +724,12 @@ def evaluate_all_strategies_on_date(
     (lambda too low) or an unbeatable wall (lambda too high) chosen
     invisibly. See AC_DEFAULT_LAMBDA for the Rust/Python default mismatch
     this parameter exists to let a caller work around.
+
+    n_bootstrap/bootstrap_seed: passed to bootstrap_cvar_95_ci (Global Rule
+    4) -- CVaR-95 on n_episodes episodes is a high-variance estimator (the
+    mean of only n_episodes//20 tail points), so every cvar_95 reported here
+    carries its own bootstrap CI rather than being presented as a clean
+    point estimate.
     """
     policies = {
         "twap": TWAPPolicy(n_state_dims),
@@ -736,6 +791,7 @@ def evaluate_all_strategies_on_date(
         }
 
         cvar_95 = compute_cvar_95(arr)
+        cvar_ci = bootstrap_cvar_95_ci(arr, n_bootstrap=n_bootstrap, seed=bootstrap_seed)
 
         results[strategy_key] = {
             "strategy": strategy_labels[strategy_key],
@@ -744,6 +800,10 @@ def evaluate_all_strategies_on_date(
             "std_IS": float(np.std(arr)),
             "var_IS": float(np.var(arr)),
             "cvar_95": cvar_95,
+            "cvar_95_ci_lower": cvar_ci["ci_lower"],
+            "cvar_95_ci_upper": cvar_ci["ci_upper"],
+            "cvar_95_ci_width": cvar_ci["width"],
+            "cvar_95_n_tail": cvar_ci["n_tail"],
             "is_99th_pct": float(np.percentile(arr, 1)),
             "is_sharpe": float(np.mean(arr) / (np.std(arr) + 1e-10)),
             "mean_reward": float(np.mean(all_rewards)),
@@ -755,7 +815,8 @@ def evaluate_all_strategies_on_date(
         }
 
         print(f"IS={results[strategy_key]['mean_IS']:.4f}%  "
-              f"CVaR95={cvar_95:.4f}%")
+              f"CVaR95={cvar_95:.4f}% [{cvar_ci['ci_lower']:.4f}%, {cvar_ci['ci_upper']:.4f}%] "
+              f"(tail n={cvar_ci['n_tail']})")
 
     return results
 

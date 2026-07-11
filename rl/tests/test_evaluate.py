@@ -9,6 +9,7 @@ import pytest
 
 from evaluate import (
     compute_cvar_95,
+    bootstrap_cvar_95_ci,
     ACOptimalPolicy,
     AdaptiveACPolicy,
     AC_DEFAULT_LAMBDA,
@@ -55,6 +56,57 @@ class TestComputeCvar95:
 
     def test_single_sample(self):
         assert compute_cvar_95(np.array([-3.0])) == -3.0
+
+
+class TestBootstrapCvar95Ci:
+    """
+    Global Rule 4: CVaR-95 must carry its own uncertainty, not be reported as
+    a clean point estimate. On a small sample the tail is only a couple of
+    points, so the CI should be visibly wide -- these tests check the CI
+    behaves like a real confidence interval (contains the point estimate,
+    narrows with more data, is reproducible for a fixed seed) rather than
+    just existing as a field.
+    """
+
+    def test_ci_contains_point_estimate(self):
+        rng = np.random.default_rng(1)
+        arr = rng.normal(loc=-0.5, scale=0.1, size=50)
+        result = bootstrap_cvar_95_ci(arr, n_bootstrap=2000, seed=1)
+        assert result["ci_lower"] <= result["point"] <= result["ci_upper"]
+
+    def test_ci_narrows_with_more_episodes(self):
+        # Same underlying distribution, more samples -> tighter CI. This is
+        # the concrete version of Global Rule 4's "if the episode count makes
+        # the tail estimate unstable, raise it" guidance -- show it actually
+        # helps, not just assert it should.
+        rng = np.random.default_rng(2)
+        small = rng.normal(loc=-0.5, scale=0.1, size=30)
+        large = rng.normal(loc=-0.5, scale=0.1, size=500)
+        small_result = bootstrap_cvar_95_ci(small, n_bootstrap=3000, seed=2)
+        large_result = bootstrap_cvar_95_ci(large, n_bootstrap=3000, seed=2)
+        assert large_result["width"] < small_result["width"], (
+            f"500-episode CI ({large_result['width']:.4f}) should be narrower "
+            f"than 30-episode CI ({small_result['width']:.4f})"
+        )
+
+    def test_reproducible_for_fixed_seed(self):
+        arr = np.array([-0.5, -0.4, -0.6, -5.0, -0.55, -0.45] * 10)
+        r1 = bootstrap_cvar_95_ci(arr, n_bootstrap=1000, seed=42)
+        r2 = bootstrap_cvar_95_ci(arr, n_bootstrap=1000, seed=42)
+        assert r1 == r2
+
+    def test_empty_array(self):
+        result = bootstrap_cvar_95_ci(np.array([]))
+        assert np.isnan(result["point"])
+        assert result["n_episodes"] == 0
+
+    def test_n_tail_matches_compute_cvar_95(self):
+        # n_tail should reflect the same tail-size rule compute_cvar_95 uses
+        # internally (n // 20), so a reader can see how few points the point
+        # estimate is actually built from.
+        arr = np.zeros(50)
+        result = bootstrap_cvar_95_ci(arr, n_bootstrap=100)
+        assert result["n_tail"] == 2  # 50 // 20 = 2
 
 
 class TestAcLambdaOverride:
