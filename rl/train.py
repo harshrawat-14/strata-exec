@@ -38,6 +38,56 @@ class MLflowMetricsCallback(BaseCallback):
                 mlflow.log_metric(key.replace("/", "_"), value, step=self.num_timesteps)
 
 
+class MemoryLoggingCallback(BaseCallback):
+    """
+    Logs main-process RSS and the summed RSS of every direct child process
+    (the SubprocVecEnv rl-env workers) to both stdout and mlflow at every
+    rollout end -- an early-warning line for the next multi-hour run.
+
+    Added after the ppo_lstm_v6_time_features run was killed by something
+    external at ~92% through its 3M-step schedule with free system memory
+    sitting near-zero for most of the run (RSS fluctuated 403MB->1.32GB->
+    898MB rather than climbing monotonically, more consistent with
+    oversubscription -- other processes + 8 parallel envs on a
+    memory-constrained machine -- than a leak in this codebase, but that
+    conclusion was reached after the fact by reading process listings taken
+    ad hoc during the incident, not from anything the training loop itself
+    recorded). Phase 4's IQN run will likely be longer and heavier; this
+    callback exists so a memory problem shows up as a line in the log
+    within the first few rollouts, not as a silent kill discovered hours in.
+    """
+
+    def __init__(self, verbose=0):
+        super().__init__(verbose)
+        self._process = None
+
+    def _on_training_start(self) -> None:
+        import psutil
+        self._process = psutil.Process()
+
+    def _on_step(self) -> bool:
+        return True
+
+    def _on_rollout_end(self) -> None:
+        main_rss_mb = self._process.memory_info().rss / (1024 * 1024)
+        children_rss_mb = 0.0
+        for child in self._process.children(recursive=True):
+            try:
+                children_rss_mb += child.memory_info().rss / (1024 * 1024)
+            except Exception:
+                # Child may have exited between listing and sampling.
+                pass
+        total_rss_mb = main_rss_mb + children_rss_mb
+
+        print(f"  [memory] main={main_rss_mb:.0f}MB  children={children_rss_mb:.0f}MB  "
+              f"total={total_rss_mb:.0f}MB  at timestep={self.num_timesteps}")
+        mlflow.log_metrics({
+            "mem_main_rss_mb": main_rss_mb,
+            "mem_children_rss_mb": children_rss_mb,
+            "mem_total_rss_mb": total_rss_mb,
+        }, step=self.num_timesteps)
+
+
 def get_device() -> str:
     if torch.backends.mps.is_available():
         print("Device: Apple MPS (GPU) + CPU LSTM")
@@ -214,7 +264,22 @@ def train(
     lstm_layers: int = 2,
     n_envs: int = 4,
     no_time_features: bool = False,
+    resume_from: str = None,
+    resume_mlflow_run_id: str = None,
 ):
+    """
+    resume_from: path to a saved checkpoint (e.g. from CheckpointCallback)
+    to resume training from, instead of constructing a fresh model. When
+    set, `total_timesteps` is interpreted as the REMAINING steps to train
+    (SB3's own convention for reset_num_timesteps=False -- see
+    _setup_learn, which does `total_timesteps += self.num_timesteps`), not
+    the original run's full target. Both policy weights AND optimizer
+    state are restored from the checkpoint (confirmed present in
+    CheckpointCallback's saved .zip via policy.optimizer.pth), and the LR
+    schedule continues from its saved progress_remaining rather than
+    restarting -- this reproduces the same trajectory as one uninterrupted
+    run, not a discontinuity spliced into the metrics.
+    """
     os.makedirs(save_path, exist_ok=True)
     os.makedirs("rl/logs/", exist_ok=True)
 
@@ -232,22 +297,44 @@ def train(
     else:
         n_state_dims = 8
 
-    with mlflow.start_run(run_name=run_name):
-        mlflow.log_params(dict(
-            lstm_hidden=lstm_hidden,
-            lstm_layers=lstm_layers,
-            n_state_dims=n_state_dims,
-            ent_coef=ent_coef,
-            lr_schedule=lr_schedule,
-            n_envs=n_envs,
-            total_timesteps=total_timesteps,
-            adversarial=adversarial,
-            jump_diffusion=jump_diffusion,
-            btc_target=btc_target,
-            action_space_version="v6",
-            mode=mode,
-            no_time_features=no_time_features,
-        ))
+    # Resuming an existing mlflow run (by run_id) rather than always starting
+    # a fresh one -- otherwise a resumed training run fragments its tracked
+    # history across two run_ids, which is exactly what Phase 3's mlflow
+    # integration exists to avoid. mlflow.start_run accepts EITHER run_id OR
+    # run_name, not both.
+    mlflow_run_ctx = (
+        mlflow.start_run(run_id=resume_mlflow_run_id)
+        if resume_mlflow_run_id
+        else mlflow.start_run(run_name=run_name)
+    )
+    with mlflow_run_ctx:
+        # Re-logging params to an already-populated run_id would raise on any
+        # param whose value legitimately differs this time (total_timesteps
+        # here means "remaining steps", not the original run's total) --
+        # log a distinguishing resume record instead of re-asserting params
+        # that were already set correctly by the original run.
+        if resume_mlflow_run_id:
+            mlflow.log_params({
+                "resumed_from": resume_from,
+                "resumed_remaining_timesteps": total_timesteps,
+                "resumed_n_envs": n_envs,
+            })
+        else:
+            mlflow.log_params(dict(
+                lstm_hidden=lstm_hidden,
+                lstm_layers=lstm_layers,
+                n_state_dims=n_state_dims,
+                ent_coef=ent_coef,
+                lr_schedule=lr_schedule,
+                n_envs=n_envs,
+                total_timesteps=total_timesteps,
+                adversarial=adversarial,
+                jump_diffusion=jump_diffusion,
+                btc_target=btc_target,
+                action_space_version="v6",
+                mode=mode,
+                no_time_features=no_time_features,
+            ))
 
         print("=" * 60)
         print(f"Training: {run_name}")
@@ -284,7 +371,11 @@ def train(
             no_time_features=no_time_features,
         )
 
-        n_envs = 8
+        # Regression note: this was hardcoded to 8, silently ignoring the
+        # n_envs parameter train() actually accepts (default 4) -- found
+        # while reducing parallelism after ppo_lstm_v6_time_features was
+        # killed under sustained near-zero free memory. Now respects the
+        # parameter so a caller can actually control it.
         env_fns = [make_env(**env_kwargs) for _ in range(n_envs)]
         train_env = SubprocVecEnv(env_fns)
 
@@ -314,32 +405,69 @@ def train(
 
         device = get_device()
 
-        model = RecurrentPPO(
-            policy="MlpLstmPolicy",
-            env=train_env,
-            device=device,
-            learning_rate=get_lr_schedule(lr_schedule, 3e-4, total_timesteps),
-            n_steps=2048,
-            batch_size=256,
-            n_epochs=10,
-            gamma=0.99,
-            gae_lambda=0.95,
-            clip_range=0.2,
-            ent_coef=ent_coef,
-            policy_kwargs=dict(
-                net_arch=dict(pi=[64, 64], vf=[64, 64]),
-                lstm_hidden_size=64,
-                n_lstm_layers=1,
-                activation_fn=torch.nn.Tanh,
-                enable_critic_lstm=True,
-            ),
-            verbose=1,
-            tensorboard_log=f"rl/logs/{run_name}",
-            seed=42,
-        )
+        if resume_from:
+            # Force CPU for resumed runs, regardless of get_device(). Found
+            # via a smoke test (always run before committing a resume to a
+            # multi-hour job -- this is the second real bug it caught):
+            # loading a checkpoint with device="mps" places the LSTM's
+            # saved optimizer state (Adam momentum/variance) on mps, but
+            # _patch_mps_lstm then moves the LSTM's PARAMETERS to cpu via
+            # `.cpu()`, which returns new tensor objects -- the optimizer's
+            # state dict still references the pre-move (mps-resident)
+            # tensor identities, so the first optimizer.step() after resume
+            # raises "Expected all tensors to be on the same device, but
+            # found at least two devices, mps:0 and cpu". This device split
+            # is only safe on FRESH construction, where the optimizer has
+            # taken zero steps and has no pre-existing state to invalidate.
+            # The remaining step count after a resume is bounded (a
+            # fraction of the original run), so losing MPS acceleration for
+            # just that tail is an acceptable, simple, correct-by-
+            # construction trade against re-deriving the optimizer's device
+            # placement by hand.
+            resume_device = "cpu"
+            print(f"Resuming from checkpoint: {resume_from} (forcing device=cpu -- "
+                  f"see comment above for why MPS resume is unsafe)")
+            from evaluate import load_model
+            # env passed directly to load(), not a separate set_env() call
+            # afterward -- set_env() hard-asserts num_envs matches the
+            # checkpoint's original env count and refuses to resize the
+            # rollout buffers, which breaks resuming with a different
+            # n_envs (e.g. reduced parallelism after a memory incident).
+            model = load_model(resume_from, device=resume_device, env=train_env)
+            device = resume_device  # so the _patch_mps_lstm check below is skipped
+            print(f"  Restored num_timesteps={model.num_timesteps}, "
+                  f"progress_remaining={model._current_progress_remaining:.4f}")
+        else:
+            model = RecurrentPPO(
+                policy="MlpLstmPolicy",
+                env=train_env,
+                device=device,
+                learning_rate=get_lr_schedule(lr_schedule, 3e-4, total_timesteps),
+                n_steps=2048,
+                batch_size=256,
+                n_epochs=10,
+                gamma=0.99,
+                gae_lambda=0.95,
+                clip_range=0.2,
+                ent_coef=ent_coef,
+                policy_kwargs=dict(
+                    net_arch=dict(pi=[64, 64], vf=[64, 64]),
+                    lstm_hidden_size=64,
+                    n_lstm_layers=1,
+                    activation_fn=torch.nn.Tanh,
+                    enable_critic_lstm=True,
+                ),
+                verbose=1,
+                tensorboard_log=f"rl/logs/{run_name}",
+                seed=42,
+            )
 
         # PyTorch 2.1 MPS LSTM crashes when sequence_length >= lstm_hidden_size.
         # Pin only the LSTM submodules to CPU; all MLP layers stay on MPS.
+        # Applies whether the model was just constructed or resumed from a
+        # checkpoint -- load_model(device="mps") loads the LSTM weights onto
+        # MPS in plain nn.LSTM form (unwrapped keys), so this patch step is
+        # still needed after loading, same as after fresh construction.
         if device == "mps":
             _patch_mps_lstm(model.policy)
 
@@ -358,12 +486,14 @@ def train(
                 name_prefix="ckpt",
             ),
             MLflowMetricsCallback(),
+            MemoryLoggingCallback(),
         ]
 
         model.learn(
             total_timesteps=total_timesteps,
             callback=callbacks,
             progress_bar=True,
+            reset_num_timesteps=(resume_from is None),
         )
 
         final_metrics = {
@@ -408,6 +538,21 @@ if __name__ == "__main__":
                         "16-dim (time features included) -- pass this flag "
                         "to reproduce the pre-Phase-2 12-dim baseline for an "
                         "ablation comparison.")
+    p.add_argument("--n-envs", type=int, default=4,
+                   help="Number of parallel SubprocVecEnv workers. Was "
+                        "silently hardcoded to 8 regardless of this flag "
+                        "until the fix that added this CLI option.")
+    p.add_argument("--resume-from", type=str, default=None,
+                   help="Path to a checkpoint to resume from (e.g. "
+                        "rl/models/checkpoints/<run>/ckpt_N_steps). "
+                        "--timesteps is then the REMAINING steps to train, "
+                        "not the original run's total (SB3's own "
+                        "reset_num_timesteps=False convention).")
+    p.add_argument("--resume-mlflow-run-id", type=str, default=None,
+                   help="Reopen this existing mlflow run_id instead of "
+                        "starting a fresh one, so a resumed run's metrics "
+                        "land in the same tracked history as the original "
+                        "(interrupted) run.")
     args = p.parse_args()
 
     multi_dates = None
@@ -435,4 +580,7 @@ if __name__ == "__main__":
         ent_coef=args.ent_coef,
         jump_diffusion=args.jump_diffusion,
         no_time_features=args.no_time_features,
+        n_envs=args.n_envs,
+        resume_from=args.resume_from,
+        resume_mlflow_run_id=args.resume_mlflow_run_id,
     )

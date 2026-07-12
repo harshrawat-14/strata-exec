@@ -15,6 +15,8 @@ from __future__ import annotations
 import sys
 import os
 
+import pytest
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from train import (  # noqa: E402
@@ -23,6 +25,7 @@ from train import (  # noqa: E402
     make_env,
     train,
     MLflowMetricsCallback,
+    MemoryLoggingCallback,
 )
 
 
@@ -181,5 +184,43 @@ class TestMLflowMetricsCallback:
             assert metrics["rollout_ep_len_mean"] == 42.0
             assert metrics["train_entropy_loss"] == -1.5
             assert "train_some_string_value" not in metrics
+        finally:
+            mlflow.set_tracking_uri(original_uri)
+
+
+class TestMemoryLoggingCallback:
+    """
+    Regression coverage for the memory-visibility gap found during the
+    ppo_lstm_v6_time_features incident: the training loop had no memory
+    telemetry at all, so a multi-hour run being killed by something
+    external (most likely, though not confirmed, macOS's low-memory
+    killer, given free system memory sat near zero for most of the run)
+    left nothing in the logs to diagnose it with after the fact -- only ad
+    hoc `ps`/`vm_stat` snapshots taken manually during the incident.
+    """
+
+    def test_on_rollout_end_logs_main_and_children_rss(self, tmp_path):
+        import mlflow
+
+        original_uri = mlflow.get_tracking_uri()
+        mlflow.set_tracking_uri(f"file://{tmp_path}/mlruns")
+        mlflow.set_experiment("test_memory_callback")
+        try:
+            with mlflow.start_run(run_name="memory_test") as run:
+                callback = MemoryLoggingCallback()
+                callback._on_training_start()  # sets up psutil.Process()
+                callback.num_timesteps = 5000
+                callback._on_rollout_end()
+
+            client = mlflow.tracking.MlflowClient()
+            metrics = client.get_run(run.info.run_id).data.metrics
+            # This process is genuinely running, so main RSS must be a real,
+            # positive number -- not asserting an exact value (that would be
+            # flaky), just that real data landed.
+            assert metrics["mem_main_rss_mb"] > 0
+            assert metrics["mem_children_rss_mb"] >= 0
+            assert metrics["mem_total_rss_mb"] == pytest.approx(
+                metrics["mem_main_rss_mb"] + metrics["mem_children_rss_mb"]
+            )
         finally:
             mlflow.set_tracking_uri(original_uri)

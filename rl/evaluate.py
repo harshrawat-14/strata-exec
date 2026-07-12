@@ -492,10 +492,24 @@ class AdaptiveACPolicy:
         return np.array([action]), state
 
 
-def load_model(path: str):
+def load_model(path: str, device: str = 'cpu', env=None):
     """
     Load a model. Supports both RecurrentPPO (with _CPULSTMWrapper patch)
     and standard PPO.
+
+    device: defaults to 'cpu' (the original behavior, for eval call sites).
+    train.py's --resume-from path passes the real training device (e.g.
+    'mps') so a resumed run continues on the same device the interrupted
+    run used, rather than being silently forced onto CPU.
+
+    env: if given, attached at load time via RecurrentPPO.load(path, env=env)
+    rather than a separate model.set_env(env) call afterward. This matters
+    when resuming with a DIFFERENT n_envs than the checkpoint was trained
+    with (e.g. reducing parallelism after a memory incident) -- SB3's
+    set_env() hard-asserts the new env's num_envs matches the checkpoint's
+    exactly and refuses to resize the rollout buffers; passing env directly
+    to .load() is the path SB3 itself points to for changing n_envs on
+    resume.
     """
     zip_path = path if path.endswith('.zip') else path + '.zip'
 
@@ -536,10 +550,10 @@ def load_model(path: str):
             with zipfile.ZipFile(patched, 'w', zipfile.ZIP_DEFLATED) as zf_out:
                 for name, data in all_files.items():
                     zf_out.writestr(name, data)
-            return RecurrentPPO.load(patched, device='cpu')
+            return RecurrentPPO.load(patched, env=env, device=device)
     else:
         from stable_baselines3 import PPO
-        return PPO.load(zip_path, device='cpu')
+        return PPO.load(zip_path, env=env, device=device)
 
 
 def _run_episode(model, env, seed: int):
