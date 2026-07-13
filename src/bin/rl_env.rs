@@ -307,6 +307,11 @@ pub struct RlEnv {
     arrival_price: f64,
     spread_ref: f64,
     depth_ref: f64,
+    /// Historical-mode price rescale factor (100.0 / arrival raw-BTC mid), fixed once
+    /// at `reset_historical` and reused for every snapshot in the episode. Must NOT be
+    /// recomputed per-step -- doing so renormalises every book back to mid≈100 and
+    /// erases real intra-episode price drift (see `advance_market`).
+    price_factor: f64,
 
     step_idx: usize,
     remaining: f64,
@@ -417,6 +422,7 @@ impl RlEnv {
             arrival_price: 0.0,
             spread_ref: 1.0,
             depth_ref: 1.0,
+            price_factor: 1.0,
             step_idx: 0,
             remaining: 0.0,
             price_history: VecDeque::with_capacity(16),
@@ -630,6 +636,10 @@ impl RlEnv {
         })?;
         let raw_btc_mid = first.mid_price().unwrap_or(100.0);
         let price_factor = 100.0 / raw_btc_mid;
+        // Fixed once for the whole episode -- advance_market() must reuse this exact
+        // factor for every later snapshot so real price drift survives the rescale
+        // instead of being renormalised back to mid≈100 every step.
+        self.price_factor = price_factor;
         let scaled_first = first.rescale_full(price_factor, qty_factor);
 
         self.spread_ref = scaled_first.half_spread().unwrap_or(0.01).max(1e-9);
@@ -896,19 +906,53 @@ impl RlEnv {
         let mut total_reward_adj = 0.0;
 
         if time_done && self.remaining > 0.001 * self.cfg.total_inventory {
-            // Forced liquidation at last mid price; cost = permanent impact only.
-            // Use book mid_price() so historical mode (which stores a rescaled book) uses
-            // simulation-scale price rather than the raw BTC current_mid (~42000).
+            // Forced liquidation: walk the book for the full remaining size via the same
+            // fill_market_sell used for voluntary trades, so a last-minute dump is priced
+            // by genuinely consumed depth/impact instead of a flat, size-independent penalty.
+            // Invariant: never-trading must not be reward-superior to competent execution --
+            // the old flat `gamma * (forced_liq_qty/total)`-only penalty was cheap enough
+            // that the agent learned to always wait and eat it instead of trading normally.
             forced_liq_qty = self.remaining;
-            let liquidated_at = self
+            let book_mid_at_end = self
                 .current_book
                 .as_ref()
                 .and_then(|b| b.mid_price())
                 .unwrap_or(self.arrival_price);
+
+            let liquidated_notional = if let Some(book) = self.current_book.as_mut() {
+                let fr = book.fill_market_sell(forced_liq_qty);
+                let mut notional = fr.filled_qty * fr.avg_fill_price;
+                if fr.residual_qty > 1e-9 {
+                    // Book depth exhausted before absorbing the full size -- price the
+                    // unfillable residual punitively (worse than the worst level actually
+                    // consumed) rather than defaulting it to a free/mid-priced fill.
+                    let worst_price = if fr.filled_qty > 1e-12 {
+                        fr.avg_fill_price
+                    } else {
+                        book_mid_at_end
+                    };
+                    let punitive_price = (worst_price - self.spread_ref.max(1e-6) * 5.0).max(1e-6);
+                    notional += fr.residual_qty * punitive_price;
+                }
+                notional
+            } else {
+                forced_liq_qty * book_mid_at_end
+            };
+            let liquidated_at = if forced_liq_qty > 1e-12 {
+                liquidated_notional / forced_liq_qty
+            } else {
+                book_mid_at_end
+            };
+
             self.total_filled += forced_liq_qty;
-            self.total_notional_received += forced_liq_qty * liquidated_at;
+            self.total_notional_received += liquidated_notional;
+
+            // Same slippage-based reward formula as a normal fill, plus the existing
+            // permanent-impact term scaled to the full dumped quantity.
+            let slippage_cost = (book_mid_at_end - liquidated_at) * forced_liq_qty
+                / (self.arrival_price.max(1e-12) * total);
             let forced_perm = self.cfg.gamma * (forced_liq_qty / total);
-            total_reward_adj -= forced_perm;
+            total_reward_adj -= slippage_cost + forced_perm;
             self.remaining = 0.0;
             done = true;
         }
@@ -1049,11 +1093,40 @@ impl RlEnv {
         let mut forced_liq_qty = 0.0;
 
         if (time_done || cf_exhausted) && self.remaining > 0.001 * self.cfg.total_inventory {
+            // Same fix as historical-mode step(): route the forced dump through the real
+            // adjusted book instead of pricing it at a flat, size-independent penalty.
             forced_liq_qty = self.remaining;
+            let mid_at_end = self.current_mid.max(1e-12);
+
+            let liquidated_notional = if let Some(cf) = self.cf_lob.as_ref() {
+                let mut book = cf.current_adjusted_book();
+                let fr = book.fill_market_sell(forced_liq_qty);
+                let mut notional = fr.filled_qty * fr.avg_fill_price;
+                if fr.residual_qty > 1e-9 {
+                    let worst_price = if fr.filled_qty > 1e-12 {
+                        fr.avg_fill_price
+                    } else {
+                        mid_at_end
+                    };
+                    let punitive_price = (worst_price - self.spread_ref.max(1e-6) * 5.0).max(1e-6);
+                    notional += fr.residual_qty * punitive_price;
+                }
+                notional
+            } else {
+                forced_liq_qty * mid_at_end
+            };
+            let liquidated_at = if forced_liq_qty > 1e-12 {
+                liquidated_notional / forced_liq_qty
+            } else {
+                mid_at_end
+            };
+
             let forced_perm = self.cfg.gamma * (forced_liq_qty / total);
             self.total_filled += forced_liq_qty;
-            self.total_notional_received += forced_liq_qty * self.current_mid;
-            total_reward_adj -= forced_perm;
+            self.total_notional_received += liquidated_notional;
+            let slippage_cost =
+                (mid_at_end - liquidated_at) * forced_liq_qty / (self.arrival_price.max(1e-12) * total);
+            total_reward_adj -= slippage_cost + forced_perm;
             self.remaining = 0.0;
             done = true;
         }
@@ -1147,10 +1220,14 @@ impl RlEnv {
                     // Apply adversarial deficit before rescaling (deficit is in raw qty units).
                     apply_adversarial_deficit(&mut book, self.adversarial.as_ref());
                     // Rescale to simulation scale so fills and state dims are mode-consistent.
+                    // Uses self.price_factor, fixed once at episode arrival (reset_historical) --
+                    // NOT recomputed from new_raw_mid here, which would renormalise every
+                    // snapshot's mid back to ≈100 and erase real intra-episode price drift
+                    // (the bug that made forced-liquidation IS evaluate to ≈0% regardless of
+                    // actual market movement).
                     let btc_scale = (self.cfg.btc_target / self.cfg.total_inventory).max(1e-12);
-                    let price_factor = 100.0 / new_raw_mid;
                     let qty_factor = 1.0 / btc_scale;
-                    self.current_book = Some(book.rescale_full(price_factor, qty_factor));
+                    self.current_book = Some(book.rescale_full(self.price_factor, qty_factor));
                     self.price_history.push_back(new_raw_mid);
                     self.current_sigma = self.realised_vol();
                 }
@@ -2709,5 +2786,200 @@ mod tests {
         drop(stream); // closes the connection; server loop exits on next read
         let _ = handle.join();
         let _ = std::fs::remove_file(&socket_path);
+    }
+
+    // ── Phase 2R regression tests: reward loophole + price_factor rescaling ──
+
+    #[test]
+    fn forced_liquidation_is_not_reward_superior_to_trading() {
+        // Regression test for the reward loophole behind the v6 training collapse
+        // (Phase 2R incident): forced liquidation used to be priced at a flat
+        // `gamma * (forced_liq_qty/total)` penalty (0.005 for liquidating 100%),
+        // completely decoupled from the real cost of dumping that size into the
+        // book. Against real historical LOB depth with a large-relative-to-depth
+        // order, cumulative execution slippage clearly exceeds that flat 0.005 cap
+        // -- so "never trade, eat the flat penalty" was reward-superior to actually
+        // executing. The RL agent found and converged on exactly this shortcut.
+        //
+        // Invariant under the fix: spreading execution across the episode must
+        // score a HIGHER (less negative) cumulative reward than never trading and
+        // being forced to dump 100% of inventory in one shot at the horizon.
+        //
+        // Uses real historical LOB data (not synthetic) because the synthetic
+        // book's depth is generous enough relative to a 1M-unit order that
+        // trading slippage never gets close to gamma=0.005 either way -- the loophole
+        // only actually bites at realistic size-vs-depth ratios, which is exactly
+        // what happened in the real v6 training run this test guards against.
+        let lob_path = "TradeData/BookDepth/BTCUSDT-bookDepth-2024-01-15.csv";
+        if !std::path::Path::new(lob_path).exists() {
+            eprintln!("skipping: {lob_path} not present in this checkout");
+            return;
+        }
+        let make_cfg = || EnvConfig {
+            mode: RlMode::Historical,
+            total_inventory: 5_000_000.0,
+            total_steps: HISTORICAL_DEFAULT_STEPS,
+            seed: 42,
+            sigma_ref: 0.20,
+            gamma: 0.005,
+            adversarial: false,
+            lob_data_path: Some(lob_path.to_string()),
+            btc_target: 50_000.0,
+            adv_btc: 0.0,
+            agg_trades_path: None,
+            fixed_steps: true,
+            fixed_size: true,
+            no_time_features: true,
+        };
+
+        // Never-trade policy: action 0 every step, forced-liquidated at the horizon.
+        let mut never_trade_env = RlEnv::new(make_cfg());
+        never_trade_env.reset(Some(1));
+        let mut never_trade_reward = 0.0;
+        loop {
+            let r = never_trade_env.step(0);
+            never_trade_reward += r.reward;
+            if r.done {
+                assert!(
+                    r.info.get("forced_liquidation_qty").is_some(),
+                    "never-trade policy must end in forced liquidation of the full size"
+                );
+                break;
+            }
+        }
+
+        // Spread-execution policy: sell 15% of *remaining* inventory each step
+        // (ACTION_FRACTIONS[12] = 0.15) -- winds down gradually instead of dumping
+        // everything at once.
+        let mut trading_env = RlEnv::new(make_cfg());
+        trading_env.reset(Some(1));
+        let mut trading_reward = 0.0;
+        loop {
+            let r = trading_env.step(12);
+            trading_reward += r.reward;
+            if r.done {
+                break;
+            }
+        }
+
+        assert!(
+            trading_reward > never_trade_reward,
+            "trading policy (reward={trading_reward}) must score better than the \
+             never-trade policy (reward={never_trade_reward}) -- if this regresses, \
+             the forced-liquidation penalty is once again cheaper than real execution"
+        );
+    }
+
+    #[test]
+    fn historical_price_factor_is_fixed_at_episode_start_not_recomputed_per_step() {
+        // The bug: advance_market()'s historical branch used to recompute
+        // `price_factor = 100.0 / new_raw_mid` fresh on every snapshot, which
+        // renormalises the rescaled book's mid back to ≈100 (== arrival) at every
+        // step regardless of real price movement. The fix fixes price_factor once
+        // at reset_historical and reuses it for the whole episode.
+        let lob_path = "TradeData/BookDepth/BTCUSDT-bookDepth-2024-01-15.csv";
+        if !std::path::Path::new(lob_path).exists() {
+            eprintln!("skipping: {lob_path} not present in this checkout");
+            return;
+        }
+        let cfg = EnvConfig {
+            mode: RlMode::Historical,
+            total_inventory: 1_000_000.0,
+            total_steps: HISTORICAL_DEFAULT_STEPS,
+            seed: 42,
+            sigma_ref: 0.20,
+            gamma: 0.005,
+            adversarial: false,
+            lob_data_path: Some(lob_path.to_string()),
+            btc_target: 50_000.0,
+            adv_btc: 0.0,
+            agg_trades_path: None,
+            fixed_steps: true,
+            fixed_size: true,
+            no_time_features: true,
+        };
+        let mut env = RlEnv::new(cfg);
+        env.reset(Some(42));
+        let factor_at_reset = env.price_factor;
+
+        for _ in 0..50 {
+            let r = env.step(0); // never trade -- pure market observation
+            if r.done {
+                break;
+            }
+        }
+        assert_eq!(
+            env.price_factor, factor_at_reset,
+            "price_factor must stay fixed for the whole episode, not be recomputed per snapshot"
+        );
+
+        // With the factor fixed, the rescaled book's mid should drift away from the
+        // arrival price (100.0) as the real BTC price moves over the day, instead of
+        // being renormalised back to ~100 at every step.
+        let mid_after = env
+            .current_book
+            .as_ref()
+            .and_then(|b| b.mid_price())
+            .unwrap_or(100.0);
+        assert!(
+            (mid_after - 100.0).abs() > 1e-6,
+            "rescaled book mid should reflect real intraday price drift, not stay \
+             pinned at 100.0 (got {mid_after})"
+        );
+    }
+
+    #[test]
+    fn forced_liquidation_is_pct_reflects_real_execution_not_pinned_zero() {
+        // The bug this guards against: forced liquidation used to price the entire
+        // remaining size at `current_book.mid_price()` without ever crossing the
+        // book, and (compounded by the price_factor bug) that mid was always ≈
+        // arrival -- so a fully-forced-liquidated episode scored total_IS_pct ≈ 0%
+        // regardless of real market movement or spread cost. This is exactly what
+        // produced the `-0.0000%` rows in the Phase 2 ablation.
+        let lob_path = "TradeData/BookDepth/BTCUSDT-bookDepth-2024-01-15.csv";
+        if !std::path::Path::new(lob_path).exists() {
+            eprintln!("skipping: {lob_path} not present in this checkout");
+            return;
+        }
+        let cfg = EnvConfig {
+            mode: RlMode::Historical,
+            total_inventory: 1_000_000.0,
+            total_steps: 10, // short horizon so we hit forced liquidation quickly
+            seed: 42,
+            sigma_ref: 0.20,
+            gamma: 0.005,
+            adversarial: false,
+            lob_data_path: Some(lob_path.to_string()),
+            btc_target: 50_000.0,
+            adv_btc: 0.0,
+            agg_trades_path: None,
+            fixed_steps: true,
+            fixed_size: true,
+            no_time_features: true,
+        };
+        let mut env = RlEnv::new(cfg);
+        env.reset(Some(42));
+
+        let mut last = None;
+        for _ in 0..10 {
+            last = Some(env.step(0)); // never trade -- entire inventory force-liquidated
+        }
+        let r = last.unwrap();
+        assert!(r.done);
+        assert!(
+            r.info.get("forced_liquidation_qty").is_some(),
+            "expected forced liquidation at the horizon"
+        );
+        let is_pct = r
+            .info
+            .get("total_IS_pct")
+            .and_then(|v| v.as_f64())
+            .expect("done step must report total_IS_pct");
+        assert!(
+            is_pct.abs() > 1e-4,
+            "forced-liquidation IS must be non-zero -- dumping 100% of inventory into \
+             the book must cross real depth/spread, not price at a static mid \
+             (got {is_pct})"
+        );
     }
 }
