@@ -279,6 +279,39 @@ impl AggTradesDay {
 
         result
     }
+
+    /// Total traded BTC volume (buy + sell) in each snapshot interval
+    /// `[t_{k-1}, t_k)`, aligned index-for-index with `snapshot_timestamps`.
+    /// The first element covers `[t_0 - (t_1 - t_0), t_0)` (one bar-width back)
+    /// so index 0 is not spuriously zero. Used to compute interval-VWAP weights
+    /// for the Phase 2R drift-neutral execution benchmark.
+    pub fn build_volume_series(&self, snapshot_timestamps: &[u64]) -> Vec<f64> {
+        let n = snapshot_timestamps.len();
+        if n == 0 {
+            return Vec::new();
+        }
+        let mut result = vec![0.0_f64; n];
+        let trades = &self.trades;
+        for k in 0..n {
+            let end_ms = snapshot_timestamps[k];
+            let start_ms = if k == 0 {
+                let bar = snapshot_timestamps.get(1)
+                    .map(|t1| t1.saturating_sub(snapshot_timestamps[0]))
+                    .unwrap_or(0);
+                end_ms.saturating_sub(bar)
+            } else {
+                snapshot_timestamps[k - 1]
+            };
+            let left = trades.partition_point(|t| t.timestamp_ms < start_ms);
+            let right = trades.partition_point(|t| t.timestamp_ms < end_ms);
+            let mut vol = 0.0_f64;
+            for t in &trades[left..right] {
+                vol += t.quantity_btc;
+            }
+            result[k] = vol;
+        }
+        result
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -423,6 +456,30 @@ agg_trade_id,price,quantity,first_trade_id,last_trade_id,transact_time,is_buyer_
     /// with `interval_ms` between them.
     fn make_snapshots(start_ms: u64, interval_ms: u64, n: usize) -> Vec<u64> {
         (0..n).map(|i| start_ms + i as u64 * interval_ms).collect()
+    }
+
+    #[test]
+    fn volume_series_sums_total_volume_per_interval() {
+        // Three trades at t=0s, 10s, 20s (0.1 buy, 0.2 sell, 0.05 buy).
+        let day = load_fixture(FIXTURE_CSV);
+        // Snapshots at 10s and 20s: interval [800000,810000) contains the t=0s? No --
+        // build_volume_series interval for k is [t_{k-1}, t_k). With snaps at 810000
+        // and 820000: index0 covers [810000-10000, 810000)=[800000,810000) -> t=0s(000)
+        // and t=10s? 810000 exclusive, so 800000(0.1) and 810000 excluded. index1 covers
+        // [810000,820000) -> the 810000 sell(0.2). Let's assert index-1 volume = 0.2.
+        let snaps = vec![1_705_276_810_000, 1_705_276_820_000];
+        let series = day.build_volume_series(&snaps);
+        assert_eq!(series.len(), 2);
+        assert!((series[0] - 0.100).abs() < 1e-9, "index0 vol expected 0.100, got {}", series[0]);
+        assert!((series[1] - 0.200).abs() < 1e-9, "index1 vol expected 0.200, got {}", series[1]);
+    }
+
+    #[test]
+    fn volume_series_length_matches_and_empty_on_no_snapshots() {
+        let day = load_fixture(FIXTURE_CSV);
+        assert_eq!(day.build_volume_series(&[]).len(), 0);
+        let snaps = make_snapshots(1_705_276_800_000, 10_000, 7);
+        assert_eq!(day.build_volume_series(&snaps).len(), 7);
     }
 
     #[test]

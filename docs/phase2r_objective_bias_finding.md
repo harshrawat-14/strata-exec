@@ -161,10 +161,97 @@ In priority order:
 
 ---
 
+## VWAP analytic gate results (drift-neutral benchmark)
+
+Ran `rl/phase2r_vwap_gate.py`: blanket-WAIT vs a genuine equal-quantity TWAP execution, scored
+against three benchmarks — static-arrival (current objective), interval-TWAP, and true interval-VWAP
+(real aggTrades volume, exposed via the new `interval_volume` telemetry). 10 seeds/date.
+
+**Q1 — does a drift-neutral benchmark remove waiting's positive expected value?** Yes, under both
+drift-neutral benchmarks:
+
+| Benchmark | E[WAIT] over 7 training dates | verdict |
+|---|---:|---|
+| static-arrival (current) | **+0.71%** | positive → speculation pays → objective broken |
+| interval-TWAP | −0.46% | negative → speculation no longer pays |
+| interval-VWAP (real volume) | **−0.39%** | negative → speculation no longer pays |
+
+The core mechanism is addressed: switching to a drift-neutral benchmark flips waiting from +EV to
+−EV, so an expected-reward maximizer no longer prefers blanket-waiting. **This validates the VWAP
+objective fix on its primary purpose.**
+
+**Q2 — does competent execution then beat waiting, and does volume weighting widen the margin?**
+Execution wins, but the margin is **thin and essentially unchanged by volume weighting**:
+E[EXEC]−E[WAIT] = +0.056pp (arrival) → +0.075pp (TWAP) → +0.076pp (VWAP). Volume weighting did
+**not** widen the aggregate margin.
+
+Where volume weighting *did* matter is the crash-day split — and it **sharpened** it rather than
+resolving it toward execution (volume clusters during crashes, as predicted):
+
+| Crash date | vwap WAIT | vwap EXEC | verdict |
+|---|---:|---:|---|
+| 2024-03-05 (intra-window crash) | −2.82% | +0.22% | **EXEC wins by +3.03pp** |
+| 2024-08-05 (already-crashed, flat thin book) | +1.17% | −0.83% | **WAIT wins by −2.00pp** |
+
+On 2024-03-05 the crash happens *during* the window, so slicing in ahead of it clearly beats a
+terminal dump. On 2024-08-05 the market gapped down *before/at* the window and stayed flat, so a
+single terminal dump crosses the wide/thin spread once instead of many times — waiting genuinely
+wins. **This is a true statement about markets, not a bug**, and any inventory rail forcing execution
+on 2024-08-05 would be overriding a correct answer.
+
+## The conditional-learnability finding (the most important result)
+
+The decisive question for whether the fixed objective is *sufficient*: is the WAIT-vs-EXECUTE
+preference **distinguishable from the state vector the agent observes**? If yes, the correct policy is
+conditional and learnable ("slice into forming crashes, be patient in post-crash flat books") — no
+rail needed. If no, it's a state-representation limit. Ran `rl/phase2r_conditional_signal.py`:
+early-window (60-step) undisturbed signature of the observable dims (realized vol s2, spread s3,
+depth s4, OFI s5, short drift s6), grouped by VWAP verdict.
+
+**Result: the EXEC-wins and WAIT-wins dates are NOT cleanly separable in the observable state.** No
+dim separates the two groups by even one pooled standard deviation (best: spread at 0.55σ; vol 0.49σ;
+OFI 0.41σ; depth 0.39σ; drift 0.19σ). The decisive contrast makes it concrete — the two crash dates
+demand *opposite* actions yet look alike in the observables:
+
+| | vol(s2) | spread(s3) | depth(s4) | OFI(s5) | drift(s6) |
+|---|---:|---:|---:|---:|---:|
+| 2024-03-05 (EXEC) | +0.236 | +0.782 | +0.777 | −0.028 | −0.004 |
+| 2024-08-05 (WAIT) | +0.379 | +0.773 | +0.771 | −0.032 | −0.011 |
+
+They differ mainly in realized vol — and in the **counterintuitive** direction: 2024-08-05, where
+*waiting* is correct, has the **highest** realized vol of all nine dates. The signal that actually
+separates "slice into a forming crash" from "be patient in a post-crash flat book" is essentially
+*the future price path* (does it keep falling?), which is not — and cannot be — in the current state.
+
+**Interpretation.** The VWAP objective correctly removes the speculation exploit (Q1), but (a) the
+residual execution-over-waiting advantage is thin (+0.08pp), and (b) the per-date optimal choice on
+stressed days is **not reliably predictable from the observable state**. So we should *not* expect a
+cleanly conditional policy to emerge, and there is a real risk the retrained agent settles on a
+wait-leaning compromise. This bounds what *any* execution agent can achieve on this data — it is a
+state-observability limit, not a tuning or representation-richness problem that more dims would fix
+(the missing signal is future direction). This is a genuinely more interesting and defensible result
+than a "16-dim beats 12-dim" ablation.
+
+## Recommended next step (for approval)
+
+1. **Implement the interval-VWAP benchmark as the reward/eval objective** — validated by Q1 above.
+2. **Fix the two bugs** (EvalCallback single-date `best_model` selection; add per-date mid-training
+   telemetry) — required before retrain regardless.
+3. **Retrain and measure the per-date action distribution.** Do *not* add the inventory rail
+   preemptively — it would force execution on 2024-08-05 where waiting is correct and would
+   permanently contaminate any later 12-vs-16-dim ablation. The rail is a **fallback**, justified only
+   if the agent still collapses to blanket-wait under the VWAP objective — and if it is needed, this
+   analysis shows it would be compensating for a genuine state-observability limit, not papering over
+   a learnable policy.
+
 ## Status
 
 - Reward loophole + price_factor bug: **fixed** (`5630e5d`), verified.
-- Objective bias: **diagnosed, not yet fixed.** VWAP-benchmark fix scoped; analytic gate pending.
+- Objective bias: **diagnosed.** VWAP-benchmark fix **validated by the analytic gate (Q1 passes on
+  real volume weighting).** Not yet implemented in the reward/eval path.
+- Conditional-learnability: **the WAIT/EXEC split is not cleanly separable from the observable state**
+  — a state-observability finding; expect the rail may genuinely be needed, but only after measuring.
 - `EvalCallback` single-date selection + missing per-date telemetry: **to fix before any retrain.**
-- No retrain until the VWAP-benchmark analytic gate is reported and approved.
+- `interval_volume` + `book_mid` telemetry added to the env (commit with this doc).
+- No retrain until the objective-fix implementation plan is approved.
 </content>

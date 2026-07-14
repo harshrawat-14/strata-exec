@@ -343,6 +343,10 @@ pub struct RlEnv {
     ofi_series: Vec<f64>,
     /// Snapshot index of episode start; ofi_series[ofi_start + step_idx] = OFI at step.
     ofi_start: usize,
+    /// Precomputed traded BTC volume per snapshot interval, same indexing as
+    /// ofi_series (offset by ofi_start). Exposed per-step in info as `interval_volume`
+    /// so the Phase 2R VWAP benchmark can weight the price path by real volume.
+    volume_series: Vec<f64>,
 
     /// Parsed-per-date cache shared across resets within this process (see
     /// `MarketDataCache`). `Rc<RefCell<_>>` (not a plain field) so a batched env's
@@ -436,6 +440,7 @@ impl RlEnv {
             agg_trades: None,
             ofi_series: Vec::new(),
             ofi_start: 0,
+            volume_series: Vec::new(),
             market_cache,
             base_total_steps,
             base_total_inventory,
@@ -661,6 +666,7 @@ impl RlEnv {
             match self.market_cache.borrow_mut().load_agg(&agg_path) {
                 Ok(agg) => {
                     self.ofi_series = agg.build_ofi_series(&timestamps, 30_000);
+                    self.volume_series = agg.build_volume_series(&timestamps);
                     self.ofi_start = start_offset;
                     self.agg_trades = Some(agg);
                 }
@@ -668,12 +674,14 @@ impl RlEnv {
                     eprintln!("AggTrades load error (historical): {e}");
                     self.agg_trades = None;
                     self.ofi_series.clear();
+                    self.volume_series.clear();
                     self.ofi_start = 0;
                 }
             }
         } else {
             self.agg_trades = None;
             self.ofi_series.clear();
+            self.volume_series.clear();
             self.ofi_start = 0;
         }
 
@@ -773,6 +781,7 @@ impl RlEnv {
             match self.market_cache.borrow_mut().load_agg(&agg_path) {
                 Ok(agg) => {
                     self.ofi_series = agg.build_ofi_series(&timestamps, 30_000);
+                    self.volume_series = agg.build_volume_series(&timestamps);
                     self.ofi_start = start_offset;
                     self.agg_trades = Some(agg);
                 }
@@ -780,12 +789,14 @@ impl RlEnv {
                     eprintln!("AggTrades load error (counterfactual): {e}");
                     self.agg_trades = None;
                     self.ofi_series.clear();
+                    self.volume_series.clear();
                     self.ofi_start = 0;
                 }
             }
         } else {
             self.agg_trades = None;
             self.ofi_series.clear();
+            self.volume_series.clear();
             self.ofi_start = 0;
         }
 
@@ -963,6 +974,7 @@ impl RlEnv {
             "fill_qty": fill_qty,
             "fill_price": fill_price,
             "book_mid": book_mid,
+            "interval_volume": self.interval_volume_at_step(),
             "is_contribution": -(fill_cost + perm_cost),
             "regime": self.regime_label(),
         });
@@ -1154,6 +1166,7 @@ impl RlEnv {
             "fill_qty": fill_qty,
             "fill_price": fill_price,
             "book_mid": book_mid,
+            "interval_volume": self.interval_volume_at_step(),
             "btc_scale": self.cfg.btc_target / total,
             "is_contribution": -(fill_cost + perm_cost),
             "regime": self.regime_label(),
@@ -1186,6 +1199,14 @@ impl RlEnv {
             done,
             info,
         }
+    }
+
+    /// Traded BTC volume in the current step's snapshot interval (0.0 in
+    /// synthetic mode or when --agg-trades is absent). Same index basis as the
+    /// s5 OFI dim (ofi_start + step_idx). Exposed in info for VWAP weighting.
+    fn interval_volume_at_step(&self) -> f64 {
+        let idx = self.ofi_start + self.step_idx;
+        self.volume_series.get(idx).copied().unwrap_or(0.0)
     }
 
     /// Step the price simulator (synthetic) or pull the next snapshot (historical).

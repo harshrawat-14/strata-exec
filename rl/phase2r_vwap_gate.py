@@ -42,24 +42,30 @@ def _mk_env(date):
 def wait_pass(env, seed):
     """
     Wait episode (action 0 -> no agent impact). Returns:
-      twap        = interval TWAP of the undisturbed market mid over the window
+      twap        = interval TWAP (equal time weight) of the undisturbed market mid
+      vwap        = interval VWAP (real aggTrades volume weight) of the same mid path
       horizon     = number of steps in the window (for scheduling TWAP execution)
       wait_avg_ex = avg execution price of the wait policy (all inventory dumped
                     at the horizon via forced liquidation)
     """
     obs, info = env.reset(seed=seed)
-    mids = []
+    mids, vols = [], []
     done = False
     steps = 0
     while not done:
         obs, _, done, _, info = env.step(0)
         m = info.get("book_mid")
+        v = info.get("interval_volume", 0.0)
         if m is not None and m > 0:
             mids.append(m)
+            vols.append(max(v, 0.0))
         steps += 1
-    twap = float(np.mean(mids)) if mids else 100.0
+    mids = np.array(mids)
+    vols = np.array(vols)
+    twap = float(mids.mean()) if len(mids) else 100.0
+    vwap = float((mids * vols).sum() / vols.sum()) if vols.sum() > 0 else twap
     wait_avg_ex = 100.0 - info.get("total_IS_pct")
-    return twap, steps, wait_avg_ex
+    return twap, vwap, steps, wait_avg_ex
 
 
 def _nearest_action(target_frac):
@@ -81,61 +87,68 @@ def twap_exec_scheduled(env, seed, horizon):
 
 
 def score_date(date):
-    """Return per-date means: (wait_arr, exec_arr, wait_twap, exec_twap)."""
+    """Per-date means vs three benchmarks: arrival, TWAP, VWAP; for WAIT and EXEC."""
     env = _mk_env(date)
-    wait_arr, exec_arr, wait_tw, exec_tw = [], [], [], []
+    acc = {k: [] for k in ("wA", "eA", "wT", "eT", "wV", "eV")}
     for seed in range(N_SEEDS):
-        twap, horizon, wait_avg = wait_pass(env, seed)
+        twap, vwap, horizon, wait_avg = wait_pass(env, seed)
         exec_avg = twap_exec_scheduled(env, seed, horizon)
-        wait_arr.append((wait_avg - 100.0))
-        exec_arr.append((exec_avg - 100.0))
-        wait_tw.append((wait_avg - twap) / twap * 100.0)
-        exec_tw.append((exec_avg - twap) / twap * 100.0)
+        acc["wA"].append(wait_avg - 100.0)
+        acc["eA"].append(exec_avg - 100.0)
+        acc["wT"].append((wait_avg - twap) / twap * 100.0)
+        acc["eT"].append((exec_avg - twap) / twap * 100.0)
+        acc["wV"].append((wait_avg - vwap) / vwap * 100.0)
+        acc["eV"].append((exec_avg - vwap) / vwap * 100.0)
     env.close()
-    return (float(np.mean(wait_arr)), float(np.mean(exec_arr)),
-            float(np.mean(wait_tw)), float(np.mean(exec_tw)))
+    return {k: float(np.mean(v)) for k, v in acc.items()}
 
 
 def main():
-    print("=" * 96)
+    print("=" * 104)
     print("PHASE 2R VWAP GATE -- blanket-WAIT vs genuine TWAP-execution (equal qty/step)")
-    print("benchmarks: static-arrival (current objective) vs interval-TWAP (drift-neutral, proposed)")
+    print("benchmarks: static-ARRIVAL (current) | interval-TWAP | interval-VWAP (real aggTrades volume)")
     print("IS convention: signed vs benchmark; <0 = underperformed benchmark (a cost)")
-    print("=" * 96)
-    print(f"{'date':12s} {'arr:WAIT':>9s} {'arr:EXEC':>9s} {'|':>2s} "
-          f"{'twap:WAIT':>10s} {'twap:EXEC':>10s}  winner(twap)")
+    print("=" * 104)
+    print(f"{'date':12s} {'arrWAIT':>8s} {'arrEXEC':>8s} | {'twapWAIT':>9s} {'twapEXEC':>9s} | "
+          f"{'vwapWAIT':>9s} {'vwapEXEC':>9s}  win(vwap)")
 
-    rows = {}
-    for date in TRAINING_DATES + CRASH_DATES:
-        rows[date] = score_date(date)
+    rows = {d: score_date(d) for d in TRAINING_DATES + CRASH_DATES}
 
-    wA, eA, wT, eT = [], [], [], []
+    agg = {k: [] for k in ("wA", "eA", "wT", "eT", "wV", "eV")}
     for date in TRAINING_DATES:
-        w_arr, e_arr, w_tw, e_tw = rows[date]
-        wA.append(w_arr); eA.append(e_arr); wT.append(w_tw); eT.append(e_tw)
-        win = "EXEC" if e_tw > w_tw else "WAIT"
-        print(f"{date:12s} {w_arr:+9.4f} {e_arr:+9.4f} {'|':>2s} {w_tw:+10.4f} {e_tw:+10.4f}  {win}")
+        r = rows[date]
+        for k in agg:
+            agg[k].append(r[k])
+        win = "EXEC" if r["eV"] > r["wV"] else "WAIT"
+        print(f"{date:12s} {r['wA']:+8.3f} {r['eA']:+8.3f} | {r['wT']:+9.3f} {r['eT']:+9.3f} | "
+              f"{r['wV']:+9.3f} {r['eV']:+9.3f}  {win}")
 
-    print("-" * 96)
-    print(f"{'E[training]':12s} {np.mean(wA):+9.4f} {np.mean(eA):+9.4f} {'|':>2s} "
-          f"{np.mean(wT):+10.4f} {np.mean(eT):+10.4f}")
+    m = {k: float(np.mean(v)) for k, v in agg.items()}
+    print("-" * 104)
+    print(f"{'E[training]':12s} {m['wA']:+8.3f} {m['eA']:+8.3f} | {m['wT']:+9.3f} {m['eT']:+9.3f} | "
+          f"{m['wV']:+9.3f} {m['eV']:+9.3f}")
     print()
-    print("KEY QUESTION 1 -- does WAIT have POSITIVE expected value (i.e. is speculation rewarded)?")
-    print(f"  under STATIC-ARRIVAL: E[WAIT]={np.mean(wA):+.4f}%   "
-          f"({'POSITIVE -> speculation pays, objective BROKEN' if np.mean(wA) > 0 else 'negative'})")
-    print(f"  under DRIFT-NEUTRAL:  E[WAIT]={np.mean(wT):+.4f}%   "
-          f"({'still positive -> NOT fixed' if np.mean(wT) > 0 else 'NEGATIVE -> speculation no longer pays'})")
+    print("Q1 -- does WAIT still have POSITIVE expected value (speculation rewarded)?")
+    for label, wk in (("ARRIVAL", "wA"), ("TWAP", "wT"), ("VWAP", "wV")):
+        verdict = "POSITIVE -> speculation pays" if m[wk] > 0 else "NEGATIVE -> speculation no longer pays"
+        print(f"  {label:8s}: E[WAIT]={m[wk]:+.4f}%   {verdict}")
     print()
-    print("KEY QUESTION 2 -- does competent EXECUTION beat WAIT in expectation?")
-    print(f"  under STATIC-ARRIVAL: E[EXEC]-E[WAIT]={np.mean(eA)-np.mean(wA):+.4f}pp   "
-          f"({'EXEC wins' if np.mean(eA) > np.mean(wA) else 'WAIT wins'})")
-    print(f"  under DRIFT-NEUTRAL:  E[EXEC]-E[WAIT]={np.mean(eT)-np.mean(wT):+.4f}pp   "
-          f"({'EXEC wins' if np.mean(eT) > np.mean(wT) else 'WAIT wins'})")
+    print("Q2 -- does competent EXECUTION beat WAIT in expectation, and by how much?")
+    for label, wk, ek in (("ARRIVAL", "wA", "eA"), ("TWAP", "wT", "eT"), ("VWAP", "wV", "eV")):
+        d = m[ek] - m[wk]
+        print(f"  {label:8s}: E[EXEC]-E[WAIT]={d:+.4f}pp   ({'EXEC wins' if d > 0 else 'WAIT wins'})")
 
-    print("\n--- crash dates (execution should clearly beat waiting under the drift-neutral benchmark) ---")
+    print("\n--- crash dates under each benchmark ---")
     for date in CRASH_DATES:
-        w_arr, e_arr, w_tw, e_tw = rows[date]
-        print(f"{date}: arr WAIT={w_arr:+.4f} EXEC={e_arr:+.4f} | twap WAIT={w_tw:+.4f} EXEC={e_tw:+.4f}")
+        r = rows[date]
+        print(f"{date}: arr W={r['wA']:+.3f} E={r['eA']:+.3f} | twap W={r['wT']:+.3f} E={r['eT']:+.3f} | "
+              f"vwap W={r['wV']:+.3f} E={r['eV']:+.3f}")
+
+    # Per-date EXEC-vs-WAIT verdict under VWAP, for the conditional-learnability analysis.
+    print("\n--- per-date VWAP verdict (feeds the conditional-signal analysis) ---")
+    for date in TRAINING_DATES + CRASH_DATES:
+        r = rows[date]
+        print(f"  {date}: {'EXEC' if r['eV'] > r['wV'] else 'WAIT'}  (margin {r['eV']-r['wV']:+.3f}pp)")
 
 
 if __name__ == "__main__":
