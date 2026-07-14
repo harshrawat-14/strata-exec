@@ -28,6 +28,7 @@ class StrataExecEnv(gym.Env):
         fixed_size: bool = False,
         jump_diffusion: bool = False,
         no_time_features: bool = False,
+        total_steps: Optional[int] = None,
     ):
         import os
         if lob_date:
@@ -73,6 +74,8 @@ class StrataExecEnv(gym.Env):
                 f"TradeData/AggTrades/BTCUSDT-aggTrades-{agg_date}.csv"
             ])
 
+        if total_steps is not None:
+            self.cmd.extend(["--total-steps", str(total_steps)])
         if fixed_steps:
             self.cmd.append("--fixed-steps")
         if fixed_size:
