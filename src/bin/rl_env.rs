@@ -2422,6 +2422,106 @@ mod tests {
     }
 
     #[test]
+    fn training_horizon_episode_fits_within_day_no_stale_tail() {
+        // Start-offset bounding guard (Phase 2R). reset_historical picks
+        //   start_offset = seed % (len/3)
+        // and a training episode runs up to RANDOM_HORIZON_MAX (1440) snapshots.
+        // For the episode to never trade against a stale (frozen) book, we need
+        // start_offset + horizon <= len, i.e. len/3 + 1440 <= len -> len >= 2160.
+        // Real days have ~2880 snapshots, so the worst-case training episode
+        // (offset ~959 + 1440 = 2399) fits. This test guards that property: run a
+        // full RANDOM_HORIZON_MAX-length episode from a large start offset with a
+        // pure WAIT policy (market advances every step) and assert the book keeps
+        // advancing -- no long frozen tail.
+        //
+        // NOTE (documented, not asserted here): the FIXED eval horizon
+        // HISTORICAL_DEFAULT_STEPS (2880) does NOT satisfy this bound for
+        // start_offset > 0; a wait-heavy eval episode at large start_offset trades
+        // its tail against a frozen book. Evals in this project use small seeds
+        // (start_offset 0-19, <1% of a 2880-step episode), so the effect is
+        // negligible, but bounding start_offset <= len - total_steps would remove
+        // it entirely.
+        let lob_path = "TradeData/BookDepth/BTCUSDT-bookDepth-2024-01-15.csv";
+        if !std::path::Path::new(lob_path).exists() {
+            eprintln!("skipping: {lob_path} not present in this checkout");
+            return;
+        }
+        let cfg = EnvConfig {
+            mode: RlMode::Historical,
+            total_inventory: 1_000_000.0,
+            total_steps: RANDOM_HORIZON_MAX, // 1440, the worst-case training horizon
+            seed: 900,                       // large start offset (900 % (len/3) ~ 900)
+            sigma_ref: 0.20,
+            gamma: 0.005,
+            adversarial: false,
+            lob_data_path: Some(lob_path.to_string()),
+            btc_target: 50_000.0,
+            adv_btc: 0.0,
+            agg_trades_path: None,
+            fixed_steps: true,
+            fixed_size: true,
+            no_time_features: true,
+        };
+        let mut env = RlEnv::new(cfg);
+        env.reset(Some(900));
+        let mut last_mid = f64::NAN;
+        let mut stale = 0usize;
+        let mut total = 0usize;
+        loop {
+            let r = env.step(0); // wait -> market advances each step
+            let mid = r.info.get("book_mid").and_then(|v| v.as_f64()).unwrap_or(f64::NAN);
+            if (mid - last_mid).abs() < 1e-12 {
+                stale += 1;
+            }
+            last_mid = mid;
+            total += 1;
+            if r.done {
+                break;
+            }
+        }
+        // A tiny number of stale steps (repeated identical mids) can occur naturally;
+        // a premature-exhaustion tail would be hundreds. Assert well under 5%.
+        assert!(
+            (stale as f64) / (total as f64) < 0.05,
+            "training-horizon episode ran a stale/frozen book for {stale}/{total} steps \
+             -- start_offset + horizon exceeded the day's snapshot count (bounding bug)"
+        );
+    }
+
+    #[test]
+    fn reward_higher_for_sell_fill_closer_to_mid() {
+        // Sign-convention guard (Phase 2R). The fill reward is
+        //   (fill_price - book_mid) * fill_qty / (arrival_price * total).
+        // For a SELL, fill_price <= book_mid, so reward <= 0; a fill that stays
+        // near the top of the book (avg price close to mid) must earn a HIGHER
+        // (less negative) PER-UNIT reward than one that walks deep into the book.
+        // Compared per-unit (reward / fill_qty) to isolate the slippage sign from
+        // the quantity scaling, since a larger order fills both more qty AND at a
+        // worse average price.
+        let per_unit = |action: usize| -> f64 {
+            let mut env = make_env();
+            env.reset(Some(42));
+            let r = env.step(action);
+            let fq = r.info.get("fill_qty").and_then(|v| v.as_f64()).unwrap_or(0.0);
+            assert!(fq > 1e-9, "action {action} must produce a fill");
+            r.reward / fq
+        };
+        // action 5 = 1% of remaining (small, stays near mid);
+        // action 16 = 50% of remaining (large, walks deep into the book).
+        let shallow = per_unit(5);
+        let deep = per_unit(16);
+        assert!(
+            shallow < 0.0 && deep < 0.0,
+            "both sell fills must have negative reward (below mid): shallow={shallow}, deep={deep}"
+        );
+        assert!(
+            shallow > deep,
+            "a sell fill closer to mid must earn higher per-unit reward than a deeper \
+             one: shallow(1%)={shallow} must be > deep(50%)={deep}"
+        );
+    }
+
+    #[test]
     fn rl_env_state_all_values_in_valid_range() {
         let mut env = make_env();
         env.reset(Some(99));

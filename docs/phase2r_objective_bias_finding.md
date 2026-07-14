@@ -194,6 +194,46 @@ Do not retrain until a fix is chosen from these; the diagnosis now points at (1)
 
 ---
 
+## Pre-fix code verifications (requested before the collapse fix; each with a test)
+
+Three quick code checks run before touching training, given this project's sign-bug history:
+
+1. **Reward sign convention — verified, tested.** The fill reward is
+   `(fill_price - book_mid)·fill_qty / (arrival·total)`. A sell fill closer to mid earns a higher
+   (less negative) per-unit reward than one that walks deeper into the book. Rust test
+   `reward_higher_for_sell_fill_closer_to_mid` (per-unit, to isolate slippage sign from qty scaling).
+
+2. **Start-offset bounding — verified, tested, with one documented caveat.** `start_offset = seed %
+   (len/3)`; training horizon ≤ 1440. Real days have ~2880 snapshots, so worst-case training episode
+   (offset ~959 + 1440 = 2399) fits — **training episodes never trade against a stale book, so the
+   collapse is not a data-bounding artifact.** Rust test
+   `training_horizon_episode_fits_within_day_no_stale_tail`. Caveat (documented, negligible in
+   practice): the *fixed eval* horizon `HISTORICAL_DEFAULT_STEPS=2880` does *not* satisfy the bound
+   for `start_offset > 0` — a wait-heavy eval episode at large start_offset trades its tail against a
+   frozen book (up to ~33% of steps at max offset). All evals in this project use small seeds
+   (start_offset 0–19, <1% of the episode), so results are unaffected, but bounding
+   `start_offset ≤ len − total_steps` would remove it.
+
+3. **State dims — dim 15 is fine; but dim 6 is a DEAD feature during training.** Dim 15 (a time
+   feature) is non-constant (std ≈ 0.013). However, checking all 16 dims across real episodes surfaced
+   a **train/eval state discrepancy** and a **dead dimension**:
+   - **Dim 6 (`s6`, short-term price drift) is constant 0.0 in counterfactual mode — the actual
+     training regime — across every date and seed tested.** The counterfactual book's mid stays pinned
+     at ~100 (the impact model operates in a normalized frame; `price_history` never drifts), so the
+     drift feature carries no information during training. The agent trains with an effectively dead
+     momentum input.
+   - Dims 8, 9 (`s8`/`s9`, counterfactual permanent/temporary impact) are live in training
+     (counterfactual) but constant 0 in historical-mode eval by construction (no `cf_lob`). Dim 11
+     (liq regime) was constant on some historical dates.
+   - **Consequence:** the agent is trained (counterfactual) and analyzed (historical) on partially
+     different state supports — dim 6 dead in train / live in eval; dims 8,9 live in train / dead in
+     eval. This did not affect the reward/collapse findings (those measure behavior, not dim
+     attribution) but it is a real issue.
+
+   **For the writeup (not action now):** a proper ablation over the 16 state dims — which actually earn
+   their place — should be done before any state-design claim goes in a paper. Dim 6's training-time
+   deadness and the train/eval support mismatch are the first things such an ablation must confront.
+
 ## Meta-lesson (the most transferable result of this phase)
 
 **Twice in this project we were misled by evaluating on a quantity that is not the training
