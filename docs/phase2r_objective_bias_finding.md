@@ -127,12 +127,70 @@ a **model-selection failure** (the good 900k-era policy was not kept; both `best
 are the collapsed policy). The good policy is sitting recoverable in the checkpoint directory
 (`ckpt_900000_steps`).
 
-**Next diagnostic (not yet done):** identify what destabilizes the policy around 1.1M — inspect the
-logged training metrics (entropy, approx_kl, clip_fraction, explained_variance, value_loss) across the
-collapse window. Candidate levers once the mechanism is known: KL-based or early stopping (the good
-policy is at ~900k), entropy-coefficient / LR-schedule adjustment, and fixing checkpoint selection to
-retain the best-by-reward policy. Do not adopt a specific mechanism as fact before reading those
-metrics.
+## Collapse mechanism: a gradual entropy-decay slide, NOT a sharp destabilizing update (measured)
+
+Parsed the logged training metrics across the collapse window (`/tmp/train_phase2r_full.log` +
+`_resume.log`). The two candidate signatures were: a **sharp event** (a KL/clip spike at one update
+batch → fix = KL early-stopping) vs. a **gradual slide** (smooth entropy decay + monotonic drift to
+action 0 → fix = entropy floor + reward shaping). The data is unambiguous: **gradual slide.**
+
+- **Entropy decays smoothly and monotonically** (`entropy_loss`, i.e. −entropy): −2.13 (900k) →
+  −2.19 (1.1M) → −1.49 (1.2M) → −1.72 (1.5M) → −1.03 (1.7M) → −0.67 (2.0M) → −0.38 (2.1M). A steady
+  ~1M-step decline toward determinism, tracking the checkpoint action-drift (wait-frac 0.0 → 0.74 →
+  1.0) rather than jumping.
+- **No sharp KL event.** The largest `approx_kl` in the *entire 3M-step run* is 0.055; at the collapse
+  onset (~1.02M) it is 0.037 — a modest ~3× bump over the ~0.01 baseline, nowhere near a
+  destabilizing update (clip_range=0.2 absorbs it). There is no single batch to "stop before."
+- **Reward degrades gradually** alongside: `ep_rew_mean` drifts from −0.0050 (1.0M) worse over the
+  window, confirming the slide moves the policy *off* its good optimum, not a discontinuous break.
+
+**Self-reinforcing mechanism (consistent with the data, stated as the working explanation):** as
+entropy decays the agent samples the execute actions less and less, so it receives progressively less
+gradient signal about how good executing is, while the immediate per-fill cost of trading stays
+visible whenever it does trade. A policy that trades less sees mostly "trading costs me now" and
+rarely samples the counterfactual "executing avoids the terminal dump" → it drifts deeper into the
+do-nothing (action 0) corner, which lowers entropy further, which reduces execution sampling further.
+A self-reinforcing entropy-collapse drift into the action-space corner that avoids the *immediate*
+cost.
+
+## The action-corner unifying hypothesis: PARTIALLY supported, NOT the strong version
+
+Hypothesis tested: v5 collapsed to action 19 (dump-all) under adversarial LOB; v6 collapsed to action
+0 (do-nothing) with a delayed forced-liq penalty — two absorbing corners at opposite ends of the
+action space, one mechanism (drift into whichever corner avoids the immediate cost; which corner
+depends on whether trading or waiting is the immediately-costly one).
+
+What the data supports: **the gradual entropy-decay drift mechanism is common to both runs.** v5's
+TensorBoard telemetry shows the same smooth entropy decline (−2.98 → −1.56 over 1.54M steps) with no
+sharp KL event (max 0.067, at step 49k — early, not a collapse). So the *mechanism* (gradual
+entropy-driven drift, not a destabilizing update) is shared.
+
+What the data does **not** support: the strong "same pathology" claim. **v5's `ep_rew_mean` is flat
+and stable (−0.0050 to −0.0053) all the way to its 1.54M endpoint — it shows no late reward-degrading
+collapse at all**, unlike v6. v5's saved checkpoints stop at 800k, so its endpoint action distribution
+could not be inspected, and the "v5 → action 19" characterization is from prior project history, not
+re-measured here; v5's stable reward telemetry actively argues against v5 having suffered v6's
+reward-degrading collapse (if v5 did drift toward dump-all under adversarial liquidity withdrawal,
+that may have been reward-neutral or even near-optimal there, i.e. not a pathology). **Honest verdict:
+common drift mechanism, yes; "two instances of the same failure," not established — and partly
+contradicted by v5's stable reward.** Do not write the strong unification into any external record.
+
+## Implied fix (for the collapse specifically)
+
+Because it is a gradual entropy-decay slide, not a sharp event, the fix is **not** KL early-stopping.
+The indicated levers, in order:
+
+1. **Entropy floor / higher `ent_coef` late in training** (or a target-entropy schedule that does not
+   anneal to near-zero) — directly opposes the self-reinforcing entropy collapse.
+2. **Best-by-reward checkpoint selection + early stopping** — a reward-optimal policy exists at ~900k;
+   retaining it (and/or stopping once eval reward plateaus and entropy starts collapsing) recovers a
+   good model immediately, independent of preventing the drift. Requires fixing the `EvalCallback`
+   single-date selection first.
+3. **Reward shaping to surface the delayed terminal cost earlier** (e.g. per-step inventory-holding
+   penalty scaled to remaining exposure) — attacks the immediate-vs-delayed asymmetry that biases the
+   drift toward the do-nothing corner. Secondary; test only if 1+2 are insufficient.
+
+Do not retrain until a fix is chosen from these; the diagnosis now points at (1)+(2) first.
 
 ---
 
