@@ -89,17 +89,50 @@ its own reward prefers. It is *not* a policy correctly optimizing a mis-specifie
 - **The wait-collapse persisting *after* that fix is the real open problem** — and it is a training
   failure, diagnosed next.
 
-## Leading hypothesis for the training failure (NOT yet verified — do not treat as fact)
+## The training failure is LATE-TRAINING POLICY COLLAPSE (measured, decisive)
 
-Episodes are ~500 steps. Trading incurs **immediate, per-fill** small negative rewards; the penalty
-for waiting is a **single, delayed** terminal forced-liquidation cost ~500 steps later. This is the
-classic long-horizon **credit-assignment** setup: the agent learns to avoid the visible immediate
-cost of trading and never properly propagates the large delayed penalty back to the decision to
-wait, collapsing onto action 0 (the trivial do-nothing default). Two independent 3M-step runs
-collapsing identically is consistent with a *systematic* optimization failure — but it is also
-consistent with other systematic causes. **This is a hypothesis to test (shorter horizons, reward
-shaping to surface the terminal cost earlier, or exploration/entropy changes), not an established
-conclusion.** Verify with a cheap smoke test before adopting it.
+The credit-assignment-via-long-horizon hypothesis was tested and is **not** the cause. A controlled
+two-arm smoke experiment (`rl/phase2r_horizon_experiment.py`, 80k steps each, identical but for
+horizon: SHORT=60 vs LONG=800 fixed steps, gamma=0.99) had **both** arms learn to execute
+(wait-fraction 0.000) — the LONG arm did not collapse. That experiment was, however, too short to
+reach the collapse regime (see below), so it is *inconclusive on horizon* rather than a clean
+falsification. What is decisive is the **checkpoint trajectory of the actual 3M-step run** (every
+saved checkpoint, wait-fraction on a crash date and a rally date):
+
+| checkpoint | 2024-03-05 wait-frac | 2024-11-06 wait-frac |
+|---|---:|---:|
+| 100k – 900k | **0.000** | **0.000** |
+| 1.1M | 0.741 | 0.802 |
+| 1.3M – 1.7M | 0.56 – 0.80 | 0.70 – 1.00 |
+| 2.0M – 3.0M | **1.000** | **1.000** |
+
+**The agent learns a good execution policy by 100k, holds it cleanly through ~900k, then collapses
+to blanket-wait between 1.1M and 2.0M and locks there.** The collapse onset (~1.1M) is well before
+the mid-run OOM crash/resume (~1.7M), so it is not a resume artifact.
+
+The 900k checkpoint is not merely "not collapsed" — it is **reward-optimal**, matching or beating a
+trivial 10%/step baseline on its own reward on every date tested:
+
+| date | ckpt 900k | ckpt 3M (final) | trivial 10%/step |
+|---|---:|---:|---:|
+| 2024-03-05 | **−0.00445** | −0.07981 | −0.00459 |
+| 2024-11-06 | −0.00498 | −0.01007 | −0.00481 |
+| 2024-08-05 | **−0.00459** | −0.01061 | −0.00462 |
+| 2024-01-15 | **−0.00435** | −0.00954 | −0.00458 |
+
+**So the run contained a genuinely good execution policy and then destroyed it.** This reframes the
+problem entirely: it is not "the agent can't learn execution" (it did, by 100k) — it is **late-training
+policy collapse / catastrophic forgetting of a reward-optimal policy**, a known PPO failure mode, plus
+a **model-selection failure** (the good 900k-era policy was not kept; both `best_model` and `_final`
+are the collapsed policy). The good policy is sitting recoverable in the checkpoint directory
+(`ckpt_900000_steps`).
+
+**Next diagnostic (not yet done):** identify what destabilizes the policy around 1.1M — inspect the
+logged training metrics (entropy, approx_kl, clip_fraction, explained_variance, value_loss) across the
+collapse window. Candidate levers once the mechanism is known: KL-based or early stopping (the good
+policy is at ~900k), entropy-coefficient / LR-schedule adjustment, and fixing checkpoint selection to
+retain the best-by-reward policy. Do not adopt a specific mechanism as fact before reading those
+metrics.
 
 ---
 
