@@ -962,6 +962,7 @@ impl RlEnv {
             "remaining": self.remaining,
             "fill_qty": fill_qty,
             "fill_price": fill_price,
+            "book_mid": book_mid,
             "is_contribution": -(fill_cost + perm_cost),
             "regime": self.regime_label(),
         });
@@ -1152,6 +1153,7 @@ impl RlEnv {
             "remaining": self.remaining,
             "fill_qty": fill_qty,
             "fill_price": fill_price,
+            "book_mid": book_mid,
             "btc_scale": self.cfg.btc_target / total,
             "is_contribution": -(fill_cost + perm_cost),
             "regime": self.regime_label(),
