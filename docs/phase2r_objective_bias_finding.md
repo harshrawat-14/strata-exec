@@ -234,6 +234,32 @@ Three quick code checks run before touching training, given this project's sign-
    their place — should be done before any state-design claim goes in a paper. Dim 6's training-time
    deadness and the train/eval support mismatch are the first things such an ablation must confront.
 
+## Collapse-fix smoke test (condition C) — INCONCLUSIVE on the floor, due to an LR confound
+
+Ran the fixed config (entropy floor + multi-date reward selection + resume-safe best) to 1.3M steps
+on CPU, past the historical ~1.1M collapse onset. Results:
+
+- **The policy did not collapse.** Entropy held at ~2.26 across 1.0M–1.3M; the final and best models
+  execute cleanly (wait-fraction 0.000 on all dates including both crash dates).
+- **But this does NOT validate the entropy floor**, for two reasons:
+  1. **The floor never engaged** — `ent_coef` stayed at its base 0.05 the entire run, because entropy
+     never fell below the 1.2 floor. The safety net was present but untriggered, so its active
+     behavior is unproven here.
+  2. **LR-schedule confound.** The linear LR schedule anneals over `total_timesteps`, so the 1.3M
+     smoke had LR ≈ 4.7e-5 at 1.1M vs the original 3M run's ≈ 1.9e-4 at the same step (~4× lower).
+     The original collapse coincided with sustained ~1.9e-4 LR eroding entropy (2.19 → 1.49 over
+     1.1M–1.2M); the smoke's much smaller updates plausibly prevented that erosion **independent of
+     the floor**. Matched-step comparison confirms it: at 1.1M the smoke and original had nearly
+     identical entropy (2.20 vs 2.19) but 4× different LR, and only the original then declined.
+
+**Honest verdict (per condition C):** the smoke shows the fixed config produces a good executing
+policy at 1.3M, but it **cannot attribute the non-collapse to the entropy floor** — the floor was
+never exercised, and the compressed-LR confound could independently explain it. A clean validation
+needs either (a) a discriminating run at constant LR ≈ 1.9e-4 (reproducing the collapse-region LR, to
+see whether entropy then collapses and whether the floor catches it), or (b) the full 3M retrain with
+the real LR schedule, where the floor engages if entropy drops. This smoke does not, on its own,
+prove the fix.
+
 ## Meta-lesson (the most transferable result of this phase)
 
 **Twice in this project we were misled by evaluating on a quantity that is not the training
