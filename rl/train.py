@@ -397,6 +397,7 @@ def train(
     resume_from: str = None,
     resume_mlflow_run_id: str = None,
     force_device: str = None,
+    base_lr: float = 3e-4,
 ):
     """
     resume_from: path to a saved checkpoint (e.g. from CheckpointCallback)
@@ -481,7 +482,7 @@ def train(
         if jump_diffusion:
             print("  Jump diffusion: Poisson jump events ACTIVE")
         print(f"  ent_coef: {ent_coef}")
-        print(f"  lr_schedule: {lr_schedule} (base_lr=3e-4)")
+        print(f"  lr_schedule: {lr_schedule} (base_lr={base_lr:.2e})")
         print(f"  LSTM: {lstm_hidden} hidden × {lstm_layers} layers")
         print(f"  n_state_dims: {n_state_dims}"
               f"{' (time features s12-s15 included)' if n_state_dims == 16 else ''}")
@@ -568,7 +569,7 @@ def train(
                 policy="MlpLstmPolicy",
                 env=train_env,
                 device=device,
-                learning_rate=get_lr_schedule(lr_schedule, 3e-4, total_timesteps),
+                learning_rate=get_lr_schedule(lr_schedule, base_lr, total_timesteps),
                 n_steps=2048,
                 batch_size=256,
                 n_epochs=10,
@@ -692,6 +693,10 @@ if __name__ == "__main__":
                    help="Force a torch device instead of auto-detecting. Useful "
                         "for fast CPU smoke tests (MPS has no throughput edge for "
                         "this small LSTM and degrades on long runs).")
+    p.add_argument("--base-lr", type=float, default=3e-4,
+                   help="Base learning rate the lr-schedule scales. Default 3e-4. "
+                        "Set with --lr-schedule constant to hold a fixed LR (e.g. "
+                        "the Phase 2R collapse-region isolation test at 1.9e-4).")
     args = p.parse_args()
 
     multi_dates = None
@@ -723,4 +728,5 @@ if __name__ == "__main__":
         resume_from=args.resume_from,
         resume_mlflow_run_id=args.resume_mlflow_run_id,
         force_device=args.device,
+        base_lr=args.base_lr,
     )
