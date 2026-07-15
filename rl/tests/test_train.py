@@ -26,7 +26,107 @@ from train import (  # noqa: E402
     train,
     MLflowMetricsCallback,
     MemoryLoggingCallback,
+    AdaptiveEntropyCallback,
+    ResumeSafeEvalCallback,
 )
+
+
+class _FakeLogger:
+    def __init__(self, entropy_loss):
+        self.name_to_value = {"train/entropy_loss": entropy_loss}
+
+
+class _FakeModel:
+    def __init__(self, entropy_loss, ent_coef):
+        self.logger = _FakeLogger(entropy_loss)
+        self.ent_coef = ent_coef
+
+
+class TestAdaptiveEntropyCallback:
+    """Phase 2R fix (1): the entropy floor must RAISE ent_coef when entropy is
+    below the floor and RELAX it back toward base when entropy recovers -- the
+    control loop that prevents the late-training collapse."""
+
+    @pytest.fixture(autouse=True)
+    def _no_mlflow(self, monkeypatch):
+        # The callback logs to mlflow; stub it so unit tests don't open (and leak)
+        # a global mlflow run that would collide with other tests' run setup.
+        import train
+        monkeypatch.setattr(train.mlflow, "log_metrics", lambda *a, **k: None)
+
+    def _fire(self, cb, entropy_loss):
+        # entropy_loss = -entropy; drive one rollout-end with a given entropy.
+        cb.model.logger.name_to_value["train/entropy_loss"] = entropy_loss
+        cb._on_rollout_end()
+        return cb.model.ent_coef
+
+    def test_raises_coef_below_floor(self):
+        cb = AdaptiveEntropyCallback(base_coef=0.05, floor=1.2, max_coef=0.5, up=1.5)
+        cb.model = _FakeModel(entropy_loss=-0.4, ent_coef=0.05)  # entropy=0.4 < floor
+        cb.num_timesteps = 1000
+        new = self._fire(cb, -0.4)
+        assert new > 0.05, f"ent_coef must rise below the floor, got {new}"
+
+    def test_caps_at_max(self):
+        cb = AdaptiveEntropyCallback(base_coef=0.05, floor=1.2, max_coef=0.2, up=1.5)
+        cb.model = _FakeModel(entropy_loss=-0.1, ent_coef=0.19, )
+        cb.num_timesteps = 1000
+        new = self._fire(cb, -0.1)
+        assert new <= 0.2 + 1e-9, f"ent_coef must be capped at max_coef, got {new}"
+
+    def test_relaxes_toward_base_above_floor(self):
+        cb = AdaptiveEntropyCallback(base_coef=0.05, floor=1.2, margin=0.3, down=0.9)
+        cb.model = _FakeModel(entropy_loss=-2.0, ent_coef=0.30)  # entropy=2.0 > floor+margin
+        cb.num_timesteps = 1000
+        new = self._fire(cb, -2.0)
+        assert new < 0.30, f"ent_coef must relax when entropy is high, got {new}"
+        assert new >= 0.05, "ent_coef must not fall below base_coef"
+
+    def test_noop_before_first_update(self):
+        cb = AdaptiveEntropyCallback(base_coef=0.05)
+        cb.model = _FakeModel(entropy_loss=None, ent_coef=0.05)
+        cb.model.logger.name_to_value.pop("train/entropy_loss")
+        cb.num_timesteps = 0
+        cb._on_rollout_end()  # must not raise
+        assert cb.model.ent_coef == 0.05
+
+
+class TestResumeSafeEvalCallback:
+    """Phase 2R fix (3): best_mean_reward must survive a resume, or the first
+    post-resume eval overwrites best_model with whatever (possibly collapsed)
+    policy the resume started from. Tests the load/persist logic in isolation
+    (bypassing EvalCallback.__init__, which needs a live eval env)."""
+
+    def _bare(self, path, load_prior_best):
+        cb = ResumeSafeEvalCallback.__new__(ResumeSafeEvalCallback)
+        cb._best_reward_path = str(path)
+        cb._load_prior_best = load_prior_best
+        cb.best_mean_reward = float("-inf")
+        return cb
+
+    def test_resume_loads_prior_best(self, tmp_path):
+        import json
+        p = tmp_path / "best_mean_reward.json"
+        json.dump({"best_mean_reward": -0.0045}, open(p, "w"))
+        cb = self._bare(p, load_prior_best=True)
+        cb._on_training_start()
+        assert cb.best_mean_reward == -0.0045, (
+            "resume must load the pre-resume best so a collapsed resumed policy "
+            "cannot overwrite best_model without beating it")
+
+    def test_fresh_run_does_not_load(self, tmp_path):
+        import json
+        p = tmp_path / "best_mean_reward.json"
+        json.dump({"best_mean_reward": -0.0045}, open(p, "w"))
+        cb = self._bare(p, load_prior_best=False)
+        cb._on_training_start()
+        assert cb.best_mean_reward == float("-inf"), (
+            "a fresh (non-resume) run must start from -inf, not a stale file")
+
+    def test_missing_file_is_safe(self, tmp_path):
+        cb = self._bare(tmp_path / "does_not_exist.json", load_prior_best=True)
+        cb._on_training_start()  # must not raise
+        assert cb.best_mean_reward == float("-inf")
 
 
 class TestCosineWithRestarts:

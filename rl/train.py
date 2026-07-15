@@ -88,6 +88,136 @@ class MemoryLoggingCallback(BaseCallback):
         }, step=self.num_timesteps)
 
 
+class AdaptiveEntropyCallback(BaseCallback):
+    """
+    Phase 2R fix (1): an entropy FLOOR that actively opposes the late-training
+    policy collapse.
+
+    The v6r run collapsed from an execution policy (entropy ~2.1) to blanket-wait
+    (entropy ~0.38) between 1.1M and 2.0M steps, a self-reinforcing entropy-decay
+    slide -- and it did so DESPITE a constant ent_coef=0.05 (SB3 does not anneal
+    ent_coef; a fixed coefficient was not enough to hold entropy up). So a fixed
+    coefficient is insufficient; this callback adapts it: when the policy's
+    entropy drops below `floor`, ent_coef is raised (up to `max_coef`); when
+    entropy recovers above `floor + margin`, ent_coef relaxes back toward
+    `base_coef`. This is a standard adaptive-entropy control loop (cf. SAC target
+    entropy), targeting a minimum exploration level rather than a fixed bonus.
+
+    Entropy is read from SB3's own `train/entropy_loss` (= -entropy) logged each
+    update, so no extra forward passes. For a 20-action space, max entropy is
+    ln(20) ~ 3.0; a floor around 1.0-1.3 keeps the policy meaningfully stochastic
+    without forcing uniformity.
+    """
+
+    def __init__(self, base_coef, floor=1.2, margin=0.3, max_coef=0.5,
+                 up=1.5, down=0.9, verbose=0):
+        super().__init__(verbose)
+        self.base_coef = float(base_coef)
+        self.floor = float(floor)
+        self.margin = float(margin)
+        self.max_coef = float(max_coef)
+        self.up = float(up)
+        self.down = float(down)
+
+    def _current_entropy(self):
+        ent_loss = self.model.logger.name_to_value.get("train/entropy_loss")
+        if ent_loss is None:
+            return None
+        return -float(ent_loss)  # entropy_loss is -entropy
+
+    def _on_step(self) -> bool:
+        return True
+
+    def _on_rollout_end(self) -> None:
+        entropy = self._current_entropy()
+        if entropy is None:
+            return  # no update has happened yet (first rollout)
+        coef = float(self.model.ent_coef)
+        if entropy < self.floor:
+            coef = min(coef * self.up, self.max_coef)
+        elif entropy > self.floor + self.margin:
+            coef = max(coef * self.down, self.base_coef)
+        self.model.ent_coef = coef
+        mlflow.log_metrics(
+            {"policy_entropy": entropy, "ent_coef": coef}, step=self.num_timesteps)
+        if self.verbose:
+            print(f"  [entropy-floor] entropy={entropy:.3f} -> ent_coef={coef:.4f}")
+
+
+class ResumeSafeEvalCallback(EvalCallback):
+    """
+    Phase 2R fix (3): persist `best_mean_reward` across a resume.
+
+    SB3's EvalCallback initializes `best_mean_reward = -inf` in __init__. Because
+    train() rebuilds its callback list every call, a resumed run gets a FRESH
+    EvalCallback with best = -inf -- so the first post-resume eval overwrites
+    `best_model` regardless of how bad the resumed policy is. In the v6r run the
+    resume happened at ~1.7M when the policy was already collapsed, so the good
+    ~900k-era best_model was discarded and best_model became a collapsed policy.
+
+    This subclass writes `best_mean_reward` to a sidecar JSON whenever it improves,
+    and (when `load_prior_best=True`, i.e. on resume) loads it back at training
+    start so the resumed run must BEAT the pre-resume best before overwriting
+    best_model.
+    """
+
+    def __init__(self, *args, best_reward_path=None, load_prior_best=False, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._best_reward_path = best_reward_path
+        self._load_prior_best = load_prior_best
+
+    def _on_training_start(self) -> None:
+        if (self._load_prior_best and self._best_reward_path
+                and os.path.exists(self._best_reward_path)):
+            import json
+            with open(self._best_reward_path) as f:
+                prior = json.load(f).get("best_mean_reward")
+            if prior is not None:
+                self.best_mean_reward = float(prior)
+                print(f"  [resume-safe-eval] loaded prior best_mean_reward="
+                      f"{self.best_mean_reward:.6f}")
+
+    def _on_step(self) -> bool:
+        prev_best = self.best_mean_reward
+        result = super()._on_step()
+        if (self._best_reward_path is not None
+                and self.best_mean_reward > prev_best):
+            import json
+            with open(self._best_reward_path, "w") as f:
+                json.dump({"best_mean_reward": self.best_mean_reward}, f)
+        return result
+
+
+def make_multi_date_eval_env(mode, adversarial, eval_dates, btc_target,
+                             n_state_dims, jump_diffusion, no_time_features):
+    """
+    Phase 2R fix (2): a MULTI-date eval env for best-model selection.
+
+    The original eval env was a single date (multi_dates[0] = 2024-01-15, a
+    trending-up date where waiting scores acceptably), so best-model selection --
+    even though it selects on reward -- was blind to crash-day behavior and could
+    not distinguish a wait-collapsed policy from a good one on the dimension that
+    matters most. This builds one sub-env per eval date (all training dates PLUS
+    the held-out crash dates), so EvalCallback's mean reward is averaged across
+    all regimes and a policy that collapses on crash days is correctly penalized.
+
+    CAVEAT (documented, for the writeup): including the held-out crash dates in
+    best-model SELECTION means their eval numbers are no longer a clean held-out
+    generalization measure for the selected model. Per explicit instruction, crash
+    behavior must count in selection (or the single-trending-date pathology
+    returns); if a pure generalization claim on the crash dates is later needed, a
+    separate untouched test date must be reserved.
+    """
+    def _one(date):
+        return lambda: Monitor(StrataExecEnv(
+            mode=mode, adversarial=adversarial, lob_date=date, agg_date=date,
+            btc_target=btc_target, n_state_dims=n_state_dims, seed=9999,
+            fixed_steps=True, fixed_size=True, jump_diffusion=jump_diffusion,
+            no_time_features=no_time_features,
+        ))
+    return DummyVecEnv([_one(d) for d in eval_dates])
+
+
 def get_device() -> str:
     if torch.backends.mps.is_available():
         print("Device: Apple MPS (GPU) + CPU LSTM")
@@ -308,17 +438,16 @@ def train(
         else mlflow.start_run(run_name=run_name)
     )
     with mlflow_run_ctx:
-        # Re-logging params to an already-populated run_id would raise on any
-        # param whose value legitimately differs this time (total_timesteps
-        # here means "remaining steps", not the original run's total) --
-        # log a distinguishing resume record instead of re-asserting params
-        # that were already set correctly by the original run.
+        # Re-logging as PARAMS to an already-populated run_id would raise on
+        # any key whose value legitimately differs this time (params are
+        # write-once in mlflow) -- e.g. a second resume of the same run_id
+        # would collide with the first resume's own resumed_from record.
+        # Tags are mutable, so use those instead for anything that can
+        # reasonably change across repeated resumes of one run.
         if resume_mlflow_run_id:
-            mlflow.log_params({
-                "resumed_from": resume_from,
-                "resumed_remaining_timesteps": total_timesteps,
-                "resumed_n_envs": n_envs,
-            })
+            mlflow.set_tag("resumed_from", resume_from)
+            mlflow.set_tag("resumed_remaining_timesteps", total_timesteps)
+            mlflow.set_tag("resumed_n_envs", n_envs)
         else:
             mlflow.log_params(dict(
                 lstm_hidden=lstm_hidden,
@@ -379,29 +508,23 @@ def train(
         env_fns = [make_env(**env_kwargs) for _ in range(n_envs)]
         train_env = SubprocVecEnv(env_fns)
 
-        eval_lob_date = None
-        eval_agg_date = None
-        if mode == "counterfactual":
-            if multi_dates:
-                eval_lob_date = multi_dates[0]
-                eval_agg_date = multi_dates[0]
-            else:
-                eval_lob_date = lob_date
-                eval_agg_date = agg_date
-
-        eval_env = DummyVecEnv([lambda: Monitor(StrataExecEnv(
-            mode=mode,
-            adversarial=adversarial,
-            lob_date=eval_lob_date,
-            agg_date=eval_agg_date,
-            btc_target=btc_target,
-            n_state_dims=n_state_dims,
-            seed=9999,
-            fixed_steps=True,
-            fixed_size=True,
-            jump_diffusion=jump_diffusion,
-            no_time_features=no_time_features,
-        ))])
+        # Phase 2R fix (2): eval across ALL dates (training + held-out crash),
+        # not the single trending-up date multi_dates[0]. See
+        # make_multi_date_eval_env for the rationale and the held-out-in-selection
+        # caveat.
+        if mode == "counterfactual" and multi_dates:
+            from evaluate import HELD_OUT_CRASH_DATES
+            eval_dates = list(dict.fromkeys(multi_dates + list(HELD_OUT_CRASH_DATES)))
+        elif mode == "counterfactual":
+            eval_dates = [lob_date]
+        else:
+            eval_dates = [lob_date] if lob_date else [None]
+        print(f"Eval (best-model selection) dates: {eval_dates}")
+        eval_env = make_multi_date_eval_env(
+            mode=mode, adversarial=adversarial, eval_dates=eval_dates,
+            btc_target=btc_target, n_state_dims=n_state_dims,
+            jump_diffusion=jump_diffusion, no_time_features=no_time_features,
+        )
 
         device = get_device()
 
@@ -471,17 +594,25 @@ def train(
         if device == "mps":
             _patch_mps_lstm(model.policy)
 
+        # eval enough episodes that every date gets a fair sample (>=5 each).
+        n_eval_episodes = max(50, len(eval_dates) * 5)
         callbacks = [
-            EvalCallback(
+            # Phase 2R fix (2)+(3): reward-based selection across ALL dates, with
+            # best_mean_reward persisted across resume.
+            ResumeSafeEvalCallback(
                 eval_env,
                 best_model_save_path=f"{save_path}{run_name}_best",
-                eval_freq=50_000 // 4,
-                n_eval_episodes=50,
+                best_reward_path=f"{save_path}{run_name}_best/best_mean_reward.json",
+                load_prior_best=bool(resume_from),
+                eval_freq=max(50_000 // n_envs, 1),
+                n_eval_episodes=n_eval_episodes,
                 deterministic=True,
                 verbose=1,
             ),
+            # Phase 2R fix (1): entropy floor to prevent the late-training collapse.
+            AdaptiveEntropyCallback(base_coef=ent_coef, floor=1.2, verbose=1),
             CheckpointCallback(
-                save_freq=100_000 // 4,
+                save_freq=100_000 // n_envs,
                 save_path=f"{save_path}checkpoints/{run_name}/",
                 name_prefix="ckpt",
             ),
