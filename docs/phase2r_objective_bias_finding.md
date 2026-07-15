@@ -260,6 +260,53 @@ see whether entropy then collapses and whether the floor catches it), or (b) the
 the real LR schedule, where the floor engages if entropy drops. This smoke does not, on its own,
 prove the fix.
 
+## Task 1 — LR-vs-entropy isolation: the collapse does NOT reproduce on CPU (outcome 3)
+
+Ran constant LR = 1.9e-4 (the original's collapse-onset LR) on CPU to 1.3M, fixed config, floor
+armed. **The collapse did not reproduce:** entropy held ~2.0 across the whole run (lowest ~1.77 at
+1.27M), never approached the 1.2 floor, the floor never engaged (ent_coef stayed 0.05), and the final
+policy executes (wait-frac 0.000 on all dates). At the matched step/LR where the original collapsed
+(1.1M–1.2M: original entropy 2.19 → 1.49), this run stayed ~2.0.
+
+Cross-run summary (all on the same env/dates):
+
+| run | device | LR profile | entropy @1.1M–1.2M | collapsed? |
+|---|---|---|---|---|
+| original v6r (3M) | **MPS** | linear 3e-4→0 over 3M (1.9e-4 at 1.1M) | 2.19 → 1.49 | **YES** |
+| entropy-floor smoke | CPU | linear 3e-4→0 over 1.3M (4.7e-5 at 1.1M) | ~2.26 | no |
+| constant-LR isolation | CPU | constant 1.9e-4 | ~2.0 | no |
+
+**What this rules out:**
+- **"Sustained collapse-region LR (1.9e-4) erodes entropy" — FALSIFIED.** Same LR on CPU, no collapse.
+- **"High early LR (3e-4) drives the collapse" — also not supported.** The smoke's early LR (0–300k)
+  was 3e-4 declining, identical to the original's early phase, on CPU — no collapse.
+- **The fixed-config changes did NOT prevent it, and cannot be credited.** The entropy floor never
+  engaged (gradient-identical to no floor); the multi-date eval and resume-safe callbacks don't touch
+  training gradients. Attributing the non-collapse to "the fix" would be wrong.
+
+**What remains (the confound):** the only uncontrolled variable between the collapsing original and
+both healthy reproductions is **device — MPS (collapsed) vs CPU (both fine)** (plus the original's
+full 3M-schedule trajectory, but both LR regimes it passed through were separately tested on CPU
+without collapse). Given this project's documented MPS instability history (the `_patch_mps_lstm` LSTM
+workaround; the MPS-optimizer-device resume bug), **MPS numerical instability is now the leading
+hypothesis for the collapse** — not entropy dynamics, and not LR.
+
+**Consequences (honest):**
+- **The entropy floor is unvalidated as a fix** — it never had a collapse to catch, in any CPU run.
+  It remains a cheap, correct safety net, but it is NOT demonstrated to be the fix.
+- **The most-likely fix is simply "train on CPU"** — both CPU runs produce healthy executing policies,
+  and CPU is also faster here (~600–1800 fps vs MPS's degrading 12–545). But this is *not yet
+  confirmed as the cause*: the clean confirmation is an MPS run to 1.3M (does it collapse on MPS with
+  everything else matched?), which has not been run.
+- Do not claim the collapse is "fixed." State: the collapse does not reproduce on CPU; the leading
+  (unconfirmed) cause is MPS; the entropy floor is an untriggered safety net.
+
+**Awaiting direction before the full 3M retrain:** either (a) run the MPS-to-1.3M confirmation to nail
+device as the cause, or (b) pragmatically adopt CPU-training as the recipe (both CPU runs healthy) and
+proceed, noting the cause as most-likely-MPS-but-unconfirmed. The floor + multi-date-eval +
+resume-safe fixes stay regardless (correct on their own merits), but they are not what prevents the
+collapse.
+
 ## Meta-lesson (the most transferable result of this phase)
 
 **Twice in this project we were misled by evaluating on a quantity that is not the training
