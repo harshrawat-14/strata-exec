@@ -396,6 +396,7 @@ def train(
     no_time_features: bool = False,
     resume_from: str = None,
     resume_mlflow_run_id: str = None,
+    force_device: str = None,
 ):
     """
     resume_from: path to a saved checkpoint (e.g. from CheckpointCallback)
@@ -526,7 +527,9 @@ def train(
             jump_diffusion=jump_diffusion, no_time_features=no_time_features,
         )
 
-        device = get_device()
+        device = force_device if force_device else get_device()
+        if force_device:
+            print(f"Device: forced to {force_device} (--device override)")
 
         if resume_from:
             # Force CPU for resumed runs, regardless of get_device(). Found
@@ -684,6 +687,11 @@ if __name__ == "__main__":
                         "starting a fresh one, so a resumed run's metrics "
                         "land in the same tracked history as the original "
                         "(interrupted) run.")
+    p.add_argument("--device", type=str, default=None,
+                   choices=["cpu", "mps", "cuda"],
+                   help="Force a torch device instead of auto-detecting. Useful "
+                        "for fast CPU smoke tests (MPS has no throughput edge for "
+                        "this small LSTM and degrades on long runs).")
     args = p.parse_args()
 
     multi_dates = None
@@ -714,4 +722,5 @@ if __name__ == "__main__":
         n_envs=args.n_envs,
         resume_from=args.resume_from,
         resume_mlflow_run_id=args.resume_mlflow_run_id,
+        force_device=args.device,
     )
