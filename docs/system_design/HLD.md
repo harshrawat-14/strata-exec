@@ -10,7 +10,9 @@ held-out dates never seen during training? The system trains and evaluates
 five execution strategies — TWAP, a volatility/liquidity-adjusted Heuristic,
 Almgren-Chriss Optimal, a receding-horizon Adaptive AC, and a RecurrentPPO
 (LSTM) RL agent — inside a custom counterfactual limit-order-book
-environment with an Obizhaeva-Wang market-impact model, then serves the
+environment with a transient market-impact model (Obizhaeva-Wang-style
+permanent/temporary decay structure, square-root instantaneous magnitude
+— see the README's "Market Impact" section), then serves the
 results through a FastAPI backend and a React frontend, with a pre-computed
 demo mode for zero-compute production deployment.
 
@@ -85,8 +87,9 @@ demo mode for zero-compute production deployment.
    Pure historical replay has no causal feedback — the agent's own fills
    don't affect future snapshots, so an agent can dump its entire position
    with zero simulated consequence. The counterfactual LOB combines real
-   Binance L2 snapshots with an accumulated Obizhaeva-Wang impact model, so
-   a fill at step *t* measurably depletes the book the agent sees at step
+   Binance L2 snapshots with an accumulated transient-impact model (see
+   LLD.md's naming note), so a fill at step *t* measurably depletes the book
+   the agent sees at step
    *t+1*. This is what makes patient execution mechanically more profitable
    than instant liquidation. See
    [ADR-002](ADR.md#adr-002-counterfactual-lob-over-historical-replay).

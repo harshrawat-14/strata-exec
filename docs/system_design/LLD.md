@@ -8,13 +8,28 @@ affect the book the agent sees on the next step.
 
 ```rust
 pub struct CounterfactualLobConfig {
-    pub permanent_fraction: f64,   // 0.3 — Obizhaeva-Wang permanent impact share
+    pub permanent_fraction: f64,   // 0.3 — OW-style permanent impact share
     pub temporary_fraction: f64,   // 0.7 — decays exponentially
     pub rho: f64,                  // 5.0 — decay rate; half-life ~400 steps at dt=1/2880
     pub dt: f64,                   // 1.0 / total_steps
     pub btc_scale: f64,            // simulation-units -> BTC (e.g. 0.05)
     pub adv_btc: f64,              // average daily volume in BTC (240_000.0 default)
+    pub impact_coefficient: f64,   // Y in the square-root magnitude formula (0.1 default, uncalibrated)
+    pub sigma: f64,                // volatility term in the same formula (1.0 default = no-op)
 }
+```
+Naming note (Phase 2R): the permanent/temporary decay structure IS genuine
+Obizhaeva-Wang-style dynamics (each trade's temporary contribution tracked
+with its own timestamp and decayed individually — verified by reading
+`total_residual_impact()`). The instantaneous MAGNITUDE, however, is a
+square-root law (`impact_coefficient * sigma * sqrt(participation)`), not
+OW's linear form — a separate, well-supported empirical model. Calling the
+whole thing "Obizhaeva-Wang" mislabels the magnitude half.
+`CounterfactualLobConfig::calibrated(..)` fits `impact_coefficient`/`sigma`
+to real trade data (via `calibration::impact_fit::CalibrationEngine`,
+bridged from Binance aggTrades + LOB snapshot mids) instead of using the
+hardcoded defaults.
+```rust
 
 pub struct CounterfactualLob {
     replay: LobReplay,

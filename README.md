@@ -115,7 +115,8 @@ dates it never saw during training?
 
 **Evaluation methodology:** each strategy is run for 50 episodes per
 evaluation date (seeds 0-49), inside the counterfactual LOB environment
-(real Binance L2 snapshots + accumulated Obizhaeva-Wang own-impact). Eight
+(real Binance L2 snapshots + accumulated own-impact — see "Market Impact" below
+for what this model actually is). Eight
 evaluation dates span five market regimes (calm bull, breakout, quiet
 consolidation, crash, post-election surge) plus three dates originally
 documented as held-out out-of-sample tests (April, July, December).
@@ -144,9 +145,11 @@ alternatives for identified, specific reasons rather than vague
 ## Engineering Highlights
 
 - **CounterfactualLob design** — real Binance L2 snapshots combined with
-  an accumulated Obizhaeva-Wang impact model (30% permanent, 70%
-  exponentially-decaying temporary), giving the training environment causal
-  feedback that pure historical replay lacks. This is the single change
+  an accumulated transient-impact model (Obizhaeva-Wang-style permanent/
+  temporary decay structure — 30% permanent, 70% exponentially-decaying
+  temporary — paired with a square-root, not OW's linear, instantaneous
+  magnitude; see "Market Impact" below), giving the training environment
+  causal feedback that pure historical replay lacks. This is the single change
   that eliminated the degenerate instant-liquidation policy (see
   [Critical Engineering Decision #5](#5-degenerate-policy-in-synthetic-lob)
   and [ADR-002](docs/system_design/ADR.md#adr-002-counterfactual-lob-over-historical-replay)).
@@ -221,7 +224,7 @@ The Metal LSTM backward kernel allocates a workspace buffer indexed by sequence 
 
 **Problem:** Training on an unlimited-depth synthetic LOB, the agent immediately learned to sell everything in one step regardless of reward function. Square-root impact has concavity that makes instant liquidation locally optimal in any LOB with sufficient depth — the agent exploited this in iteration 1 and never escaped.
 
-**Fix:** CounterfactualLob with Obizhaeva-Wang accumulated depth impact. Selling aggressively depletes the visible book across steps, making future fills worse. The agent is forced to consider the sequential consequences of each trade. This was the single most important architectural change — without it, no reward shaping produced meaningful learning.
+**Fix:** CounterfactualLob with accumulated depth impact (OW-style permanent/temporary decay structure, square-root magnitude — see "Market Impact"). Selling aggressively depletes the visible book across steps, making future fills worse. The agent is forced to consider the sequential consequences of each trade. This was the single most important architectural change — without it, no reward shaping produced meaningful learning.
 
 ---
 
@@ -233,7 +236,7 @@ StrataExec is a three-mode system:
 
 2. **Research Simulator** (`research-sim`) — Runs Monte Carlo simulations over GBM/GARCH price paths with square-root market impact + transient decay, comparing Heuristic, Optimal, and Adaptive execution. Includes a full parameter sweep framework exporting structured CSV results.
 
-3. **RL Agent** (`rl-env` + Python) — A RecurrentPPO (LSTM) agent trained with `sb3-contrib` against the same Rust simulation engine. The Rust binary exposes a line-delimited JSON interface; `rl/environment.py` wraps it as a Gymnasium env. Supports three training modes: synthetic (GBM/GARCH), historical (real Binance LOB replay), and counterfactual (real LOB adjusted for own-impact via Obizhaeva-Wang).
+3. **RL Agent** (`rl-env` + Python) — A RecurrentPPO (LSTM) agent trained with `sb3-contrib` against the same Rust simulation engine. The Rust binary exposes a line-delimited JSON interface; `rl/environment.py` wraps it as a Gymnasium env. Supports three training modes: synthetic (GBM/GARCH), historical (real Binance LOB replay), and counterfactual (real LOB adjusted for own-impact via a transient-impact model — see "Market Impact").
 
 ---
 
@@ -561,7 +564,7 @@ Python (sb3-contrib RecurrentPPO)
        │
        ├── synthetic mode  →  GBM / GARCH price path
        ├── historical mode →  LobReplay (real Binance snapshots)
-       └── counterfactual  →  CounterfactualLob (real LOB + Obizhaeva-Wang impact)
+       └── counterfactual  →  CounterfactualLob (real LOB + transient-impact model)
               ├── AggTradesDay  (OFI per 30-second window)
               ├── MarketRegime  (vol × liq 3×3 classification)
               └── AdversarialBook (FrontRunner + LiquidityWithdrawer)
@@ -705,7 +708,7 @@ python rl/evaluate.py \
 - `LiquidityWithdrawer` — pulls bid depth after a large fill, restores it gradually
 - `FrontRunner` — detects sustained sell pressure and front-runs a fraction of our order
 
-**CounterfactualLob** (`market/counterfactual_lob.rs`) — Real Binance snapshots adjusted for own-impact using Obizhaeva-Wang (2013): 30% permanent impact + 70% temporary with exponential decay (ρ = 5, half-life ≈ 200 minutes). This is the training environment that eliminated degenerate instant-liquidation policies.
+**CounterfactualLob** (`market/counterfactual_lob.rs`) — Real Binance snapshots adjusted for own-impact using a transient-impact model: an Obizhaeva-Wang-style (2013) permanent/temporary decay structure (30% permanent impact + 70% temporary with exponential decay, ρ = 5, half-life ≈ 200 minutes) — verified genuine, not just a single aggregate number, by reading `total_residual_impact()` — combined with a square-root instantaneous magnitude (not OW's linear form; a separate, well-supported empirical literature). The magnitude coefficient can be calibrated to real trade data via `CounterfactualLobConfig::calibrated()` (Phase 2R); it defaults to an uncalibrated constant when aggTrades data isn't available for a date. This is the training environment that eliminated degenerate instant-liquidation policies.
 
 **RegimeAC** (`strategies/regime_ac.rs`) — Almgren–Chriss strategy with per-regime λ overrides. Urgency escalates from λ = 10⁻⁵ (low vol + deep book) to λ = 5×10⁻² (high vol + thin book). Greedy receding-horizon update diverges from global optimum (documented null result, Phase 3).
 
@@ -791,13 +794,26 @@ Produces volatility clustering; used for crash and surge regime simulation.
 
 ### Market Impact
 
-**Square-Root Impact** (empirical):
+**Note on naming (Phase 2R correction):** the RL training environment's `CounterfactualLob` combines
+BOTH models below into a single hybrid — the square-root magnitude formula for instantaneous impact
+size, decomposed via the Obizhaeva-Wang-style permanent/temporary split and exponential decay for how
+that impact evolves over time. Calling the combined model "Obizhaeva-Wang" (as earlier versions of
+this document did) mislabels the magnitude half, which is square-root, not OW's linear form. The
+decay/temporal structure genuinely is OW-style (verified by reading the implementation, not assumed);
+only the magnitude law is mixed in from a different, separately-supported literature.
+
+**Square-Root Impact** (empirical — this is `CounterfactualLob`'s instantaneous magnitude term):
 ```
 Impact = Y · σ · √(Q / V)
 ```
-Where Y = impact coefficient, Q = trade quantity, V = daily volume. Real Binance calibration shows Y ≈ 10× larger than synthetic model assumptions.
+Where Y = impact coefficient, Q = trade quantity, V = daily volume. `research_sim.rs`'s separate
+`SquareRootImpact` model supports `--calibrate` to fit Y from real Binance trade data (shown by one
+run to be ≈10× larger than the synthetic-model default — not a standing, continuously-verified claim,
+just that one calibration run's result). `CounterfactualLob` did not use this fitting until Phase 2R
+wired `CounterfactualLobConfig::calibrated()` in — before that, Y and σ were a hardcoded constant
+(0.1) and an implicit 1.0, respectively, for every RL training run.
 
-**Obizhaeva-Wang Transient Impact**:
+**Obizhaeva-Wang Transient Impact** (this is `CounterfactualLob`'s temporal/decay structure):
 ```
 permanent_reduction += 0.30 × base_impact
 temporary_reduction(t) = 0.70 × base_impact × exp(−ρ × steps_elapsed)
@@ -1049,7 +1065,7 @@ StrataExec/
 │   │   ├── lob_replay.rs       # Real Binance LOB snapshot replay
 │   │   ├── order_book.rs       # In-memory limit order book
 │   │   ├── agg_trades.rs       # Binance aggTrades CSV reader + OFI series
-│   │   ├── counterfactual_lob.rs # LOB + Obizhaeva-Wang own-impact correction
+│   │   ├── counterfactual_lob.rs # LOB + transient-impact own-impact correction
 │   │   ├── adversarial.rs      # FrontRunner + LiquidityWithdrawer agents
 │   │   ├── vpin.rs             # VPIN order-flow toxicity (Easley et al. 2012)
 │   │   └── regime.rs           # Vol × liquidity 3×3 regime classifier

@@ -756,12 +756,14 @@ def evaluate_all_strategies_on_date(
 ) -> dict:
     """
     Evaluate all 5 strategies on the same counterfactual LOB
-    environment using the same Obizhaeva-Wang impact model,
-    same real Binance price path, and same arrival price.
+    environment using the same transient-impact model (OW-style
+    permanent/temporary decay structure, square-root instantaneous
+    magnitude -- see README "Market Impact" for the Phase 2R naming
+    correction), same real Binance price path, and same arrival price.
 
     Replaces the mixed-framework comparison where TWAP/Heuristic
     used research-sim (Monte Carlo + square-root impact) and RL
-    used evaluate.py (real LOB + OW impact).
+    used evaluate.py (real LOB + this transient-impact model).
 
     ac_lambda: risk-aversion parameter shared by both AC-family policies
     (AC Optimal and Adaptive AC) in this comparison -- exposed here rather

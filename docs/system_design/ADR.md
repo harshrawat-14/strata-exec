@@ -36,8 +36,11 @@ time between the two languages. This is an accepted ongoing cost.
 **Status:** Accepted (supersedes pure historical replay, generation 1→2)
 
 **Decision:** Train and evaluate on a counterfactual LOB — real Binance L2
-snapshots combined with an accumulated Obizhaeva-Wang impact model — rather
-than pure historical replay of the raw order book.
+snapshots combined with an accumulated transient-impact model (an
+Obizhaeva-Wang-style permanent/temporary decay structure paired with a
+square-root instantaneous magnitude — see the README's "Market Impact"
+section for the Phase 2R naming correction) — rather than pure historical
+replay of the raw order book.
 
 **Alternatives considered:**
 - Pure historical replay (agent's fills have no effect on future snapshots)
