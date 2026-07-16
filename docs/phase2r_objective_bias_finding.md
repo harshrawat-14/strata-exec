@@ -352,6 +352,40 @@ is now far more defensible — wait-penalty dropped from the buggy ~−0.96 to ~
 **Verdict: fix confirmed necessary and applied before the ablation, per instruction.** Gate 1
 cleared.
 
+## Gate 2 — integrated smoke test (entropy floor + CPU + calibrated impact + drift-restored env, together for the first time)
+
+Ran 400k steps (16-dim, real training config, CPU) as a first integration check before committing
+to two full 3M ablation runs. Result: **clean.**
+
+- Ran to completion at ~612 fps, no crash, no NaN, no error.
+- Entropy declined gently 2.99 → 1.80 over 400k steps — normal early-training annealing, not a
+  collapse slope. The floor never needed to engage (as expected this early).
+- Action distribution per date (8 seeds, deterministic): `a0_frac` 24–50% with **5–7 unique actions
+  used per date** — healthy exploration, not the collapse signature (`a0_frac≈1.0, n_unique=1`) seen
+  in both prior collapsed models. **Zero drift to action 19** on any date.
+
+**Caveat, stated plainly:** 400k steps is 13% of a full 3M schedule, and both prior collapses (v6r,
+and the original v6) only manifested much later (~1.1M onset). This smoke cannot and does not claim
+immunity from a late collapse — that is what the full 3M runs will test, with the entropy floor as
+the (still-unvalidated-in-practice) safety net and CPU as the operationally-adopted device. What it
+does confirm: the four pieces (entropy floor, CPU, calibrated impact, drift-restored env) run
+together without fighting each other structurally. Gate 2 cleared for its intended narrow purpose.
+
+## Gate 3 — train/eval state consistency: dim 6 resolved, dims 8/9 remain (architectural, not a bug)
+
+Confirmed the Task 4 ablation harness (`evaluate_all_strategies_on_date`) uses `mode="historical"`
+throughout. Dim 6 (fixed in Task 3) is now consistent between train (counterfactual) and eval
+(historical). **Dims 8/9 (own-impact fractions) are not** — measured directly: `std=0.0` in
+historical mode, `std≈0.07` in counterfactual mode, unchanged from before Task 3.
+
+This is architecturally different from dim 6's fix and was flagged as a decision, not something
+fixed unilaterally: historical mode is intentionally "pure replay, no causal feedback" (no `cf_lob`
+exists in that mode at all), so dims 8/9 cannot be non-zero there without a materially bigger
+architectural change (giving historical mode its own impact model, or switching the eval harness to
+counterfactual mode — which would break comparability with every prior historical-mode-based report
+back to Phase 0/1). **Awaiting explicit direction on which path Task 4 takes; not resolved as of this
+entry.**
+
 ## Pre-fix code verifications (requested before the collapse fix; each with a test)
 
 Three quick code checks run before touching training, given this project's sign-bug history:
