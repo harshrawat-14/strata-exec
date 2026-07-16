@@ -301,11 +301,37 @@ hypothesis for the collapse** — not entropy dynamics, and not LR.
 - Do not claim the collapse is "fixed." State: the collapse does not reproduce on CPU; the leading
   (unconfirmed) cause is MPS; the entropy floor is an untriggered safety net.
 
-**Awaiting direction before the full 3M retrain:** either (a) run the MPS-to-1.3M confirmation to nail
-device as the cause, or (b) pragmatically adopt CPU-training as the recipe (both CPU runs healthy) and
-proceed, noting the cause as most-likely-MPS-but-unconfirmed. The floor + multi-date-eval +
-resume-safe fixes stay regardless (correct on their own merits), but they are not what prevents the
-collapse.
+**Follow-up: resume de-confounded cheaply instead of the 6h MPS run.** An MPS-to-1.3M confirmation was
+started but stopped after ~13 min when its fps (280→41, still degrading) put the decisive answer
+~6+ hours away with real OOM exposure — not worth it when "train on CPU" is the fallback either way.
+Instead, the remaining confound (device vs. the original's mid-run OOM resume) was resolved directly
+and cheaply: took the constant-LR isolation run's `ckpt_700000` (healthy, mid-collapse-window), forced
+a real resume through it on CPU (`--resume-from` + `--resume-mlflow-run-id`), and ran 600k further
+steps (past 1.3M total, well past the original's ~1.1M collapse onset).
+
+**Result: the resume is exonerated.** `Restored num_timesteps=700000` and
+`[resume-safe-eval] loaded prior best_mean_reward=-0.004660` confirmed clean resume mechanics (fix 3
+working as designed). Entropy stayed healthy across and after the resume boundary (2.28 at 708k →
+2.16 at 1.30M, never dropped below ~2.04), `best_mean_reward.json` correctly remained unchanged
+post-run (nothing worse overwrote it), and the final policy executes cleanly (wait-frac 0.000 on all
+four dates checked, including both crash-adjacent ones). **Resume mechanics do not cause the
+collapse.**
+
+**Final Task 1 verdict:** by elimination — LR falsified, resume exonerated, CPU healthy in three
+separate runs (smoke, constant-LR isolation, and now CPU-with-resume) — **device (MPS) is the
+remaining, now much more confidently implicated cause**, though the direct MPS-to-1.3M confirmation
+was not completed (stopped for cost/risk reasons, not because it contradicted the hypothesis; it ran
+135k steps healthy before being stopped, consistent with but not proof of the hypothesis).
+**Operational decision: adopt CPU as the training recipe.** Three independent CPU runs (smoke,
+constant-LR, CPU-resume) are all healthy; device is the best-supported explanation for why MPS
+differs, but is recorded as "MPS strongly implicated by elimination, not directly confirmed" — not
+"cause is MPS," full stop. The entropy floor remains the honest, unvalidated safety net (present,
+never engaged across any of these four CPU runs, not demonstrated to be doing the work) — it stays in
+because it's cheap and correct, not because it's been shown to be load-bearing.
+
+**Proceeding to Task 2 with confidence per the outcome-1-equivalent path** (CPU recipe validated
+operationally across three independent runs, resume mechanics separately verified safe for Phase 4's
+longer runs).
 
 ## Meta-lesson (the most transferable result of this phase)
 
