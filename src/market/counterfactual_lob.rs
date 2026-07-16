@@ -131,6 +131,20 @@ pub struct CounterfactualLob {
 
     /// Fixed simulation mid price (100.0). Real BTC prices are normalised to this.
     simulation_mid_price: f64,
+
+    /// Price rescale factor (simulation_mid_price / arrival raw mid), fixed once
+    /// per episode (at new()/reset()/seek()) and reused for every snapshot in
+    /// that episode. Phase 2R Task 3 fix: this used to be recomputed fresh from
+    /// the CURRENT book's mid on every rescale_book() call, which renormalises
+    /// every snapshot back to mid==simulation_mid_price and silently discards
+    /// all real intraday price drift -- the counterfactual path's analogue of
+    /// the historical-mode price_factor bug fixed in commit 5630e5d, which was
+    /// never applied here. This is WHY dim 6 (short-term drift) was dead during
+    /// counterfactual (training) mode: the rescaled mid never actually moved.
+    /// SCALE (expressing prices as % deviations from arrival, comparable across
+    /// dates) is preserved; PATH (real relative movement day-over-day) is now
+    /// preserved too -- these were conflated before and are separated here.
+    price_factor: f64,
 }
 
 impl CounterfactualLob {
@@ -149,6 +163,8 @@ impl CounterfactualLob {
 
         // Load first snapshot as current book (cursor now at 1).
         let current_book = replay.next_snapshot();
+        let simulation_mid_price = 100.0;
+        let price_factor = Self::price_factor_for(&current_book, simulation_mid_price);
 
         Self {
             replay,
@@ -158,8 +174,16 @@ impl CounterfactualLob {
             current_step: 0,
             depth_ref,
             current_book,
-            simulation_mid_price: 100.0,
+            simulation_mid_price,
+            price_factor,
         }
+    }
+
+    /// Compute the arrival-anchored price_factor from a book's raw mid. Shared by
+    /// new()/reset()/seek() so every episode fixes its own arrival price once.
+    fn price_factor_for(book: &Option<OrderBook>, simulation_mid_price: f64) -> f64 {
+        let real_mid = book.as_ref().and_then(|b| b.mid_price()).unwrap_or(simulation_mid_price);
+        simulation_mid_price / real_mid.max(1e-9)
     }
 
     /// Adjusted book at the current step: real Binance snapshot rescaled to
@@ -230,6 +254,10 @@ impl CounterfactualLob {
         self.temporary_impacts.clear();
         self.current_step = 0;
         self.current_book = self.replay.next_snapshot();
+        // Re-anchor price_factor to THIS episode's arrival snapshot (Phase 2R
+        // Task 3) so real drift over the episode is preserved relative to its
+        // own arrival, not silently flattened every step.
+        self.price_factor = Self::price_factor_for(&self.current_book, self.simulation_mid_price);
         debug_assert_eq!(self.permanent_depth_reduction, 0.0,
             "reset() must clear permanent_depth_reduction");
         debug_assert!(self.temporary_impacts.is_empty(),
@@ -246,6 +274,9 @@ impl CounterfactualLob {
         self.temporary_impacts.clear();
         self.current_step = 0;
         self.current_book = self.replay.next_snapshot();
+        // Re-anchor price_factor to THIS episode's arrival snapshot (Phase 2R
+        // Task 3) -- each episode's own start_offset is its own arrival point.
+        self.price_factor = Self::price_factor_for(&self.current_book, self.simulation_mid_price);
         debug_assert_eq!(self.permanent_depth_reduction, 0.0,
             "seek() must clear permanent_depth_reduction");
         debug_assert!(self.temporary_impacts.is_empty(),
@@ -309,12 +340,16 @@ impl CounterfactualLob {
     // ── Internals ────────────────────────────────────────────────────────────
 
     /// Convert a raw Binance snapshot (real BTC prices/quantities) to simulation
-    /// coordinates: prices → ~100.0, quantities → simulation units.
+    /// coordinates: prices → scaled relative to the EPISODE'S ARRIVAL price
+    /// (fixed once in price_factor, not recomputed per snapshot -- see the
+    /// price_factor field doc), quantities → simulation units. Using the fixed
+    /// factor means a snapshot whose real price has moved away from arrival
+    /// rescales to a mid away from simulation_mid_price (100.0) by the same
+    /// proportion -- real drift survives the rescale instead of being
+    /// renormalised back to 100 every step.
     fn rescale_book(&self, raw_book: OrderBook) -> OrderBook {
-        let real_mid = raw_book.mid_price().unwrap_or(self.simulation_mid_price);
-        let price_factor = self.simulation_mid_price / real_mid;
         let qty_factor = 1.0 / self.config.btc_scale;
-        raw_book.rescale_full(price_factor, qty_factor)
+        raw_book.rescale_full(self.price_factor, qty_factor)
     }
 
     fn apply_impact_to_book(&self, mut book: OrderBook, impact_fraction: f64) -> OrderBook {
@@ -354,6 +389,82 @@ mod tests {
 
     fn make_cf_lob() -> CounterfactualLob {
         CounterfactualLob::new(make_replay(), test_config())
+    }
+
+    // ── price_factor drift restoration (Phase 2R Task 3) ────────────────────
+
+    #[test]
+    fn price_factor_is_fixed_at_episode_arrival_not_recomputed_per_snapshot() {
+        let mut cf = make_cf_lob();
+        let factor_at_start = cf.price_factor;
+        for _ in 0..3 {
+            cf.advance_without_trade();
+        }
+        assert_eq!(
+            cf.price_factor, factor_at_start,
+            "price_factor must stay fixed for the whole episode, not be recomputed per snapshot"
+        );
+    }
+
+    /// A fixture with genuine mid movement across rows (FIXTURE_CSV's mid is a
+    /// constant 100.0 at every row by construction -- only spread width varies --
+    /// so it can't exercise drift-restoration behavior; this one can).
+    const DRIFTING_FIXTURE_CSV: &str = "\
+timestamp,b0_p,b0_q,b1_p,b1_q,a0_p,a0_q,a1_p,a1_q
+1000,99.9,10.0,99.8,20.0,100.1,15.0,100.2,25.0
+1001,100.9,12.0,100.8,18.0,101.1,14.0,101.2,22.0
+1002,101.9,8.0,101.8,16.0,102.1,10.0,102.2,20.0
+1003,98.9,11.0,98.8,19.0,99.1,13.0,99.2,21.0
+1004,97.9,9.0,97.8,17.0,98.1,12.0,98.2,23.0
+";
+
+    fn make_drifting_cf_lob() -> CounterfactualLob {
+        let path = write_fixture(DRIFTING_FIXTURE_CSV);
+        let replay = LobReplay::from_csv(&path).expect("fixture must load");
+        CounterfactualLob::new(replay, test_config())
+    }
+
+    #[test]
+    fn rescaled_mid_reflects_real_drift_not_pinned_to_100() {
+        // Row 1 mid=100.0 (arrival); row 2 mid=101.0 (+1%); row 3 mid=102.0 (+2%).
+        // With the OLD bug, current_adjusted_book().mid_price() would be
+        // renormalised back to ~100.0 at every step regardless of this real
+        // movement. With the fix, it must move away from 100.0 by the same
+        // proportion.
+        let mut cf = make_drifting_cf_lob();
+        let arrival_mid = cf.current_adjusted_book().mid_price().unwrap();
+        assert!((arrival_mid - 100.0).abs() < 1e-6, "arrival step should rescale to ~100.0");
+
+        cf.advance_without_trade(); // now on row 2, real mid 101.0 (+1% vs arrival)
+        let later_mid = cf.current_adjusted_book().mid_price().unwrap();
+        assert!(
+            (later_mid - 101.0).abs() < 1e-6,
+            "rescaled mid must move to ~101.0 (the real +1% drift from arrival), \
+             not stay pinned at 100.0 (got {later_mid})"
+        );
+    }
+
+    #[test]
+    fn seek_and_reset_each_re_anchor_price_factor_to_their_own_arrival() {
+        // Each episode (each seek()/reset()) has its OWN arrival snapshot, so
+        // price_factor must be recomputed at that point -- fixed ONCE PER EPISODE,
+        // not fixed forever across the whole file.
+        let mut cf = make_drifting_cf_lob();
+        let factor_at_offset_0 = cf.price_factor; // arrival mid 100.0 -> factor 1.0
+
+        cf.seek(2); // row 3, real mid 102.0 -> factor should be 100/102, not 1.0
+        let factor_at_offset_2 = cf.price_factor;
+
+        assert_ne!(
+            factor_at_offset_0, factor_at_offset_2,
+            "seeking to a different start offset must re-anchor price_factor to \
+             THAT row's real mid, not keep reusing the first episode's factor"
+        );
+
+        // And after seeking, the newly-anchored factor still rescales ITS OWN
+        // arrival (row 3) back to 100.0, per-episode as designed.
+        let arrival_mid_after_seek = cf.current_adjusted_book().mid_price().unwrap();
+        assert!((arrival_mid_after_seek - 100.0).abs() < 1e-6);
     }
 
     #[test]

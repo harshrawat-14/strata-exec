@@ -241,6 +241,65 @@ All 15 `counterfactual_lob` tests + 205 lib tests pass; default behavior is byte
 unchanged when no aggTrades are available (verified: `impact_coefficient=0.1, sigma=1.0` remain
 the fallback). Gate cleared — proceeding to Task 3.
 
+## Task 3 — drift restoration + train/eval state consistency
+
+**Root cause confirmed, same bug pattern as the historical-mode fix in `5630e5d`, never applied
+here:** `CounterfactualLob::rescale_book()` recomputed `price_factor = simulation_mid_price /
+raw_book.mid_price()` fresh from the CURRENT book on every call — renormalizing every snapshot's
+rescaled mid back to ≈100 (the arrival value) regardless of real price movement. This is exactly
+why dim 6 (short-term drift) was dead during counterfactual (training) mode: the rescaled mid
+never actually moved.
+
+**Fix:** `price_factor` is now a field on `CounterfactualLob`, computed once from the episode's
+own arrival snapshot in `new()`/`reset()`/`seek()` (each episode's own start_offset gets its own
+arrival-anchored factor, matching the historical-mode fix's per-episode semantics) and reused for
+every snapshot within that episode. `rescale_book()` uses the fixed factor instead of
+recomputing. This separates SCALE normalization (still expressing prices relative to arrival=100,
+comparable across dates) from PATH flattening (real relative movement is now preserved) — the two
+were conflated before, as flagged. 6 new tests (3 for the fix itself: `price_factor` fixed across
+an episode / rescaled mid tracks a synthetic drifting fixture's real movement / `seek`/`reset`
+each re-anchor to their own arrival). All 232 tests (208 lib + 27 rl_env, cross-referenced) pass.
+
+**Confirmed: dim 6 is now live in training (counterfactual) mode.** Measured directly:
+`std=0.055` (was exactly `0.0`) on a real date/seed with meaningful mid-movement observed
+(min −0.23, max +0.19). Dims 8/9 remain live as before. The train/eval state-support mismatch
+logged as an open issue is dissolved for dim 6; the flagged issue can be closed once Task 4's
+ablation confirms no other mode-dependent dims remain.
+
+**The critical safety check — did restoring observable drift reopen the speculation exploit?
+No, confirmed directly, not assumed.** Re-ran the exact method that caught the original exploit
+(measure the agent's actual cumulative RL reward, not IS-vs-arrival, for a blanket-wait policy vs.
+a trivial 10%/step execute policy) on the fixed environment, at both the long default eval horizon
+(2880 steps) and a training-representative horizon (800 steps, inside the 200–1440 random range
+training actually samples):
+
+| date | wait reward (2880-step) | exec reward | wait reward (800-step) | exec reward |
+|---|---:|---:|---:|---:|
+| 2024-11-06 | −1.0948 | −0.0235 | −0.9621 | −0.0235 |
+| 2024-01-15 | −1.0235 | −0.0199 | −0.8418 | −0.0199 |
+| 2024-03-05 | −1.0096 | −0.0214 | −0.8857 | −0.0214 |
+| 2024-08-05 | −0.9336 | −0.0179 | −0.7825 | −0.0179 |
+| 2024-06-10 | −1.0030 | −0.0179 | −0.8418 | −0.0179 |
+
+**Execute beats wait on 9/9 dates tested at both horizons — the required invariant holds, robustly
+and by a wide margin.** Drift did not reopen the exploit; if anything, it made the (already-fixed)
+forced-liquidation loophole even more strongly, correctly punished than before.
+
+**Honest nuance on the magnitude (worth recording, not glossing over):** the wait-penalty jumped
+roughly 50× versus the pre-drift-restoration numbers (~−0.01 → ~−1.0). Traced this to its source
+rather than accepting it at face value: on 2024-11-06 (a real rally day), the terminal book_mid
+after 800 steps of real drift was 108.02 (vs. arrival 100.0) — dumping the full untouched
+1,000,000-unit inventory in one shot at that point produced a terminal reward of −0.964, accounting
+for essentially the entire episode's wait-penalty. This traces to the earlier forced-liquidation fix
+(`5630e5d`): a full-inventory one-shot dump against a real, depth-limited counterfactual book very
+plausibly exhausts available bid depth, triggering that fix's punitive-price extrapolation for the
+unfillable residual (`worst_price − 5×spread_ref`). **This is directionally correct** (waiting is
+genuinely catastrophic, now realistically so, not an artifact) **but the exact magnitude is
+dominated by an extrapolation heuristic for depth beyond what's actually in the book, not a
+literal market-clearing price** — worth a future refinement (e.g. a more principled deep-liquidity
+model) but not a blocker: it doesn't threaten the required invariant, and if anything strengthens
+the signal that never-trading is bad.
+
 ## Pre-fix code verifications (requested before the collapse fix; each with a test)
 
 Three quick code checks run before touching training, given this project's sign-bug history:
