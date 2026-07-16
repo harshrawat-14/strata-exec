@@ -765,7 +765,25 @@ impl RlEnv {
                  (possible data gap or truncated file)"
             )
         })?;
-        self.spread_ref = first.half_spread().unwrap_or(0.01).max(1e-9);
+        // Phase 2R follow-up fix: spread_ref MUST be computed on the RESCALED
+        // (simulation-scale, ~100) book, not the raw BTC-dollar-scale snapshot --
+        // historical mode's reset_historical already does this correctly
+        // (scaled_first.half_spread()), but this counterfactual path used the raw
+        // `first` directly. That scale mismatch (spread_ref ~$20-50 raw vs. the
+        // ~0.03 sim-scale half_spread it's later compared against every step) made
+        // state dim s3 collapse toward 0 after the first step (only briefly, at
+        // t=0, matching by coincidence since current_book was also still raw then)
+        // AND made the forced-liquidation punitive-price formula
+        // (worst_price - 5*spread_ref) go deeply negative, flooring at 1e-6 --
+        // pricing ~80-90% of any forced liquidation at an effectively-zero price
+        // rather than a genuinely punitive-but-nonzero one. Found while
+        // quantifying the calibrated-impact vs. punitive-extrapolation split of
+        // the forced-liquidation reward (Task 3 follow-up).
+        let real_mid_for_spread = first.mid_price().unwrap_or(100.0);
+        let spread_price_factor = 100.0 / real_mid_for_spread.max(1e-9);
+        let spread_qty_factor = 1.0 / btc_scale;
+        let scaled_first_for_spread = first.rescale_full(spread_price_factor, spread_qty_factor);
+        self.spread_ref = scaled_first_for_spread.half_spread().unwrap_or(0.01).max(1e-9);
         self.current_book = Some(first);
         // FIX A: cf_lob rescales all BTC prices to simulation scale (~100).
         // Both arrival_price and current_mid must match that scale, otherwise the IS
@@ -1130,6 +1148,14 @@ impl RlEnv {
         let mut total_reward_adj = 0.0;
         let mut forced_liq_qty = 0.0;
 
+        // Telemetry (Phase 2R follow-up): quantify how much of the forced-liquidation
+        // notional comes from genuinely crossing real (calibrated-impact-adjusted) book
+        // depth vs. the punitive-price extrapolation for depth the book didn't have.
+        let mut forced_liq_filled_qty = 0.0_f64;
+        let mut forced_liq_residual_qty = 0.0_f64;
+        let mut forced_liq_filled_notional = 0.0_f64;
+        let mut forced_liq_punitive_notional = 0.0_f64;
+
         if (time_done || cf_exhausted) && self.remaining > 0.001 * self.cfg.total_inventory {
             // Same fix as historical-mode step(): route the forced dump through the real
             // adjusted book instead of pricing it at a flat, size-independent penalty.
@@ -1139,7 +1165,10 @@ impl RlEnv {
             let liquidated_notional = if let Some(cf) = self.cf_lob.as_ref() {
                 let mut book = cf.current_adjusted_book();
                 let fr = book.fill_market_sell(forced_liq_qty);
-                let mut notional = fr.filled_qty * fr.avg_fill_price;
+                forced_liq_filled_qty = fr.filled_qty;
+                forced_liq_residual_qty = fr.residual_qty;
+                forced_liq_filled_notional = fr.filled_qty * fr.avg_fill_price;
+                let mut notional = forced_liq_filled_notional;
                 if fr.residual_qty > 1e-9 {
                     let worst_price = if fr.filled_qty > 1e-12 {
                         fr.avg_fill_price
@@ -1147,11 +1176,14 @@ impl RlEnv {
                         mid_at_end
                     };
                     let punitive_price = (worst_price - self.spread_ref.max(1e-6) * 5.0).max(1e-6);
-                    notional += fr.residual_qty * punitive_price;
+                    forced_liq_punitive_notional = fr.residual_qty * punitive_price;
+                    notional += forced_liq_punitive_notional;
                 }
                 notional
             } else {
-                forced_liq_qty * mid_at_end
+                forced_liq_filled_qty = forced_liq_qty;
+                forced_liq_filled_notional = forced_liq_qty * mid_at_end;
+                forced_liq_filled_notional
             };
             let liquidated_at = if forced_liq_qty > 1e-12 {
                 liquidated_notional / forced_liq_qty
@@ -1213,6 +1245,10 @@ impl RlEnv {
                 obj.insert("total_IS_pct".to_string(), json!(is_pct));
                 if forced_liq_qty > 0.0 {
                     obj.insert("forced_liquidation_qty".to_string(), json!(forced_liq_qty));
+                    obj.insert("forced_liq_filled_qty".to_string(), json!(forced_liq_filled_qty));
+                    obj.insert("forced_liq_residual_qty".to_string(), json!(forced_liq_residual_qty));
+                    obj.insert("forced_liq_filled_notional".to_string(), json!(forced_liq_filled_notional));
+                    obj.insert("forced_liq_punitive_notional".to_string(), json!(forced_liq_punitive_notional));
                 }
             }
         }
@@ -2444,6 +2480,64 @@ mod tests {
         // is_contribution should also be ≤ 0 (sum of fill_cost + perm_cost, negated).
         let isc = r.info.get("is_contribution").and_then(|v| v.as_f64()).unwrap_or(0.0);
         assert!(isc <= 0.0, "is_contribution must be ≤ 0 for a sell, got {isc}");
+    }
+
+    #[test]
+    fn counterfactual_spread_ref_is_rescaled_not_raw_btc_dollar_scale() {
+        // Regression guard for a real bug found quantifying the Task-3
+        // wait-penalty jump: reset_counterfactual computed spread_ref from the
+        // RAW (unrescaled, ~$40k-100k BTC-dollar-scale) snapshot, while every
+        // per-step comparison against it uses the RESCALED (~100 simulation-
+        // scale) book. That mismatch made state dim s3 collapse toward 0 after
+        // the first step, and made the forced-liquidation punitive-price
+        // formula floor at ~$0 instead of a genuinely punitive-but-nonzero
+        // price. spread_ref must end up small (simulation-scale, comparable to
+        // a ~100-scale half-spread), not raw-BTC-scale.
+        let lob_path = "TradeData/BookDepth/BTCUSDT-bookDepth-2024-01-15.csv";
+        if !std::path::Path::new(lob_path).exists() {
+            eprintln!("skipping: {lob_path} not present in this checkout");
+            return;
+        }
+        let cfg = EnvConfig {
+            mode: RlMode::Counterfactual,
+            total_inventory: 1_000_000.0,
+            total_steps: 100,
+            seed: 42,
+            sigma_ref: 0.20,
+            gamma: 0.005,
+            adversarial: false,
+            lob_data_path: Some(lob_path.to_string()),
+            btc_target: 50_000.0,
+            adv_btc: 0.0,
+            agg_trades_path: None,
+            fixed_steps: true,
+            fixed_size: true,
+            no_time_features: true,
+        };
+        let mut env = RlEnv::new(cfg);
+        env.reset(Some(1));
+        assert!(
+            env.spread_ref < 5.0,
+            "spread_ref must be simulation-scale (comparable to a ~100-scale \
+             half-spread, so well under 5.0), not raw BTC-dollar-scale \
+             (which would be tens): got {}",
+            env.spread_ref
+        );
+
+        // And the state dim that depends on it (s3) must not collapse after the
+        // first step -- it should stay in a sane tanh-bounded range throughout.
+        let mut last_s3 = f64::NAN;
+        for i in 0..5 {
+            let r = env.step(0);
+            last_s3 = r.state[3];
+            assert!(
+                r.state[3] > 0.05,
+                "s3 (spread ratio) collapsed toward 0 at step {i} -- the \
+                 spread_ref scale-mismatch bug is back (got {})",
+                r.state[3]
+            );
+        }
+        assert!(last_s3.is_finite());
     }
 
     #[test]

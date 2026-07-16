@@ -300,6 +300,58 @@ literal market-clearing price** — worth a future refinement (e.g. a more princ
 model) but not a blocker: it doesn't threaten the required invariant, and if anything strengthens
 the signal that never-trading is bad.
 
+## Task 3 follow-up — quantifying and fixing the ~50× wait-penalty jump (pre-ablation gate)
+
+Investigated before committing to any retrain, per explicit instruction not to let an unvalidated
+heuristic dominate the incentive at the dump-all corner where both prior collapses happened.
+
+**Instrumented the forced-liquidation path** (`forced_liq_filled_qty/notional` vs.
+`forced_liq_residual_qty`/`punitive_notional` now in `step_counterfactual`'s info dict) and
+measured the split directly. First measurement showed the punitive-price extrapolation
+contributing ~0% of notional — which looked reassuring but was actually a red flag pointing at a
+**different, real bug**: `s3` (spread state dim) was `tanh(1) = 0.7616` at t=0 and collapsing to
+near 0 after step 1 in every date tested.
+
+**Root cause found:** `reset_counterfactual`'s `spread_ref` was computed from the **raw,
+unrescaled** BTC-dollar-scale snapshot (`first.half_spread()`), while `historical` mode's
+`reset_historical` already correctly uses the rescaled book (`scaled_first.half_spread()`) for the
+identical purpose — an isolated, pre-existing scale-mismatch bug specific to the counterfactual
+path, not something Task 3 introduced (Task 3's drift restoration just made its effect visible for
+the first time, since previously the near-static price meant this rarely mattered). Consequence:
+`spread_ref` was ~$20-50 (raw) being compared against a ~0.03 (simulation-scale) half-spread every
+step, and the same wildly-oversized `spread_ref` fed the punitive-price formula
+(`worst_price − 5×spread_ref`), driving it deeply negative and flooring at `1e-6` — pricing ~80–90%
+of any forced liquidation at an **effectively-zero** price, not a merely-punitive one.
+
+**Fixed:** `spread_ref` is now computed on the same rescaled book historical mode already used
+correctly. Verified: `s3` no longer collapses (stays ~0.68–0.78 across the episode instead of
+dropping toward 0 after step 1).
+
+**Re-quantified after the fix:** the punitive-extrapolation share of forced-liquidation notional is
+still large (80–92% across the 9 dates tested) — but this is now understood to be **realistic, not
+a remaining bug**: `total_inventory` defaults to 1,000,000 simulation units = 50,000 BTC (given
+`btc_target=50000.0`), a large institutional-sized order that no real L2 top-of-book snapshot shows
+enough visible depth to absorb in one shot. Dumping the full order in one step being
+mostly-unfillable-against-real-depth is exactly the premise gradual execution research is built on,
+not a defect. The *magnitude* of the extrapolation (`worst_price − 5×spread_ref`, a simple linear
+offset) remains a simplification worth refining later, but it is no longer flooring at an
+effectively-zero price.
+
+**Re-ran the safety gate after the fix:** execute still beats wait on 9/9 dates, and the magnitude
+is now far more defensible — wait-penalty dropped from the buggy ~−0.96 to ~−0.045 to −0.05 (a
+~2–2.5× gap vs. execute's ~−0.02, not a 50× runaway):
+
+| date | wait reward (fixed) | exec reward |
+|---|---:|---:|
+| 2024-11-06 | −0.0459 | −0.0235 |
+| 2024-01-15 | −0.0498 | −0.0199 |
+| 2024-03-05 | −0.0467 | −0.0214 |
+| 2024-08-05 | −0.0462 | −0.0179 |
+| 2024-06-10 | −0.0472 | −0.0179 |
+
+**Verdict: fix confirmed necessary and applied before the ablation, per instruction.** Gate 1
+cleared.
+
 ## Pre-fix code verifications (requested before the collapse fix; each with a test)
 
 Three quick code checks run before touching training, given this project's sign-bug history:
