@@ -194,6 +194,53 @@ Do not retrain until a fix is chosen from these; the diagnosis now points at (1)
 
 ---
 
+## Task 2 — Obizhaeva-Wang / impact-model audit (gates the ablation)
+
+**Verdict: the model is a mislabeled hybrid, not a broken or fabricated one.** Read
+`total_residual_impact()` line-by-line before concluding anything: each trade's temporary
+contribution is tracked with its own timestamp and decayed individually via
+`impact * exp(-rho*(now-t))`, summed across all outstanding trades, with a separate
+never-decaying permanent accumulator. **This is genuine Obizhaeva-Wang-style transient-impact
+dynamics** — the earlier fear (from Task 3's framing, before this audit ran) that dims 8/9
+"might be measuring something that isn't there" does not hold; they measure something real.
+
+What's actually wrong is narrower: the **magnitude** term (`sqrt(participation) * 0.1`) is a
+square-root law, not OW's linear form — a different, separately well-supported empirical
+literature, incorrectly given the OW name — and that magnitude was **hardcoded and uncalibrated**
+(`0.1` constant, `sigma` term silently absent from the formula entirely), even though a
+`CalibrationEngine` implementing exactly this fitting (`Y * sigma * sqrt(Q/V)`, fit to real
+trade slippage) already existed in the codebase. It was wired into a *different* code path
+(`research_sim.rs`'s separate `SquareRootImpact` model, via an opt-in `--calibrate` flag) but
+never connected to `CounterfactualLob`, the environment actually used for RL training and for
+`evaluate_all_strategies_on_date`'s counterfactual-mode comparisons.
+
+**Consistent-application check (positive):** confirmed `evaluate_all_strategies_on_date` steps
+TWAP, Heuristic, AC-Optimal, Adaptive-AC, and the RL agent all through the *same*
+`StrataExecEnv`/`CounterfactualLob` instance per date — identical impact model and parameters
+applied uniformly across strategies. Being uncalibrated did not mean being inconsistently
+applied; the ruler was bent the same way for everyone, which matters for the ablation's internal
+validity (relative comparisons) even before any fix — but the *absolute* magnitude of every
+reported cost was still an assumed constant, not fit to this venue's data.
+
+**Fixed, per direction ("relabel, don't rewrite" + "wire in calibration, don't skip it"):**
+1. Relabeled every "Obizhaeva-Wang [whole model]" claim in code comments, README, and design
+   docs to correctly scope OW to the decay structure only.
+2. Wired the calibration engine into `CounterfactualLob`: `build_calibration_trades()` bridges
+   Binance aggTrades (single price per trade) to the engine's expected before/after-bracketed
+   format using nearest LOB-snapshot mids; `realized_volatility()` computes the previously-missing
+   sigma term from the same snapshot series; `CounterfactualLobConfig::calibrated()` fits both and
+   is now used automatically in `reset_counterfactual` whenever aggTrades data is available for a
+   date, falling back to the prior hardcoded constants only when it isn't.
+3. Added the requested sanity tests (direction, monotonic decay to the permanent level, temporary
+   → 0 as decay time → ∞, and a no-free-lunch check) — one design fix needed along the way: a
+   literal round-trip (sell then buy back) isn't constructible, since this simulator's impact model
+   is sell-only (no buy-side/ask mechanism exists), so "no free lunch" is tested as "a larger
+   self-trade must never leave a subsequent sell better off," the sell-side analogue.
+
+All 15 `counterfactual_lob` tests + 205 lib tests pass; default behavior is byte-for-byte
+unchanged when no aggTrades are available (verified: `impact_coefficient=0.1, sigma=1.0` remain
+the fallback). Gate cleared — proceeding to Task 3.
+
 ## Pre-fix code verifications (requested before the collapse fix; each with a test)
 
 Three quick code checks run before touching training, given this project's sign-bug history:
