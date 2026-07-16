@@ -1,8 +1,26 @@
 // CounterfactualLob — real Binance LOB snapshots adjusted for your own market impact.
 //
-// Glues together LobReplay (real snapshots) + impact model (Obizhaeva-Wang 2013):
-//   - Permanent fraction: never recovers (30%)
-//   - Temporary fraction: exponential decay (70%, half-life ~3.3 hours at rho=5)
+// Glues together LobReplay (real snapshots) + a transient-impact model:
+//   - TEMPORAL STRUCTURE is Obizhaeva-Wang-style (2013): a permanent fraction
+//     that never recovers (30%) plus a temporary fraction that decays
+//     exponentially (70%, half-life ~3.3 hours at rho=5). This part IS
+//     genuine OW decay dynamics -- verified during the Phase 2R audit by
+//     reading total_residual_impact(): each trade's temporary contribution is
+//     tracked with its own timestamp and decayed individually, not just a
+//     single aggregate number.
+//   - MAGNITUDE is NOT Obizhaeva-Wang, which is a LINEAR impact law. This
+//     model uses a SQUARE-ROOT instantaneous magnitude (sqrt(participation) *
+//     a hardcoded constant, see record_trade_and_advance) -- square-root
+//     impact is a separate, well-supported empirical literature (distinct
+//     from OW), but calling the whole model "Obizhaeva-Wang" mislabels the
+//     magnitude half. Correct name: a transient-impact model with an
+//     OW-style permanent/temporary decay structure and a square-root
+//     instantaneous-impact magnitude.
+//   - The magnitude constant (0.1) is currently HARDCODED, not calibrated:
+//     there is a CalibrationEngine (calibration/impact_fit.rs) that fits this
+//     exact functional form (impact = Y * sigma * sqrt(Q/V)) to real trade
+//     data, but it is not wired into this struct -- the sigma term is also
+//     absent here. See docs/phase2r_objective_bias_finding.md Task 2.
 //
 // LobReplay is owned and advanced here; do not advance it externally.
 
@@ -14,7 +32,7 @@ use crate::market::order_book::OrderBook;
 // ---------------------------------------------------------------------------
 
 pub struct CounterfactualLobConfig {
-    /// Fraction of impact that is permanent (Obizhaeva-Wang: 0.3).
+    /// Fraction of impact that is permanent (OW-style temporal split: 0.3).
     pub permanent_fraction: f64,
     /// Fraction of impact that is temporary (= 1 - permanent_fraction).
     pub temporary_fraction: f64,
@@ -25,7 +43,18 @@ pub struct CounterfactualLobConfig {
     /// Simulation units → BTC conversion (e.g. 50_000 BTC / 1_000_000 units = 0.05).
     pub btc_scale: f64,
     /// Average daily volume in BTC. Controls participation-rate denominator.
+    /// NOTE: like impact_coefficient/sigma below, this is an uncalibrated
+    /// default (240_000.0) unless overridden by a per-date calibration.
     pub adv_btc: f64,
+    /// Impact-magnitude coefficient Y in `impact = Y * sigma * sqrt(participation)`.
+    /// Default 0.1 reproduces the ORIGINAL hardcoded behavior exactly (an
+    /// uncalibrated guess). Use `calibrated()` to fit this to real trade data
+    /// via `calibration::impact_fit::CalibrationEngine` instead.
+    pub impact_coefficient: f64,
+    /// Volatility term sigma in the same formula. Default 1.0 reproduces the
+    /// ORIGINAL behavior (this term was silently absent -- multiplying by 1.0
+    /// is a no-op, which is exactly what "missing" meant in practice).
+    pub sigma: f64,
 }
 
 impl Default for CounterfactualLobConfig {
@@ -37,6 +66,43 @@ impl Default for CounterfactualLobConfig {
             dt: 1.0 / 2880.0,
             btc_scale: 0.05,
             adv_btc: 240_000.0,
+            impact_coefficient: 0.1,
+            sigma: 1.0,
+        }
+    }
+}
+
+impl CounterfactualLobConfig {
+    /// A config with `impact_coefficient` and `sigma` fit to real trade data,
+    /// closing the Phase 2R Task 2 gap (the calibration engine existed but was
+    /// never wired into the RL training path). `adv_btc` is left as-is (or set
+    /// by the caller) -- this only calibrates the impact MAGNITUDE terms.
+    ///
+    /// `daily_volume_btc` is used both as the calibration engine's volume
+    /// normalizer and should match whatever `adv_btc` this config will use, so
+    /// the fitted Y is consistent with the participation-rate denominator
+    /// actually used at simulation time.
+    pub fn calibrated(
+        base: CounterfactualLobConfig,
+        agg: &crate::market::agg_trades::AggTradesDay,
+        snapshot_timestamps: &[u64],
+        snapshot_mids: &[f64],
+        daily_volume_btc: f64,
+    ) -> Self {
+        let sigma = crate::calibration::impact_fit::realized_volatility(
+            snapshot_mids, snapshot_timestamps.len() as f64,
+        );
+        let trades = crate::calibration::impact_fit::build_calibration_trades(
+            agg, snapshot_timestamps, snapshot_mids,
+        );
+        let engine = crate::calibration::impact_fit::CalibrationEngine::new(
+            daily_volume_btc, sigma.max(1e-6),
+        );
+        let y = engine.calibrate(&trades);
+        CounterfactualLobConfig {
+            impact_coefficient: y.unwrap_or(base.impact_coefficient),
+            sigma: if sigma > 1e-9 { sigma } else { base.sigma },
+            ..base
         }
     }
 }
@@ -112,8 +178,16 @@ impl CounterfactualLob {
     pub fn record_trade_and_advance(&mut self, trade_qty_units: f64) {
         let trade_btc = trade_qty_units * self.config.btc_scale;
         let participation = trade_btc / self.config.adv_btc;
-        // Square-root impact: sqrt(participation) * calibration_constant
-        let impact_fraction = participation.sqrt() * 0.1;
+        // Square-root instantaneous magnitude: Y * sigma * sqrt(participation).
+        // NOT Obizhaeva-Wang (which is linear in size) -- this is a separate,
+        // empirically-supported square-root impact law paired with OW's
+        // permanent/temporary decay structure (see module doc comment at top
+        // of this file). impact_coefficient (Y) and sigma default to 0.1/1.0
+        // (the original hardcoded, uncalibrated behavior) unless this config
+        // was built via `CounterfactualLobConfig::calibrated(..)`, which fits
+        // both from real trade data (Phase 2R Task 2).
+        let impact_fraction =
+            participation.sqrt() * self.config.sigma * self.config.impact_coefficient;
 
         let perm = impact_fraction * self.config.permanent_fraction;
         let temp = impact_fraction * self.config.temporary_fraction;
@@ -368,6 +442,172 @@ mod tests {
         assert!(
             impact_two > impact_one,
             "two trades must cause more impact: one={impact_one:.6}, two={impact_two:.6}"
+        );
+    }
+
+    // ── CounterfactualLobConfig::calibrated (Phase 2R Task 2) ──────────────
+
+    #[test]
+    fn calibrated_config_overrides_defaults_with_fitted_values() {
+        use crate::market::agg_trades::{AggTrade, AggTradesDay};
+
+        // A trade of 100 BTC bracketed by snapshots 100.0 -> 101.0 (1% move) --
+        // deliberately a much larger empirical slippage than the default Y=0.1
+        // would predict at realistic ADV, so calibration should pull Y well away
+        // from the 0.1 default (not just perturb it).
+        let agg = AggTradesDay {
+            trades: vec![AggTrade {
+                timestamp_ms: 1_500,
+                price: 100.5,
+                quantity_btc: 100.0,
+                is_sell_aggressor: true,
+            }],
+            date: "2024-01-15".to_string(),
+            skipped_rows: 0,
+        };
+        let snapshot_timestamps = vec![1_000u64, 2_000, 3_000];
+        let snapshot_mids = vec![100.0, 101.0, 101.5]; // moving, so sigma > 0 too
+
+        let base = CounterfactualLobConfig::default();
+        assert_eq!(base.impact_coefficient, 0.1);
+        assert_eq!(base.sigma, 1.0);
+
+        let calibrated = CounterfactualLobConfig::calibrated(
+            base, &agg, &snapshot_timestamps, &snapshot_mids, 240_000.0,
+        );
+
+        assert_ne!(
+            calibrated.impact_coefficient, 0.1,
+            "calibrated Y must differ from the hardcoded default given real slippage data"
+        );
+        assert_ne!(
+            calibrated.sigma, 1.0,
+            "calibrated sigma must differ from the hardcoded 1.0 given a moving price series"
+        );
+        assert!(calibrated.impact_coefficient.is_finite() && calibrated.impact_coefficient > 0.0);
+        assert!(calibrated.sigma.is_finite() && calibrated.sigma > 0.0);
+    }
+
+    #[test]
+    fn calibrated_config_falls_back_to_base_when_no_trades_bracket() {
+        use crate::market::agg_trades::AggTradesDay;
+
+        // No trades at all -> calibrate() returns None -> must fall back to base,
+        // not panic or silently zero out the impact model.
+        let agg = AggTradesDay { trades: vec![], date: "2024-01-15".to_string(), skipped_rows: 0 };
+        let snapshot_timestamps = vec![1_000u64, 2_000, 3_000];
+        let snapshot_mids = vec![100.0, 100.0, 100.0]; // flat -> sigma = 0 too
+
+        let base = CounterfactualLobConfig::default();
+        let calibrated = CounterfactualLobConfig::calibrated(
+            base, &agg, &snapshot_timestamps, &snapshot_mids, 240_000.0,
+        );
+        assert_eq!(calibrated.impact_coefficient, 0.1, "must fall back to base Y with no trades");
+        assert_eq!(calibrated.sigma, 1.0, "must fall back to base sigma when realized vol is 0");
+    }
+
+    // ── Sanity checks requested for the Phase 2R Task 2 audit ──────────────
+
+    #[test]
+    fn impact_makes_a_sell_fill_worse_not_better() {
+        // "Impact is positive and in the correct direction for a sell (pushes
+        // price down)." Compare the average fill price of an IDENTICAL sell on
+        // a fresh book vs. one that already has accumulated impact -- the
+        // impacted fill must be at or below the unimpacted one, never above.
+        let mut fresh = make_cf_lob();
+        let unimpacted_fill = fresh.current_adjusted_book().fill_market_sell(500.0).avg_fill_price;
+
+        let mut impacted = make_cf_lob();
+        impacted.record_trade_and_advance(200_000.0); // large trade -> real impact
+        let impacted_fill = impacted.current_adjusted_book().fill_market_sell(500.0).avg_fill_price;
+
+        assert!(
+            impacted_fill <= unimpacted_fill,
+            "a sell against an impacted (depth-reduced) book must fill at or below the \
+             unimpacted price, never above: unimpacted={unimpacted_fill:.4}, impacted={impacted_fill:.4}"
+        );
+    }
+
+    #[test]
+    fn impact_decays_monotonically_toward_permanent_level() {
+        // "Impact decays monotonically toward the permanent level over time."
+        // rho=5, dt=1/2880 -> half-life = ln(2)/rho/dt ~= 400 steps, so
+        // convergence needs several thousand steps, not a few hundred.
+        let mut cf = make_cf_lob();
+        cf.record_trade_and_advance(150_000.0);
+        let perm = cf.permanent_impact();
+
+        let mut samples = Vec::new();
+        for _ in 0..15 {
+            for _ in 0..2000 {
+                cf.advance_without_trade();
+            }
+            samples.push(cf.total_residual_impact());
+        }
+        for w in samples.windows(2) {
+            assert!(
+                w[1] <= w[0] + 1e-12,
+                "residual impact must decay monotonically: {w:?}"
+            );
+        }
+        assert!(
+            (samples.last().unwrap() - perm).abs() < 1e-3,
+            "after many steps, residual impact must converge to the permanent level: \
+             final={:.6}, permanent={:.6}", samples.last().unwrap(), perm
+        );
+    }
+
+    #[test]
+    fn temporary_component_vanishes_as_decay_time_grows() {
+        // "Temporary component -> 0 as decay time -> infinity." Half-life ~400
+        // steps (see above), so 30000 steps (~75 half-lives) drives it to
+        // numerical zero with comfortable margin.
+        let mut cf = make_cf_lob();
+        cf.record_trade_and_advance(150_000.0);
+        for _ in 0..30_000 {
+            cf.advance_without_trade();
+        }
+        assert!(
+            cf.temporary_impact_total() < 1e-8,
+            "temporary impact must vanish after enough decay time, got {}",
+            cf.temporary_impact_total()
+        );
+    }
+
+    #[test]
+    fn impact_never_improves_a_sell_price_no_free_lunch() {
+        // "No-arbitrage: a constructed round-trip trade cannot be profitable."
+        // NOTE: this simulator's impact model is sell-only (record_trade_and_advance
+        // always reduces BID depth via scale_bid_depth; there is no corresponding
+        // ask-side/buy mechanism), so a literal sell-then-buy-back round trip is
+        // not constructible with the current API -- there is nothing to buy back
+        // INTO. The meaningful, testable form of "no free lunch" here is: a LARGER
+        // self-trade must never leave a subsequent sell better off than a SMALLER
+        // (or zero) self-trade, holding everything else fixed.
+        //
+        // Isolating "impact only" requires holding the underlying real snapshot
+        // FIXED, but record_trade_and_advance always advances to the next real
+        // snapshot as a side effect (real snapshot-to-snapshot price movement is
+        // a separate, legitimate effect this test must not conflate with impact).
+        // So: use independent fresh instances that each advance EXACTLY ONCE
+        // (one record_trade_and_advance call) -- all land on the SAME next real
+        // snapshot deterministically, so the only difference between them is the
+        // impact from their one trade's size.
+        let probe = |qty: f64| -> f64 {
+            let mut cf = make_cf_lob();
+            cf.record_trade_and_advance(qty);
+            cf.current_adjusted_book().fill_market_sell(200.0).avg_fill_price
+        };
+
+        let no_trade = probe(0.0);
+        let small = probe(20_000.0);
+        let medium = probe(80_000.0);
+        let large = probe(150_000.0);
+
+        assert!(
+            no_trade >= small - 1e-9 && small >= medium - 1e-9 && medium >= large - 1e-9,
+            "a larger self-trade must never leave a subsequent sell better off: \
+             no_trade={no_trade:.6} small={small:.6} medium={medium:.6} large={large:.6}"
         );
     }
 

@@ -807,6 +807,31 @@ impl RlEnv {
         // subsequent resets so accumulated impact from the previous episode never carries over.
         if self.cf_lob.is_none() {
             let cf_replay = self.market_cache.borrow_mut().load_lob(&path)?;
+            // Phase 2R Task 2: calibrate impact_coefficient/sigma from this date's
+            // real aggTrades + LOB snapshot mids, instead of the hardcoded
+            // (impact_coefficient=0.1, sigma=1.0) defaults, when aggTrades data
+            // is available. Falls back to the defaults (unchanged prior
+            // behavior) if aggTrades were not supplied or calibration yields no
+            // valid trades (e.g. none bracket the snapshot window).
+            let cf_config = if let Some(agg) = self.agg_trades.as_ref() {
+                let all_timestamps = cf_replay.snapshot_timestamps();
+                let all_mids: Vec<f64> = cf_replay
+                    .snapshots_arc()
+                    .iter()
+                    .map(|s| s.to_order_book().mid_price().unwrap_or(0.0))
+                    .collect();
+                let daily_volume_btc = adv_btc; // same denominator the sim will use
+                let calibrated = CounterfactualLobConfig::calibrated(
+                    cf_config, agg, &all_timestamps, &all_mids, daily_volume_btc,
+                );
+                eprintln!(
+                    "  Calibrated impact: Y={:.4} (default 0.1), sigma={:.4} (default 1.0)",
+                    calibrated.impact_coefficient, calibrated.sigma
+                );
+                calibrated
+            } else {
+                cf_config
+            };
             self.cf_lob = Some(CounterfactualLob::new(cf_replay, cf_config));
         }
         let cf = self.cf_lob.as_mut().unwrap();
