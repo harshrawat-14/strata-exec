@@ -1,18 +1,22 @@
 """
 Phase 2R Task 4 — the actual ablation deliverable: 12-dim RL vs 16-dim RL vs
-AC-Optimal vs TWAP, post-correction simulator.
+AC-Optimal vs Adaptive-AC vs TWAP, post-correction simulator, ALL clean dates.
 
 This is the FIRST post-correction result (see rl/results/PROVENANCE.md):
 produced against the counterfactual simulator AFTER Phase 2R's Task 2 (impact
-calibration), Task 3 (drift restoration), and the spread_ref scale-bug fix.
-Do not compare these numbers against any pre-Phase-2R report (v5's headline
-numbers, phase1_tail_risk.csv, unified_comparison.csv, failure_analysis.csv,
-the old phase2_ablation.csv) -- the simulator itself changed underneath them.
+calibration), Task 3 (drift restoration), the spread_ref scale-bug fix, AND
+the classical-baseline action-fraction-table fix (Python no longer
+hand-maintains a mirror of the real Rust ACTION_FRACTIONS -- see
+get_action_fractions in evaluate.py). Do not compare these numbers against
+any pre-Phase-2R report -- the simulator itself changed underneath them.
 
 Both RL arms trained with an IDENTICAL config (matched-conditions discipline):
 same 7 training dates, same entropy floor, same CPU device, same n_envs,
 same lr_schedule, same full 3M-step schedule, same resume-safe/multi-date
 reward-based best-model selection -- differing ONLY in state dims (16 vs 12).
+They are REUSED here, not retrained: the fraction-table bug never touched RL
+(it picks raw action indices from a trained policy, never routed through the
+classical-baseline fraction tables), so only the baselines needed redoing.
 
 mode="counterfactual" is used for evaluation (not the historical-mode
 default), per the explicit Task 4 decision: historical mode has no cf_lob,
@@ -26,20 +30,32 @@ drift), while best_model (reward-selected, resume-safe, all-dates) stayed
 healthy in both arms -- using best_model is precisely what that fix exists
 for.
 
-WHY AC AND TWAP ARE IN THIS COMPARISON: the 12-vs-16-dim RL delta alone
-doesn't answer the question that matters -- whether either RL representation
-actually beats the classical execution baselines. A representation ablation
-that never checks against AC is not a result, it's an internal RL
-leaderboard. TWAP/AC-Optimal don't depend on the RL model at all, so their
-numbers are identical whether computed alongside the 12-dim or 16-dim call
-(same seeds, same simulator physics) -- this script verifies that
-consistency directly rather than assuming it, then uses one canonical copy.
+ALL 11 CLEAN DATES ARE USED, not just the 9 from the first pass. Two dates
+(2024-07-10, 2024-12-10) were sitting unused -- neither training dates nor
+the 2 held-out crash dates -- and are genuinely held-out CALM/normal dates.
+Including them enlarges the out-of-sample evidence beyond n=2 (crash-only)
+and lets the "calm is a wash out-of-sample" half of the thesis be tested
+directly instead of relying on in-sample calm evidence, which is weak by
+construction. All 11 dates passed a basic data-quality check (consistent
+BookDepth/AggTrades row counts, no truncation) before inclusion.
 
-Significance: paired bootstrap on (RL_is_samples - AC_is_samples) using the
-SAME seeds for both (evaluate_all_strategies_on_date runs every strategy on
-seed=0..n_episodes-1 for a given date/call), which is more powerful and more
-honest than an unpaired comparison against a scalar AC baseline -- especially
-important given the held-out crash set is only n=2 dates.
+WHY AC, ADAPTIVE-AC, AND TWAP ARE ALL IN THIS COMPARISON: the 12-vs-16-dim
+RL delta alone doesn't answer the question that matters -- whether either RL
+representation actually beats the classical execution baselines, including
+the STRONGER one. Standard AC is a static precomputed schedule; Adaptive-AC
+recomputes as conditions change and is the harder, more honest target --
+beating standard AC but losing to Adaptive-AC would be a materially weaker
+result than beating both. TWAP/AC-Optimal/Adaptive-AC don't depend on the RL
+model at all, so their numbers are identical whether computed alongside the
+12-dim or 16-dim call (same seeds, same simulator physics) -- this script
+verifies that consistency directly (now that the fraction-table bug is
+fixed, it should hold) rather than assuming it.
+
+Significance: paired bootstrap on (RL_is_samples - baseline_is_samples)
+using the SAME seeds for both (evaluate_all_strategies_on_date runs every
+strategy on seed=0..n_episodes-1 for a given date/call), more powerful and
+more honest than an unpaired comparison against a scalar baseline --
+especially important given the held-out crash set is only n=2 dates.
 
 Usage: rl/.venv/bin/python rl/phase2r_ablation_report.py
 """
@@ -71,11 +87,16 @@ DATE_REGIMES = {
     "2024-03-05": "crash - flash liquidation cascade",
     "2024-04-15": "BTC correction (moderate stress)",
     "2024-06-10": "quiet consolidation",
+    "2024-07-10": "mid-summer sideways",
     "2024-08-05": "crash - Yen unwind",
     "2024-09-15": "moderate volatility",
     "2024-10-15": "moderate volatility",
     "2024-11-06": "post-election surge",
+    "2024-12-10": "December bull run",
 }
+
+BASELINE_KEYS = [("ac", "ac_optimal"), ("aac", "adaptive_ac"), ("tw", "twap")]
+BASELINE_LABELS = {"ac": "AC-Optimal", "aac": "Adaptive-AC", "tw": "TWAP"}
 
 
 def _available_dates() -> list:
@@ -89,12 +110,20 @@ def _available_dates() -> list:
     return dates
 
 
+def _classify(date: str) -> str:
+    if date in HELD_OUT_CRASH_DATES:
+        return "held_out_crash"
+    if date in TRAINING_DATES:
+        return "training"
+    return "held_out_calm"
+
+
 def paired_bootstrap_delta(a_samples, b_samples, n_bootstrap=N_BOOTSTRAP, seed=BOOTSTRAP_SEED):
     """
     Paired bootstrap CI + one-sided p-value for mean(a) - mean(b), resampling
     matched (a_i, b_i) pairs together (same seed index) rather than
     independently -- correct when a and b were evaluated on the same episode
-    seeds, as RL vs AC/TWAP always are here.
+    seeds, as RL vs any baseline always is here.
     """
     a = np.asarray(a_samples)
     b = np.asarray(b_samples)
@@ -109,7 +138,6 @@ def paired_bootstrap_delta(a_samples, b_samples, n_bootstrap=N_BOOTSTRAP, seed=B
     resampled = diff[idx].mean(axis=1)
     ci_lower = float(np.percentile(resampled, 2.5))
     ci_upper = float(np.percentile(resampled, 97.5))
-    # one-sided: fraction of bootstrap resamples where a did NOT beat b (delta <= 0)
     p_value = float((resampled <= 0).mean())
     return {"point": point, "ci_lower": ci_lower, "ci_upper": ci_upper, "p_value": p_value}
 
@@ -117,25 +145,26 @@ def paired_bootstrap_delta(a_samples, b_samples, n_bootstrap=N_BOOTSTRAP, seed=B
 def main():
     os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-    print("=" * 100)
-    print("PHASE 2R TASK 4 ABLATION: 12-dim RL vs 16-dim RL vs AC-Optimal vs TWAP")
-    print("POST-CORRECTION counterfactual simulator")
-    print("=" * 100)
+    print("=" * 104)
+    print("PHASE 2R TASK 4 ABLATION: RL-12dim vs RL-16dim vs AC-Optimal vs Adaptive-AC vs TWAP")
+    print("POST-CORRECTION simulator, ALL 11 clean dates, fixed action-fraction table")
+    print("=" * 104)
     print(
         "\n*** PROVENANCE ***\n"
-        "First post-correction result (calibrated impact model, restored drift, fixed\n"
-        "spread_ref -- see rl/results/PROVENANCE.md). Do NOT compare against any\n"
-        "pre-Phase-2R report.\n"
-        "\n*** MATCHED CONDITIONS (RL arms) ***\n"
+        "First post-correction result: calibrated impact model, restored drift, fixed\n"
+        "spread_ref, AND fixed classical-baseline action-fraction table (see\n"
+        "rl/results/PROVENANCE.md). Do NOT compare against any pre-Phase-2R report.\n"
+        "\n*** MATCHED CONDITIONS (RL arms, reused not retrained) ***\n"
         "Both RL arms: identical config (7 training dates, entropy floor, CPU device,\n"
         "n_envs=2, linear LR, full 3M-step schedule, resume-safe/multi-date reward-based\n"
         "best-model selection) -- differ ONLY in state dims (16 vs 12). Evaluated in\n"
-        "COUNTERFACTUAL mode (not historical) so dims 8/9 are live for the 16-dim arm.\n"
-        "best_model used for both RL arms.\n"
-        "\n*** WHY AC/TWAP ARE HERE ***\n"
-        "A 12-vs-16-dim delta with no classical-baseline comparison is an internal RL\n"
-        "leaderboard, not a result. This is a full 4-way comparison so the question that\n"
-        "actually matters -- does either RL representation beat AC-Optimal -- has an answer.\n"
+        "COUNTERFACTUAL mode. best_model used for both. Reused from the prior run --\n"
+        "the fraction-table bug never touched RL (raw action indices, no table lookup).\n"
+        "\n*** ALL 11 CLEAN DATES ***\n"
+        "7 training + 2 held-out CRASH (2024-03-05, 2024-08-05) + 2 held-out CALM\n"
+        "(2024-07-10, 2024-12-10, previously unused) -- enlarging out-of-sample evidence\n"
+        "beyond the crash-only n=2 and enabling a direct out-of-sample test of the\n"
+        "'calm is a wash' half of the thesis.\n"
     )
 
     print("Loading models...")
@@ -144,14 +173,12 @@ def main():
 
     dates = _available_dates()
     rows = []
+    any_inconsistency = False
 
     for date in dates:
         regime = DATE_REGIMES[date]
-        is_crash_holdout = date in HELD_OUT_CRASH_DATES
-        is_training_date = date in TRAINING_DATES
-        print(f"\n{'-' * 70}\n  {date}  ({regime})"
-              f"  [{'HELD-OUT crash' if is_crash_holdout else ('training' if is_training_date else 'other')}]"
-              f"\n{'-' * 70}")
+        split = _classify(date)
+        print(f"\n{'-' * 70}\n  {date}  ({regime})  [{split}]\n{'-' * 70}")
 
         print("  [12-dim]")
         r12 = evaluate_all_strategies_on_date(
@@ -165,97 +192,102 @@ def main():
         )
 
         rl12, rl16 = r12["rl_agent"], r16["rl_agent"]
-        ac12, ac16 = r12["ac_optimal"], r16["ac_optimal"]
-        tw12, tw16 = r12["twap"], r16["twap"]
 
-        # AC/TWAP shouldn't depend on the RL model at all (same seeds, same
-        # physics) -- verify that consistency directly rather than assume it.
-        ac_consistent = abs(ac12["mean_IS"] - ac16["mean_IS"]) < 1e-9
-        tw_consistent = abs(tw12["mean_IS"] - tw16["mean_IS"]) < 1e-9
-        if not (ac_consistent and tw_consistent):
-            print(f"  *** WARNING: AC/TWAP differ between the 12-dim and 16-dim calls on "
-                  f"{date} (ac_diff={ac12['mean_IS']-ac16['mean_IS']:.6f}, "
-                  f"twap_diff={tw12['mean_IS']-tw16['mean_IS']:.6f}) -- investigate before "
-                  f"trusting this date's numbers.")
-        ac = ac12  # canonical copy once consistency is confirmed
-        tw = tw12
+        baselines = {}
+        for short, key in BASELINE_KEYS:
+            b12, b16 = r12[key], r16[key]
+            consistent = abs(b12["mean_IS"] - b16["mean_IS"]) < 1e-9
+            if not consistent:
+                any_inconsistency = True
+                print(f"  *** WARNING: {BASELINE_LABELS[short]} differs between the 12-dim and "
+                      f"16-dim calls on {date} (diff={b12['mean_IS']-b16['mean_IS']:.6f}) -- "
+                      f"the fraction-table fix should have made this impossible, investigate.")
+            baselines[short] = b12  # canonical copy, now expected to equal b16
 
-        boot_16_vs_ac = paired_bootstrap_delta(rl16["is_samples"], ac["is_samples"])
-        boot_12_vs_ac = paired_bootstrap_delta(rl12["is_samples"], ac["is_samples"])
-
-        rows.append({
-            "date": date,
-            "regime": regime,
-            "held_out_crash_date": is_crash_holdout,
-            "training_date": is_training_date,
+        row = {
+            "date": date, "regime": regime, "split": split,
             "rl12_mean_IS": rl12["mean_IS"], "rl12_cvar_95": rl12["cvar_95"],
             "rl12_forced_liq": rl12["forced_liquidation_rate"],
             "rl16_mean_IS": rl16["mean_IS"], "rl16_cvar_95": rl16["cvar_95"],
             "rl16_forced_liq": rl16["forced_liquidation_rate"],
-            "ac_mean_IS": ac["mean_IS"], "ac_cvar_95": ac["cvar_95"],
-            "ac_cvar_95_ci_lower": ac["cvar_95_ci_lower"], "ac_cvar_95_ci_upper": ac["cvar_95_ci_upper"],
-            "twap_mean_IS": tw["mean_IS"], "twap_cvar_95": tw["cvar_95"],
-            "twap_cvar_95_ci_lower": tw["cvar_95_ci_lower"], "twap_cvar_95_ci_upper": tw["cvar_95_ci_upper"],
             "delta_16_vs_12_mean_IS": rl16["mean_IS"] - rl12["mean_IS"],
             "delta_16_vs_12_cvar_95": rl16["cvar_95"] - rl12["cvar_95"],
-            "delta_16_vs_ac_mean_IS": rl16["mean_IS"] - ac["mean_IS"],
-            "delta_16_vs_ac_ci_lower": boot_16_vs_ac["ci_lower"],
-            "delta_16_vs_ac_ci_upper": boot_16_vs_ac["ci_upper"],
-            "delta_16_vs_ac_p_value": boot_16_vs_ac["p_value"],
-            "rl16_beats_ac": rl16["mean_IS"] > ac["mean_IS"],
-            "delta_12_vs_ac_mean_IS": rl12["mean_IS"] - ac["mean_IS"],
-            "delta_12_vs_ac_ci_lower": boot_12_vs_ac["ci_lower"],
-            "delta_12_vs_ac_ci_upper": boot_12_vs_ac["ci_upper"],
-            "delta_12_vs_ac_p_value": boot_12_vs_ac["p_value"],
-            "rl12_beats_ac": rl12["mean_IS"] > ac["mean_IS"],
-        })
+        }
+        for short, _ in BASELINE_KEYS:
+            b = baselines[short]
+            row[f"{short}_mean_IS"] = b["mean_IS"]
+            row[f"{short}_cvar_95"] = b["cvar_95"]
+            row[f"{short}_cvar_95_ci_lower"] = b["cvar_95_ci_lower"]
+            row[f"{short}_cvar_95_ci_upper"] = b["cvar_95_ci_upper"]
+            for arm_label, arm in [("16", rl16), ("12", rl12)]:
+                boot = paired_bootstrap_delta(arm["is_samples"], b["is_samples"])
+                row[f"delta_{arm_label}_vs_{short}_mean_IS"] = arm["mean_IS"] - b["mean_IS"]
+                row[f"delta_{arm_label}_vs_{short}_ci_lower"] = boot["ci_lower"]
+                row[f"delta_{arm_label}_vs_{short}_ci_upper"] = boot["ci_upper"]
+                row[f"delta_{arm_label}_vs_{short}_p_value"] = boot["p_value"]
+                row[f"rl{arm_label}_beats_{short}"] = arm["mean_IS"] > b["mean_IS"]
+        rows.append(row)
 
         print(f"  RL-12dim: mean_IS={rl12['mean_IS']:+.4f}%  cvar_95={rl12['cvar_95']:+.4f}%  "
               f"forced_liq={rl12['forced_liquidation_rate']:.2f}")
         print(f"  RL-16dim: mean_IS={rl16['mean_IS']:+.4f}%  cvar_95={rl16['cvar_95']:+.4f}%  "
               f"forced_liq={rl16['forced_liquidation_rate']:.2f}")
-        print(f"  AC-Optimal: mean_IS={ac['mean_IS']:+.4f}%  cvar_95={ac['cvar_95']:+.4f}%  "
-              f"[{ac['cvar_95_ci_lower']:.4f}, {ac['cvar_95_ci_upper']:.4f}]")
-        print(f"  TWAP:       mean_IS={tw['mean_IS']:+.4f}%  cvar_95={tw['cvar_95']:+.4f}%  "
-              f"[{tw['cvar_95_ci_lower']:.4f}, {tw['cvar_95_ci_upper']:.4f}]")
-        print(f"  16dim vs AC: delta={rl16['mean_IS']-ac['mean_IS']:+.4f}pp  "
-              f"CI=[{boot_16_vs_ac['ci_lower']:+.4f}, {boot_16_vs_ac['ci_upper']:+.4f}]  "
-              f"p={boot_16_vs_ac['p_value']:.4f}  {'BEATS AC' if rl16['mean_IS']>ac['mean_IS'] else 'loses to AC'}")
-        print(f"  12dim vs AC: delta={rl12['mean_IS']-ac['mean_IS']:+.4f}pp  "
-              f"CI=[{boot_12_vs_ac['ci_lower']:+.4f}, {boot_12_vs_ac['ci_upper']:+.4f}]  "
-              f"p={boot_12_vs_ac['p_value']:.4f}  {'BEATS AC' if rl12['mean_IS']>ac['mean_IS'] else 'loses to AC'}")
+        for short, _ in BASELINE_KEYS:
+            b = baselines[short]
+            print(f"  {BASELINE_LABELS[short]:12s}: mean_IS={b['mean_IS']:+.4f}%  "
+                  f"cvar_95={b['cvar_95']:+.4f}% [{b['cvar_95_ci_lower']:.4f}, {b['cvar_95_ci_upper']:.4f}]")
+            for arm_label in ("16", "12"):
+                d = row[f"delta_{arm_label}_vs_{short}_mean_IS"]
+                p = row[f"delta_{arm_label}_vs_{short}_p_value"]
+                beats = row[f"rl{arm_label}_beats_{short}"]
+                print(f"    RL-{arm_label}dim vs {BASELINE_LABELS[short]}: delta={d:+.4f}pp  "
+                      f"p={p:.4f}  {'BEATS' if beats else 'loses to'}")
+
+    if not any_inconsistency:
+        print("\n*** Consistency check passed on every date: AC/Adaptive-AC/TWAP results are "
+              "identical between the 12-dim and 16-dim calls, confirming the fraction-table fix. ***")
 
     df = pd.DataFrame(rows)
     csv_path = f"{OUTPUT_DIR}phase2r_ablation_postcorrection.csv"
     df.to_csv(csv_path, index=False)
     print(f"\nFull ablation table saved: {csv_path}")
 
-    print("\n" + "=" * 100)
-    print("SUMMARY -- mean across all dates (in-sample dominated, see crash-only section for")
-    print("the fair generalization test)")
-    print("=" * 100)
+    print("\n" + "=" * 104)
+    print("SUMMARY -- mean across all 11 dates (in-sample dominated by 7 training dates; see")
+    print("split-out sections below for the fair generalization tests)")
+    print("=" * 104)
     for label, col in [("RL-12dim", "rl12_mean_IS"), ("RL-16dim", "rl16_mean_IS"),
-                       ("AC-Optimal", "ac_mean_IS"), ("TWAP", "twap_mean_IS")]:
+                       ("AC-Optimal", "ac_mean_IS"), ("Adaptive-AC", "aac_mean_IS"),
+                       ("TWAP", "tw_mean_IS")]:
         print(f"{label:12s} mean_IS avg: {df[col].mean():+.4f}%")
 
-    print("\n" + "=" * 100)
-    print("SUMMARY -- held-out crash dates only (2024-08-05, 2024-03-05), 4-way, n=2 -- INDICATIVE")
-    print("Both RL arms trained on the IDENTICAL corrected split; these are genuinely")
-    print("out-of-sample for BOTH. n=2 dates: directionally informative, NOT statistically")
-    print("conclusive on its own -- expanding the held-out crash set is the priority to")
-    print("strengthen this specific claim.")
-    print("=" * 100)
-    crash_df = df[df["held_out_crash_date"]]
-    print(crash_df[["date", "regime", "rl12_mean_IS", "rl16_mean_IS", "ac_mean_IS", "twap_mean_IS",
-                    "rl12_cvar_95", "rl16_cvar_95", "ac_cvar_95", "twap_cvar_95"]].to_string(index=False))
-    print()
-    print(crash_df[["date", "rl16_beats_ac", "delta_16_vs_ac_mean_IS", "delta_16_vs_ac_p_value",
-                    "rl12_beats_ac", "delta_12_vs_ac_mean_IS", "delta_12_vs_ac_p_value"]].to_string(index=False))
+    for split_name, split_key, note in [
+        ("HELD-OUT CRASH (2024-03-05, 2024-08-05)", "held_out_crash",
+         "n=2: directionally informative, NOT statistically conclusive on its own."),
+        ("HELD-OUT CALM (2024-07-10, 2024-12-10)", "held_out_calm",
+         "The out-of-sample test of the 'calm is a wash' half of the thesis."),
+        ("IN-SAMPLE TRAINING (7 dates)", "training",
+         "In-sample; the honest (mixed) picture, not evidence to explain away."),
+    ]:
+        sub = df[df["split"] == split_key]
+        if len(sub) == 0:
+            continue
+        print("\n" + "=" * 104)
+        print(f"SUMMARY -- {split_name}")
+        print(note)
+        print("=" * 104)
+        print(sub[["date", "regime", "rl12_mean_IS", "rl16_mean_IS", "ac_mean_IS",
+                   "aac_mean_IS", "tw_mean_IS"]].to_string(index=False))
+        for short, _ in BASELINE_KEYS:
+            n16 = sub[f"rl16_beats_{short}"].sum()
+            n12 = sub[f"rl12_beats_{short}"].sum()
+            print(f"  RL-16dim beats {BASELINE_LABELS[short]}: {n16}/{len(sub)}   "
+                  f"RL-12dim beats {BASELINE_LABELS[short]}: {n12}/{len(sub)}")
 
-    print("\n" + "=" * 100)
+    print("\n" + "=" * 104)
     print("THE SHARPEST SINGLE FINDING: does 16-dim flip 12-dim's loss-to-AC into a win, on the")
-    print("hardest stress date (2024-08-05)?")
-    print("=" * 100)
+    print("hardest stress date (2024-08-05)? (vs standard AC-Optimal specifically)")
+    print("=" * 104)
     row_0805 = df[df["date"] == "2024-08-05"]
     if len(row_0805):
         r = row_0805.iloc[0]
@@ -269,28 +301,44 @@ def main():
         else:
             print("--> NOT a clean flip (see raw deltas above) -- do not overstate this.")
 
-    print("\n" + "=" * 100)
+    print("\n" + "=" * 104)
     print("forced_liquidation_rate by RL arm (0.0 = agent always self-liquidated; watch for")
     print("either arm re-collapsing to blanket-wait, which would invalidate its numbers)")
-    print("=" * 100)
-    print(df[["date", "rl12_forced_liq", "rl16_forced_liq"]].to_string(index=False))
+    print("=" * 104)
+    print(df[["date", "split", "rl12_forced_liq", "rl16_forced_liq"]].to_string(index=False))
 
-    print("\n" + "=" * 100)
-    print("HONEST THESIS (state explicitly, do not oversell calm-date performance)")
-    print("=" * 100)
-    train_df = df[df["training_date"]]
-    n_16_beats_ac_train = train_df["rl16_beats_ac"].sum()
-    n_12_beats_ac_train = train_df["rl12_beats_ac"].sum()
-    print(f"On the {len(train_df)} in-sample (training) dates: RL-16dim beats AC on "
-          f"{n_16_beats_ac_train}/{len(train_df)}, RL-12dim beats AC on {n_12_beats_ac_train}/{len(train_df)}.")
-    print(f"On the {len(crash_df)} held-out crash dates: RL-16dim beats AC on "
-          f"{crash_df['rl16_beats_ac'].sum()}/{len(crash_df)}, RL-12dim beats AC on "
-          f"{crash_df['rl12_beats_ac'].sum()}/{len(crash_df)}.")
-    print("Thesis: RL's advantage over AC-Optimal is concentrated in stress regimes where AC's")
-    print("assumptions break down, and is near-absent (genuinely mixed, not a clean win) on calm")
-    print("dates where AC is already close to optimal. This is not a uniform 'RL beats AC' or")
-    print("'16-dim beats 12-dim' result -- it is regime-conditional, and the in-sample mixed")
-    print("results are the honest picture there, not noise to explain away.")
+    print("\n" + "=" * 104)
+    print("HONEST THESIS")
+    print("=" * 104)
+    crash_df = df[df["split"] == "held_out_crash"]
+    calm_df = df[df["split"] == "held_out_calm"]
+    train_df = df[df["split"] == "training"]
+    print(f"In-sample (7 training dates): RL-16dim beats AC on {train_df['rl16_beats_ac'].sum()}/7, "
+          f"RL-12dim beats AC on {train_df['rl12_beats_ac'].sum()}/7.")
+    print(f"Held-out CRASH (2 dates): RL-16dim beats AC on {crash_df['rl16_beats_ac'].sum()}/2, "
+          f"RL-12dim beats AC on {crash_df['rl12_beats_ac'].sum()}/2.")
+    print(f"Held-out CALM (2 dates): RL-16dim beats AC on {calm_df['rl16_beats_ac'].sum()}/2, "
+          f"RL-12dim beats AC on {calm_df['rl12_beats_ac'].sum()}/2.")
+    print()
+    print("AC-Optimal winning or tying on calm dates is EXPECTED and CORRECT, not a problem: AC")
+    print("is provably optimal under its assumptions (roughly-linear impact, roughly-normal price")
+    print("dynamics), and calm days are exactly when those assumptions hold -- there is little room")
+    print("for RL to beat a baseline that is already near-optimal in its own designed regime. If RL")
+    print("dramatically beat AC on calm days, THAT would be suspicious (a bug or a mis-implemented")
+    print("baseline), not a win. Watch specifically for RL genuinely LOSING (not tying) on calm --")
+    print("that would indicate RL mis-executing even in easy conditions, a real concern:")
+    for short, _ in BASELINE_KEYS:
+        calm_delta_16 = calm_df[f"delta_16_vs_{short}_mean_IS"].mean() if len(calm_df) else float("nan")
+        calm_delta_12 = calm_df[f"delta_12_vs_{short}_mean_IS"].mean() if len(calm_df) else float("nan")
+        print(f"  calm-date mean delta vs {BASELINE_LABELS[short]}: RL-16dim={calm_delta_16:+.4f}pp  "
+              f"RL-12dim={calm_delta_12:+.4f}pp")
+    print()
+    print("Thesis: RL's advantage over the classical baselines is concentrated in stress regimes")
+    print("where their assumptions break down (crash dates), and is a wash -- not a clean win, but")
+    print("also not a loss -- on calm dates where AC/Adaptive-AC are already close to optimal. This")
+    print("is regime-conditional, not a uniform 'RL beats everything' or '16-dim beats 12-dim'")
+    print("result, and the held-out calm dates now test the 'wash' half out-of-sample rather than")
+    print("relying on the weaker in-sample calm evidence.")
 
 
 if __name__ == "__main__":

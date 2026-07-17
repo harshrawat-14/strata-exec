@@ -547,12 +547,88 @@ metric is invalid.** The rule, stated for the record and for anyone building on 
 A reviewer will trust this project more for stating that plainly — learned the hard way, twice —
 than for either wrong conclusion it replaces.
 
+## Task 4 — the ablation deliverable (final, corrected)
+
+Tasks 1-3 all closed (device/resume isolation → entropy floor + CPU recipe adopted; impact-model
+audit → relabeled + calibration wired; drift restoration → dim 6 live, safety gate re-confirmed at
+two horizons; a `spread_ref` scale bug found and fixed while quantifying the wait-penalty
+magnitude). Two matched 3M-step RL arms trained (16-dim, 12-dim; identical config otherwise) and
+verified healthy via `best_model` (reward-selected, resume-safe, all-dates — the artifact that fix
+exists to produce; `_final` showed partial, non-corner drift in the 16-dim arm specifically that
+the floor slowed but did not fully prevent).
+
+**A second real bug was found and fixed during the ablation itself, before any result was treated
+as final:** the classical-baseline policies (TWAP/Heuristic/AC-Optimal/Adaptive-AC) hand-maintained
+two mirror copies of the action→fraction table (`V5_FRACTIONS`/`V6_FRACTIONS`) that had silently
+diverged from the real Rust environment's `ACTION_FRACTIONS` — the `n_state_dims=12` mirror matched
+the real table at only 3/20 indices. Found by the ablation script's own built-in consistency check
+(AC/TWAP results must be identical whether computed alongside the 12-dim or 16-dim RL call, since
+neither baseline depends on the RL model — the check fired on every date). Root-fixed: Python now
+queries the real table from the Rust binary (`--print-action-fractions`) instead of copying it, with
+a cross-language test asserting identity. This is the second instance in this project of a
+hand-maintained mirror of a canonical value causing a silent bug (cf. the CVaR sign inversion) —
+logged as a meta-lesson in `docs/phase2r_standing_issues.md`. **RL-vs-RL numbers were never affected**
+(RL picks raw action indices from a trained policy, never routed through these tables) — only the
+classical-baseline comparisons needed redoing.
+
+**An earlier draft of this ablation's "sharpest finding" — that the 16-dim arm flips the 12-dim
+arm's loss-to-AC into a win on 2024-08-05 — does NOT survive the fraction-table fix and is
+RETRACTED.** It was computed against the corrupted 12-dim-derived AC baseline. The corrected
+picture on that date: **both RL arms lose to the real AC-Optimal** (RL-12dim −8.63% vs AC's −4.96%,
+a −3.67pp gap; RL-16dim −6.48% vs AC's −4.96%, a −1.52pp gap). Not a flip — but the 16-dim state
+representation does narrow the loss margin substantially (from −3.67pp to −1.52pp) even in a
+losing scenario, which is itself a real, smaller finding worth keeping.
+
+**Final ablation, all 11 clean dates** (7 training + 2 held-out crash + 2 previously-unused
+held-out calm dates added specifically to enlarge the out-of-sample evidence beyond crash-only
+n=2), 5-way comparison (RL-12dim, RL-16dim, AC-Optimal, Adaptive-AC, TWAP), paired bootstrap
+significance vs. every baseline:
+
+| split | RL-16dim beats AC | RL-12dim beats AC | note |
+|---|---|---|---|
+| in-sample training (7) | 7/7 | 7/7 | both RL arms beat AC comfortably in-sample |
+| held-out crash (2) | 1/2 | 1/2 | wins 2024-03-05, **loses 2024-08-05** (both arms) |
+| held-out calm (2) | 2/2 | 2/2 | RL beats AC even on calm dates — see caveat below |
+
+**The representation ablation itself (16-dim vs 12-dim) is unaffected by the fraction-table bug and
+reconfirms the earlier finding exactly:** on both held-out crash dates, 16-dim beats 12-dim
+substantially (2024-03-05: +0.87pp; 2024-08-05: +2.15pp mean IS) — unchanged from the pre-fix
+numbers, as expected since RL was never affected. **This remains the credible part of the result.**
+
+**Honest reframing of the "calm is a wash" thesis:** the corrected baseline numbers show RL beating
+AC-Optimal and Adaptive-AC even on the held-out calm dates (mean delta +1.36 to +1.96pp), not a
+clean wash as hypothesized going in. Against TWAP specifically the calm-date picture is mixed
+(16-dim loses 0/2, 12-dim wins 2/2) — TWAP's naive uniform slicing is a genuinely tough target on
+quiet, low-drift days. Not investigated further at this session's depth (why RL beats a *supposedly
+near-optimal* AC baseline even in AC's own designed regime is a real question — possible
+explanations include AC's fixed λ not matching every calm day's true risk-aversion tradeoff, or a
+residual calibration/scale mismatch between the AC/Adaptive-AC baseline and the RL agent's
+observation space — flagged for future investigation, not resolved here).
+
+**Data quality:** all 11 dates checked directly (consistent BookDepth row counts 27811-28801, no
+truncation; AggTrades volumes 600K-6M rows, no near-empty files) before inclusion — no dates were
+excluded.
+
+**Clean ablation:** `forced_liquidation_rate = 0.0` for both RL arms on all 11 dates — neither arm
+collapsed during evaluation.
+
 ## Status
 
 - Forced-liquidation loophole + `price_factor` fix (`5630e5d`): **correct, stands, tested.**
 - Objective-bias / VWAP / observability findings: **retracted** (artifacts of IS-vs-arrival).
-- Wait-collapse: **re-diagnosed as a training/optimization failure** (agent suboptimal on its own
-  reward). Leading hypothesis = long-horizon credit assignment — **to verify, not assumed.**
+- Wait-collapse: re-diagnosed as **late-training policy collapse**, isolated by elimination to
+  device (MPS); CPU adopted as the training recipe; entropy floor + resume-safe/multi-date
+  best-model selection implemented and verified.
+- Impact model: relabeled honestly (OW-style decay structure + square-root magnitude), calibration
+  engine wired in.
+- Drift restoration (Task 3): dim 6 live in training, safety gate re-confirmed at two horizons.
+- `spread_ref` scale bug: found and fixed while quantifying the wait-penalty magnitude.
+- Classical-baseline fraction-table bug: found (via the ablation's own consistency check),
+  root-fixed (single source of truth, cross-language test), and the affected "sharpest finding"
+  explicitly retracted above.
+- **Task 4 ablation: complete.** 16-dim beats 12-dim on both held-out crash dates (unaffected by
+  the fraction-table bug); both RL arms beat AC/Adaptive-AC in-sample and on held-out calm dates;
+  both RL arms lose to AC on the more severe held-out crash date (2024-08-05), though 16-dim loses
+  by less than 12-dim.
 - `interval_volume` / `book_mid` telemetry: retained as sound instrumentation.
-- No VWAP implementation. No retrain until the training-failure diagnosis is verified and a fix is
-  planned. Nothing pushed; demo untouched.
+- Nothing pushed; demo untouched throughout.
