@@ -753,17 +753,32 @@ def evaluate_all_strategies_on_date(
     ac_lambda: float = AC_DEFAULT_LAMBDA,
     n_bootstrap: int = 10000,
     bootstrap_seed: int = 0,
+    mode: str = "historical",
+    btc_target: float = 50_000.0,
 ) -> dict:
     """
-    Evaluate all 5 strategies on the same counterfactual LOB
-    environment using the same transient-impact model (OW-style
-    permanent/temporary decay structure, square-root instantaneous
-    magnitude -- see README "Market Impact" for the Phase 2R naming
-    correction), same real Binance price path, and same arrival price.
+    Evaluate all 5 strategies on the same LOB environment using the same
+    transient-impact model (OW-style permanent/temporary decay structure,
+    square-root instantaneous magnitude -- see README "Market Impact" for
+    the Phase 2R naming correction), same real Binance price path, and same
+    arrival price.
 
     Replaces the mixed-framework comparison where TWAP/Heuristic
     used research-sim (Monte Carlo + square-root impact) and RL
     used evaluate.py (real LOB + this transient-impact model).
+
+    mode: "historical" (default, preserves every existing caller's behavior
+    -- pure replay, no causal own-impact feedback, matches Phase 0/1's
+    established harness) or "counterfactual" (real LOB + accumulated own
+    impact -- what RL training actually uses). Phase 2R Task 4's 16-dim vs
+    12-dim ablation uses "counterfactual" specifically: historical mode has
+    no cf_lob, so state dims 8/9 (own-impact fractions) are structurally
+    dead there, which would test the 16-dim arm with two of its own
+    distinguishing features disabled -- not a fair test of the
+    representation. See docs/phase2r_objective_bias_finding.md Gate 3 and
+    rl/results/PROVENANCE.md for why this default stays "historical" (all
+    pre-Phase-2R results/comparability are historical-mode) while Task 4
+    explicitly opts into "counterfactual".
 
     ac_lambda: risk-aversion parameter shared by both AC-family policies
     (AC Optimal and Adaptive AC) in this comparison -- exposed here rather
@@ -799,8 +814,8 @@ def evaluate_all_strategies_on_date(
     for strategy_key, policy in policies.items():
         print(f"    [{strategy_labels[strategy_key]}]", end=" ", flush=True)
 
-        env = StrataExecEnv(
-            mode="historical",
+        env_kwargs = dict(
+            mode=mode,
             adversarial=adversarial,
             lob_date=date,
             agg_date=date,
@@ -809,6 +824,9 @@ def evaluate_all_strategies_on_date(
             fixed_size=fixed_size,
             no_time_features=n_state_dims < 16,
         )
+        if mode == "counterfactual":
+            env_kwargs["btc_target"] = btc_target
+        env = StrataExecEnv(**env_kwargs)
 
         all_is = []
         all_rewards = []
