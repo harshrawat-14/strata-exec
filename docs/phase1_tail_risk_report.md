@@ -1,5 +1,10 @@
 # Phase 1 — Tail-Risk Metrics on Existing Strategies
 
+> **PRE-CORRECTION SIMULATOR NOTICE (added Phase 2R, 2026-07-17):** every number in this report was
+> produced against the counterfactual simulator **before** Phase 2R's Task 2 (impact-model
+> calibration) and Task 3 (drift restoration) fixes. Do not compare these numbers directly against
+> any post-Phase-2R result. See `rl/results/PROVENANCE.md` and `docs/phase2r_standing_issues.md`.
+
 No new model was trained in this phase. This measures the existing `ppo_lstm_v5_adaptive_best`
 checkpoint, using Phase 0's unified harness (`evaluate_all_strategies_on_date`), across every
 date with clean historical data (11 dates), broken out by regime, with a bootstrap CI on every

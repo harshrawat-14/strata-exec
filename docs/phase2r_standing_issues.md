@@ -6,6 +6,19 @@ sessions. Cross-referenced from `docs/phase2r_objective_bias_finding.md`.
 
 ---
 
+## Simulator provenance boundary (read before comparing ANY two results)
+
+**Every result produced before Phase 2R's Task 2 (impact calibration) and Task 3 (drift
+restoration) fixes was measured against a materially different simulator than every result
+produced after.** This is not a mode choice (historical vs. counterfactual) — it is a change to
+what the counterfactual simulator itself computes. Comparing across this boundary without
+accounting for it produces a false read. See `rl/results/PROVENANCE.md` for the per-file table of
+which existing results are pre-correction (all of them, as of this entry — v5's headline numbers,
+`phase1_tail_risk.csv`, `unified_comparison.csv`, `failure_analysis.csv`, and the invalid
+`phase2_ablation.csv`). Task 4's ablation (16-dim vs 12-dim, counterfactual mode) will be the first
+post-correction result; tag it and everything after it clearly, and never present a pre/post
+number pair as if they were measured on the same ruler.
+
 ## Resolved this phase (kept here for the record, not action items)
 
 - **Forced-liquidation reward loophole** (`5630e5d`) — fixed and tested.
