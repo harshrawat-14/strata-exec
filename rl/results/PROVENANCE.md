@@ -9,6 +9,17 @@ any post-Phase-2R result without accounting for the simulator change underneath 
 comparability was already broken when the simulator changed, independent of any evaluation-mode
 choice.
 
+**Additional reason, found later in Phase 2R, why these are superseded (not a new invalidation —
+they were already retired by the note above; recorded here for completeness):** every table below
+that includes TWAP/Heuristic/AC-Optimal/Adaptive-AC numbers also predates the fraction-table fix
+(the classical-baseline policies used a hand-maintained action-fraction mirror that had silently
+diverged from the real environment's table, badly for `n_state_dims=12`). This does not newly
+invalidate anything — these numbers were already dead from the pre-correction-simulator issue
+above — but it means even a hypothetical re-run against the corrected simulator using the OLD
+evaluate.py code would still have been wrong for a second, independent reason. Do not re-open these
+files to "fix" them; they stay retired. See `docs/phase2r_objective_bias_finding.md` and
+`docs/phase2r_standing_issues.md`.
+
 | file | simulator | mode | status |
 |---|---|---|---|
 | `phase1_tail_risk.csv` | **pre-correction** | historical | superseded baseline, kept for record |

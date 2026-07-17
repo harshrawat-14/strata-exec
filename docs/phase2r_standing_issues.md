@@ -33,6 +33,17 @@ number pair as if they were measured on the same ruler.
   now live in training.
 - **`spread_ref` scale-mismatch bug** in `reset_counterfactual` — fixed; was flooring the
   punitive-liquidation price at ~$0 for 80-90% of any forced dump.
+- **Train/eval state-support gap (dims 8/9), formerly issue #2 below** — resolved by decision:
+  Task 4's ablation runs entirely in counterfactual mode (both training and eval), so dims 6, 8, 9
+  are all live and consistent by construction. Historical mode's asymmetry is unchanged but no
+  longer gates anything, since the ablation doesn't use historical mode.
+- **Classical-baseline action-fraction table bug** — `TWAPPolicy`/`HeuristicPolicy`/
+  `ACOptimalPolicy`/`AdaptiveACPolicy` hand-maintained two mirrors (`V5_FRACTIONS`/
+  `V6_FRACTIONS`) of the real environment's action->fraction table that had silently diverged
+  (the `n_state_dims=12` mirror matched the real Rust `ACTION_FRACTIONS` at only 3/20 indices).
+  Root-fixed: Python now queries the real table from the Rust binary (`--print-action-fractions`)
+  instead of hand-copying it, with a cross-language test asserting identity. See the meta-lesson
+  below — this is the second instance of this exact failure mode in the project.
 
 ## Open — must survive into the final writeup's honest-limitations section
 
@@ -43,13 +54,12 @@ Predates this incident; applies to v5's methodology too. Candidate fix: multi-da
 intraday price-path randomization. **Deferred to post-v2-core** — do not implement speculatively;
 not shown to bite training outcomes.
 
-### 2. Train/eval state-support mismatch: dims 8/9 (own-impact fractions)
-Dim 6 fixed this phase (Task 3). Dims 8/9 remain dead in `historical` mode (the eval/ablation
-harness) while live in `counterfactual` mode (training) — architectural, not a bug: historical mode
-has no `cf_lob` by design ("pure replay, no causal feedback"). **Requires an explicit decision**
-before any state-design claim: either switch the eval harness to counterfactual mode (breaks
-comparability with all prior historical-mode-based reports back to Phase 0/1), or accept and
-document the asymmetry. Not resolved as of this entry — gates Task 4.
+### 2. Train/eval state-support mismatch: dims 8/9 (own-impact fractions) — RESOLVED for Task 4
+Dim 6 fixed this phase (Task 3). Dims 8/9 remain architecturally dead in `historical` mode (no
+`cf_lob` by design) while live in `counterfactual` mode — this is unchanged and would still gate
+any *future* work that needs historical mode specifically. For Task 4, resolved by decision: the
+ablation runs entirely in counterfactual mode for both training and eval, so this doesn't bite.
+Moved to "resolved this phase" above; kept here only as a pointer for future historical-mode work.
 
 ### 3. Punitive-price extrapolation for forced-liquidation residual beyond real book depth
 `worst_price − 5×spread_ref`, a simple linear offset, prices whatever portion of a forced dump
@@ -72,14 +82,47 @@ bound for `start_offset > 0`, but all evals use small seeds (0-19, <1% of the ep
 are unaffected in practice. Bounding `start_offset ≤ len − total_steps` would remove the caveat
 entirely. **Deferred** — cosmetic, not measured to affect any reported number.
 
+## Meta-lesson: hand-maintained mirrors of canonical values (second occurrence)
+
+**Any value that exists in two places will eventually disagree. Canonical values get read from
+their single source, never copied.** This is the second time in this project a hand-maintained
+mirror of a canonical value caused a silent, real bug:
+
+1. **CVaR sign inversion** — several call sites reimplemented "CVaR-95" locally (some as
+   `np.percentile(arr, 5)`, a single point not a tail mean; the Rust/`parallel_sim.py` siblings had
+   an outright sign inversion, averaging the *best* tail instead of the worst). Fixed by
+   `compute_cvar_95` becoming the one implementation everything shares.
+2. **Action-fraction table divergence** (this phase) — `rl/evaluate.py` hand-maintained
+   `V5_FRACTIONS`/`V6_FRACTIONS` as mirrors of the real Rust `ACTION_FRACTIONS`, which silently
+   diverged (matched at 3/20 indices for the `n_state_dims=12` case). Fixed by Python querying the
+   real table from the Rust binary instead of copying it.
+
+Both bugs were structurally identical: a value defined once canonically, copied by hand into a
+second location for convenience, and the copy silently rotted. **Applying this forward:** any new
+constant, table, or formula that needs to be used from both Rust and Python (or from two places in
+either language) should be read from one canonical source at runtime, not hand-transcribed. If a
+review ever finds a second copy of a value that has an authoritative source elsewhere, that is a
+bug by construction, not a style nit — fix it the same way these two were fixed.
+
 ## Deferred by explicit decision — log only, do not action before post-v2-core
 
 These are named directions, not commitments, so they don't evaporate — none are to be started now:
 
-- **Action-space redesign**: continuous actions, non-linear/finer buckets near the low end, or
-  actual limit orders instead of the current 20-bucket discrete market-order fractions. Would give
-  the agent finer control than the current `ACTION_FRACTIONS` ladder allows, particularly around
-  the "small continuous slicing" region.
+- **Action-space redesign: uniform vs. non-linear vs. continuous, run as a comparison, not a
+  pick.** The current 20-bucket `ACTION_FRACTIONS` ladder is uniform-ish and, per this phase's
+  fraction-table investigation, wastes resolution: the difference between selling 1% and 3% matters
+  far more to execution quality than between 90% and 95%, and the current ladder spends buckets
+  evenly rather than concentrating them where they matter. Three variants worth comparing head to
+  head rather than just picking one: (a) the current uniform-ish discretization (baseline), (b)
+  non-linear/finer buckets concentrated near small sells, (c) continuous actions (needs a different
+  RL algorithm, e.g. SAC/PPO-continuous, and has its own stability considerations). Likely ranking
+  by payoff-per-effort: non-linear buckets > continuous > uniform (current) — but that ranking is a
+  guess, not a finding; the point of running it as a comparison is to not have to guess. **Hard
+  deferral reason, not just scheduling:** changing the action space invalidates every result and
+  both collapse diagnoses built this phase (the entropy-floor fix, the device/resume isolation, the
+  reward-loophole fix all reason about behavior in terms of the current 20-action space). Doing this
+  now would re-litigate the collapse, the reward, and the ablation simultaneously on shifting
+  ground. Self-contained future study, arguably its own phase — after v2-core closes.
 - **Interval-VWAP as the primary reporting benchmark** (not the training reward, which is already
   drift-neutral — this is about what the *comparison tables* report). Would make reported IS numbers
   drift-neutral too, addressing issue #1 above at the reporting-metric layer specifically. The
