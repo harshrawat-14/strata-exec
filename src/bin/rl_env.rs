@@ -1995,6 +1995,20 @@ fn main() {
     #[cfg(feature = "dhat-heap")]
     let _profiler = dhat::Profiler::new_heap();
 
+    // Single source of truth for the action->fraction mapping. Python's
+    // classical-baseline policies (TWAP/Heuristic/AC-Optimal/AdaptiveAC) used
+    // to hand-maintain their OWN copies of this table (V5_FRACTIONS/
+    // V6_FRACTIONS in rl/evaluate.py) to convert a target sell fraction into
+    // an action index -- which silently diverged from this real table (17/20
+    // indices wrong for one of the two mirrors), so those policies were
+    // picking action indices under an assumption the environment never
+    // honored. Fixed by having Python query this exact array instead of
+    // maintaining its own copy. See docs/phase2r_objective_bias_finding.md.
+    if std::env::args().any(|a| a == "--print-action-fractions") {
+        println!("{}", json!(ACTION_FRACTIONS));
+        return;
+    }
+
     let cfg = parse_cli();
 
     if let Some((batch_size, socket_path)) = parse_batch_args() {
@@ -2067,6 +2081,20 @@ mod tests {
     use super::*;
     use std::collections::hash_map::DefaultHasher;
     use std::hash::{Hash, Hasher};
+
+    #[test]
+    fn action_fractions_starts_zero_ends_one_strictly_increasing() {
+        // Phase 2R fraction-table bug guard: this const IS the single source
+        // of truth (Python queries it via --print-action-fractions rather
+        // than hand-maintaining a mirror). Sanity-check its own shape here;
+        // the cross-language identity check lives in
+        // rl/tests/test_evaluate.py::TestActionFractionsSingleSourceOfTruth.
+        assert_eq!(ACTION_FRACTIONS[0], 0.0);
+        assert_eq!(ACTION_FRACTIONS[ACTION_FRACTIONS.len() - 1], 1.0);
+        for w in ACTION_FRACTIONS.windows(2) {
+            assert!(w[0] < w[1], "action fractions must be strictly increasing: {w:?}");
+        }
+    }
 
     /// Bit-for-bit hash of one full episode's trajectory: every state vector
     /// (hashed via f64::to_bits(), not float comparison, so this is a true

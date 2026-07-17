@@ -12,6 +12,8 @@ import pandas as pd
 import argparse
 import os
 import io
+import json
+import subprocess
 import zipfile
 import tempfile
 import torch
@@ -116,24 +118,42 @@ HEURISTIC_IS = {
     "2024-11-06": 1.8189,
 }
 
-V5_FRACTIONS = [
-    0.000, 0.001, 0.003, 0.005, 0.008, 0.010,
-    0.015, 0.020, 0.030, 0.050, 0.070, 0.100,
-    0.150, 0.200, 0.300, 0.400, 0.500, 0.600,
-    0.800, 1.000,
-]
+def _query_action_fractions() -> list:
+    """
+    Single source of truth for the action->fraction mapping: query the real
+    Rust environment (`ACTION_FRACTIONS` in rl_env.rs) rather than maintaining
+    a hand-copied mirror in Python.
 
-V6_FRACTIONS = [
-    0.000, 0.005, 0.010, 0.015, 0.020, 0.025,
-    0.030, 0.035, 0.040, 0.050, 0.060, 0.075,
-    0.100, 0.125, 0.150, 0.200, 0.300, 0.500,
-    0.750, 1.000,
-]
+    Phase 2R finding: this file used to hand-maintain TWO separate mirrors
+    (V5_FRACTIONS/V6_FRACTIONS, keyed off n_state_dims) that silently
+    diverged from the real table -- one matched at only 3/20 indices. The
+    classical-baseline policies (TWAP/Heuristic/AC-Optimal/AdaptiveAC) were
+    picking action indices under a fraction assumption the environment never
+    honored, for every n_state_dims=12 evaluation. The action space is a
+    property of the environment, not of the state representation being
+    evaluated -- it should never have been keyed off n_state_dims at all.
+    Second instance of a hand-maintained mirror of a canonical value causing
+    a silent bug in this project (cf. the CVaR sign inversion) -- canonical
+    values get read from their single source, never copied.
+    """
+    result = subprocess.run(
+        ["./target/release/rl-env", "--print-action-fractions"],
+        capture_output=True, text=True, check=True,
+    )
+    return json.loads(result.stdout.strip())
+
+
+ACTION_FRACTIONS = _query_action_fractions()
 
 
 def get_action_fractions(n_state_dims: int) -> list:
-    """Return correct action fraction list based on state dims."""
-    return V6_FRACTIONS if n_state_dims == 12 else V5_FRACTIONS
+    """
+    Return the action fraction list. n_state_dims is accepted (not used) only
+    to keep every existing call site (TWAPPolicy(n_state_dims), etc.) working
+    unmodified -- the action space does not depend on the state
+    representation, so there is only ever one answer now.
+    """
+    return ACTION_FRACTIONS
 
 
 def nearest_action(target_frac: float, fractions: list) -> int:

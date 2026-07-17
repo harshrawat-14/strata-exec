@@ -7,6 +7,10 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+import json
+import os
+import subprocess
+
 from evaluate import (
     compute_cvar_95,
     bootstrap_cvar_95_ci,
@@ -14,7 +18,55 @@ from evaluate import (
     AdaptiveACPolicy,
     AC_DEFAULT_LAMBDA,
     _stable_sinh_ratio,
+    ACTION_FRACTIONS,
+    get_action_fractions,
 )
+
+
+class TestActionFractionsSingleSourceOfTruth:
+    """
+    Regression coverage for the Phase 2R fraction-table bug: this file used
+    to hand-maintain TWO separate mirrors of the action->fraction mapping
+    (V5_FRACTIONS/V6_FRACTIONS, keyed off n_state_dims) that silently
+    diverged from the real environment's table -- one matched at only 3/20
+    indices, so every classical-baseline (TWAP/Heuristic/AC-Optimal/
+    AdaptiveAC) evaluation with n_state_dims=12 was picking action indices
+    under a fraction assumption the environment never honored. Second
+    instance of a hand-maintained mirror of a canonical value causing a
+    silent bug in this project (cf. TestComputeCvar95 above) -- this test
+    exists so any future re-introduction of a second copy, or any drift in
+    the Rust ACTION_FRACTIONS const, fails loudly instead of silently.
+    """
+
+    def test_python_visible_table_matches_rust_source_of_truth(self):
+        repo_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        binary = os.path.join(repo_root, "target", "release", "rl-env")
+        if not os.path.exists(binary):
+            pytest.skip("target/release/rl-env not built in this checkout")
+        result = subprocess.run(
+            [binary, "--print-action-fractions"], capture_output=True, text=True, check=True,
+        )
+        rust_fractions = json.loads(result.stdout.strip())
+        assert ACTION_FRACTIONS == rust_fractions, (
+            "Python's ACTION_FRACTIONS must be byte-identical to the Rust "
+            "environment's real action->fraction table -- any divergence "
+            "means the classical baselines are picking actions under an "
+            "assumption the environment does not honor."
+        )
+
+    def test_get_action_fractions_returns_the_same_table_regardless_of_n_state_dims(self):
+        # The action space is a property of the environment, not of the
+        # state representation being evaluated -- it must never be keyed off
+        # n_state_dims again (that coupling is exactly what caused the bug).
+        assert get_action_fractions(12) == get_action_fractions(16) == ACTION_FRACTIONS
+
+    def test_action_fractions_starts_at_zero_ends_at_one_monotonic(self):
+        assert ACTION_FRACTIONS[0] == 0.0
+        assert ACTION_FRACTIONS[-1] == 1.0
+        assert all(
+            ACTION_FRACTIONS[i] < ACTION_FRACTIONS[i + 1]
+            for i in range(len(ACTION_FRACTIONS) - 1)
+        ), "action fractions must be strictly increasing"
 
 
 class TestComputeCvar95:
