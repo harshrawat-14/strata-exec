@@ -4,7 +4,7 @@ This is the core research deliverable of Phase 4.
 """
 
 from sb3_contrib import RecurrentPPO
-from environment import StrataExecEnv
+from environment import StrataExecEnv, ACTION_FRACTIONS
 from collections import Counter
 from scipy import stats
 import numpy as np
@@ -12,8 +12,6 @@ import pandas as pd
 import argparse
 import os
 import io
-import json
-import subprocess
 import zipfile
 import tempfile
 import torch
@@ -118,32 +116,12 @@ HEURISTIC_IS = {
     "2024-11-06": 1.8189,
 }
 
-def _query_action_fractions() -> list:
-    """
-    Single source of truth for the action->fraction mapping: query the real
-    Rust environment (`ACTION_FRACTIONS` in rl_env.rs) rather than maintaining
-    a hand-copied mirror in Python.
-
-    Phase 2R finding: this file used to hand-maintain TWO separate mirrors
-    (V5_FRACTIONS/V6_FRACTIONS, keyed off n_state_dims) that silently
-    diverged from the real table -- one matched at only 3/20 indices. The
-    classical-baseline policies (TWAP/Heuristic/AC-Optimal/AdaptiveAC) were
-    picking action indices under a fraction assumption the environment never
-    honored, for every n_state_dims=12 evaluation. The action space is a
-    property of the environment, not of the state representation being
-    evaluated -- it should never have been keyed off n_state_dims at all.
-    Second instance of a hand-maintained mirror of a canonical value causing
-    a silent bug in this project (cf. the CVaR sign inversion) -- canonical
-    values get read from their single source, never copied.
-    """
-    result = subprocess.run(
-        ["./target/release/rl-env", "--print-action-fractions"],
-        capture_output=True, text=True, check=True,
-    )
-    return json.loads(result.stdout.strip())
-
-
-ACTION_FRACTIONS = _query_action_fractions()
+# ACTION_FRACTIONS is imported from environment.py above -- that is the one
+# canonical Python-side query point (which itself queries the real Rust
+# environment rather than hand-copying). Phase 2R finding: this project has
+# had TWO separate hand-maintained mirrors of this table silently diverge
+# (V5_FRACTIONS/V6_FRACTIONS here, and a third copy formerly in
+# rl/environment.py) -- never hand-copy this table again.
 
 
 def get_action_fractions(n_state_dims: int) -> list:
@@ -923,6 +901,8 @@ def evaluate_ac_lambda_grid(
     fixed_size: bool = True,
     n_bootstrap: int = 10000,
     bootstrap_seed: int = 0,
+    mode: str = "historical",
+    btc_target: float = 50_000.0,
 ) -> dict:
     """
     Phase 1 task 3a: the AC baseline is not unique -- it depends on a
@@ -937,6 +917,10 @@ def evaluate_ac_lambda_grid(
     Only runs the two lambda-dependent policies (TWAP/Heuristic/RL don't
     depend on lambda and are already covered once by
     evaluate_all_strategies_on_date -- no need to re-run them per grid point).
+
+    mode/btc_target: see evaluate_all_strategies_on_date's docstring for why
+    Phase 2R's ablation uses "counterfactual" specifically. Default stays
+    "historical" so every existing caller is unaffected.
 
     Returns {lambda: {"ac_optimal": {...}, "adaptive_ac": {...}}}, same
     per-strategy metrics shape as evaluate_all_strategies_on_date.
@@ -957,8 +941,8 @@ def evaluate_ac_lambda_grid(
         for strategy_key, policy in policies.items():
             print(f"    [lambda={lam:.0e} {strategy_labels[strategy_key]}]", end=" ", flush=True)
 
-            env = StrataExecEnv(
-                mode="historical",
+            env_kwargs = dict(
+                mode=mode,
                 lob_date=date,
                 agg_date=date,
                 n_state_dims=n_state_dims,
@@ -966,6 +950,9 @@ def evaluate_ac_lambda_grid(
                 fixed_size=fixed_size,
                 no_time_features=n_state_dims < 16,
             )
+            if mode == "counterfactual":
+                env_kwargs["btc_target"] = btc_target
+            env = StrataExecEnv(**env_kwargs)
 
             all_is = []
             for ep in range(n_episodes):

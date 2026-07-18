@@ -60,6 +60,18 @@ class TestActionFractionsSingleSourceOfTruth:
         # n_state_dims again (that coupling is exactly what caused the bug).
         assert get_action_fractions(12) == get_action_fractions(16) == ACTION_FRACTIONS
 
+    def test_evaluate_module_reuses_environment_modules_table_not_a_new_copy(self):
+        # Phase 2R found a THIRD hand-maintained copy of this table living in
+        # rl/environment.py (byte-identical by luck, unprotected by any test,
+        # and still imported by rl/phase2r_vwap_gate.py). Root-fixed by making
+        # environment.py the one canonical query point and having evaluate.py
+        # import its ACTION_FRACTIONS from there instead of querying
+        # independently. This test guards against a fourth copy re-appearing:
+        # evaluate.ACTION_FRACTIONS must be the *same object* environment.py
+        # produced, not merely an equal-valued list assembled separately.
+        import environment
+        assert ACTION_FRACTIONS is environment.ACTION_FRACTIONS
+
     def test_action_fractions_starts_at_zero_ends_at_one_monotonic(self):
         assert ACTION_FRACTIONS[0] == 0.0
         assert ACTION_FRACTIONS[-1] == 1.0

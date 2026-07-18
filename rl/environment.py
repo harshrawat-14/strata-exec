@@ -4,12 +4,29 @@ import json
 import numpy as np
 from typing import Optional
 
-ACTION_FRACTIONS = [
-    0.000, 0.001, 0.003, 0.005, 0.008,
-    0.010, 0.015, 0.020, 0.030, 0.050,
-    0.070, 0.100, 0.150, 0.200, 0.300,
-    0.400, 0.500, 0.700, 0.900, 1.000
-]
+
+def _query_action_fractions() -> list:
+    """
+    Single source of truth for the action->fraction mapping: query the real
+    Rust environment (`ACTION_FRACTIONS` in rl_env.rs) rather than maintaining
+    a hand-copied mirror in Python.
+
+    Phase 2R finding: this project has hand-maintained mirrors of this exact
+    table diverge silently before (rl/evaluate.py's V5_FRACTIONS/V6_FRACTIONS,
+    one of which matched the real table at only 3/20 indices). This module
+    used to carry its own third hardcoded copy -- currently byte-identical to
+    the real table by luck, not by construction, and unprotected by any test.
+    Root-fixed the same way as evaluate.py's copy: read from the one
+    canonical source at runtime.
+    """
+    result = subprocess.run(
+        ["./target/release/rl-env", "--print-action-fractions"],
+        capture_output=True, text=True, check=True,
+    )
+    return json.loads(result.stdout.strip())
+
+
+ACTION_FRACTIONS = _query_action_fractions()
 
 class StrataExecEnv(gym.Env):
 
