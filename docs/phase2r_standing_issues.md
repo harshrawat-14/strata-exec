@@ -58,10 +58,15 @@ number pair as if they were measured on the same ruler.
 
 ## Open — must survive into the final writeup's honest-limitations section
 
-### 0. AC/Adaptive-AC baseline was not fairly parametrized — the close-out gate's headline finding
-Two independent issues, both found while investigating why the Task 4 corrected ablation showed RL
-beating AC/AAC on calm dates but losing on the harder crash date (a pattern inverted from the
-project's working thesis):
+### 0. "RL beats classical baselines" is retracted, not merely weakened
+**Framing, stated precisely:** the claim is not weakened by what follows — it was never supported.
+The comparison rested on three baseline parameters (λ, σ, η) that were each hardcoded rather than
+sourced or fitted, and each specific hardcoded value happened to handicap the comparator, not the RL
+arm. Do not carry forward language like "needs more work" or "unresolved pending a rerun" — the
+correct framing is that the earlier "RL beats AC" table was a measurement of an under-tuned AC, not
+of RL, from the moment it was produced. Two independent issues, both found while investigating why
+the Task 4 corrected ablation showed RL beating AC/AAC on calm dates but losing on the harder crash
+date (a pattern inverted from the project's working thesis):
 - **Un-swept λ.** `AC_DEFAULT_LAMBDA=0.001` was used identically for every date; a wide λ-grid sweep
   on the 4 anchor dates (post-correction simulator, counterfactual mode) shows AC/AAC at their own
   best λ tie-or-beat RL-16dim on 3 of 4 dates (both held-out calm dates, and the harder held-out
@@ -75,9 +80,18 @@ project's working thesis):
   `--print-action-fractions`), so AC's schedule shape reflects generic textbook assumptions with
   zero connection to what the simulator calibrated for that date. **Not yet fixed** — would need a
   new CLI flag to expose calibrated sigma/eta per date, plus re-running the λ-grid with those values.
-- **Net effect:** any "RL beats classical execution baselines" claim from Phase 2R should be treated
-  as unresolved, not established, until both of the above are addressed. The RL-vs-RL ablation
-  (16-dim vs 12-dim) is unaffected by either issue.
+- **Net effect:** the "RL beats classical execution baselines" claim from Phase 2R is **retracted**.
+  Fixing the two items above (calibrated sigma/eta, extended λ grid) would produce a *new*
+  comparison worth reporting on its own merits — it would not "restore" or "resolve" the old claim,
+  which stays retracted regardless of what that new comparison finds. The RL-vs-RL ablation (16-dim
+  vs 12-dim) is unaffected by either issue and is the one surviving Task 4 claim.
+- **Methodological finding (worth logging on its own, not just as a caveat on the RL number):** four
+  instances of the same bug class surfaced this phase — CVaR sign inversion, two independent
+  hand-copied `ACTION_FRACTIONS` mirrors, and this hardcoded-baseline-parameter issue. Every one was
+  a value duplicated, assumed, or left at a default rather than sourced from its canonical origin or
+  properly fitted, and every one biased the comparison toward the project's own method. See the
+  "Methodological finding" section in `docs/phase2r_objective_bias_finding.md` for the full
+  writeup-ready version of this lesson.
 
 ### 1. Hindsight trend-following in single-path historical backtesting (IS-metric only)
 Single realized historical paths reward directional timing **in the IS-vs-arrival reporting

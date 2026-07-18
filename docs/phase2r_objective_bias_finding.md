@@ -737,21 +737,58 @@ Two sub-hypotheses were tested:
   a mirror of a canonical value); state-dimension wiring between `train.py` and `evaluate.py` (both
   key `n_state_dims`/`no_time_features` off the same convention, no divergence found).
 
-### Net effect on Task 4's claims
+### Net effect on Task 4's claims — corrected framing
 
-- The **16-dim vs 12-dim ablation itself is untouched by any of this** — it never depended on AC's λ
-  or parametrization, and the RL-vs-RL numbers stand exactly as reported (16-dim beats 12-dim
-  substantially on both held-out crash dates).
-- The **"RL beats AC/AAC" claims in the corrected 5-way table are not trustworthy as written** — Gate
-  B shows they are contingent on an un-swept, accidentally-favorable-only-once AC λ, and Gate C
-  surfaces a second uncalibrated-parameter issue on top of that. The honest updated claim is closer
-  to: *RL-16dim's generalization advantage over RL-12dim on held-out crash dates is real and
-  unaffected; whether RL beats a properly-tuned classical AC baseline is genuinely unresolved and,
-  on the evidence gathered here, leans toward "no" on 3 of 4 anchor dates.*
-- Two new open items for `docs/phase2r_standing_issues.md`: (1) AC/Adaptive-AC's hardcoded
-  `sigma=0.20`/`eta=0.10` never calibrated per date, and (2) the AC λ-grid should be extended below
-  1e-6 before any final AC-vs-RL number is written, since the grid's edge was still the best point on
-  3/4 dates.
+**The "RL beats classical baselines" claim is not weakened by this gate — it was never supported in
+the first place, and this gate is what establishes that, not what puts it in doubt.** The comparison
+rested on three baseline parameters (λ, σ, η) that were each hardcoded rather than sourced or fitted,
+and each of those three specific hardcoded values happened to handicap the comparator, not the RL
+arm. A comparison built on an unfairly-parametrized opponent was never evidence of anything about RL
+— the earlier table reporting "RL beats AC" was never a finding to begin with; it was a measurement
+of how bad an under-tuned AC is, mislabeled as a measurement of how good RL is. Do not describe this
+as the claim "needing more work" or being "weakened" — it is retracted, on the same footing as the
+earlier objective-bias retraction elsewhere in this document, for the same underlying reason
+(reporting a quantity that looked like the thing being claimed, but wasn't).
+
+- The **16-dim vs 12-dim ablation itself is untouched by any of this** — it is RL-vs-RL, same action
+  space, never routed through AC or λ at any point, and the numbers stand exactly as reported
+  (16-dim beats 12-dim substantially on both held-out crash dates). This is the one surviving,
+  supportable claim from Task 4.
+- Two open items carried into `docs/phase2r_standing_issues.md`: (1) AC/Adaptive-AC's hardcoded
+  `sigma=0.20`/`eta=0.10` never calibrated per date, and (2) the AC λ-grid's tested edge (1e-6) was
+  still the best point on 3/4 dates, meaning even the "corrected" λ numbers in Gate B likely
+  understate how strong a properly-tuned AC is.
+
+### Methodological finding for the writeup (worth more than any single baseline number)
+
+Four instances of the same bug class surfaced this phase, and every one biased the comparison toward
+the project's own method:
+
+1. **CVaR sign inversion** — several call sites reimplemented "CVaR-95" locally instead of using one
+   sourced implementation; one variant had an outright sign inversion, averaging the *best* tail.
+2. **`ACTION_FRACTIONS` mirror #1** (`rl/evaluate.py`'s `V5_FRACTIONS`/`V6_FRACTIONS`) — hand-copied
+   instead of queried from the real environment; diverged silently, causing every classical baseline
+   evaluated at `n_state_dims=12` to pick actions under a fraction table the environment never
+   honored.
+3. **`ACTION_FRACTIONS` mirror #2** (`rl/environment.py`) — a second independent hand-copy of the
+   same table, found only by an explicit audit request, not by observed divergence.
+4. **AC/Adaptive-AC's `sigma`/`eta`/`lambda`** — hardcoded instead of sourced (from the simulator's
+   own calibration) or fitted (via a grid search that was actually run). Structurally the same
+   failure as 2 and 3 — a value that should have been read from a canonical source or tuned, and was
+   instead assumed — just applied to a baseline's own parameters rather than a shared constant.
+
+**The common thread: every one of these four was a value duplicated, assumed, or left at a default
+rather than sourced from its canonical origin or properly fitted — and every one, without exception,
+biased the result in the same direction (toward the project's own method looking better).** None of
+the four were caught by a passing test or a clean-looking result; all four were caught by treating a
+suspiciously favorable or suspiciously inverted result as a reason to re-derive the number from first
+principles rather than accept it. That is the transferable lesson for comparative ML research this
+phase produced, independent of whatever the final RL-vs-AC number turns out to be: an unfavorable
+baseline is not a nuisance to tune away, it is the default failure mode of any comparison the
+researcher is incentivized to win, and it should be assumed present until specifically ruled out —
+symmetrically, on the researcher's own method's assumptions too (see the square-root-vs-linear impact
+gap noted as the next open thread — it applies to AC's optimality proof, not to RL, and hasn't yet
+been checked for an equivalent bias against AC's *own* claimed baseline optimality).
 
 ## Status
 
@@ -770,14 +807,14 @@ Two sub-hypotheses were tested:
 - **Task 4 ablation (16-dim vs 12-dim RL): complete and stands.** 16-dim beats 12-dim on both
   held-out crash dates, unaffected by anything in the close-out gate below.
 - **Task 4 close-out gate (AC λ-grid, granularity, implementation audit): reported, NOT closing the
-  phase.** The un-swept-λ AC/Adaptive-AC comparison in the table above is a strawman baseline
-  (Gate B, confirmed) — at AC's own best λ per date, AC/AAC ties-or-beats RL-16dim on 3 of 4 anchor
-  dates, nearly inverting the "RL beats AC on calm dates" claim. Granularity/bucketing investigated
-  and mostly ruled out as the mechanism (Gate A). A third hand-maintained `ACTION_FRACTIONS` mirror
-  found and root-fixed (Gate C); a second, unfixed AC-parametrization issue found (hardcoded
-  `sigma=0.20`/`eta=0.10`, never calibrated per date). See "Task 4 close-out gate" section above for
-  the full report. **Any "RL beats classical baselines" claim from this phase should be treated as
-  unresolved, not established, until AC is re-run with calibrated sigma/eta and a properly-extended
-  λ grid.**
+  phase.** The "RL beats AC/Adaptive-AC" claim in the corrected 5-way table is **retracted, not
+  merely weakened** — it rested on three hardcoded baseline parameters (λ, σ, η) that each
+  handicapped the comparator, so it was never supported to begin with (Gate B, confirmed).
+  Granularity/bucketing investigated and mostly ruled out as an independent mechanism (Gate A). A
+  third hand-maintained `ACTION_FRACTIONS` mirror found and root-fixed (Gate C); the AC
+  sigma/eta/lambda hardcoding is a fourth instance of the same duplicated-or-assumed-value bug class,
+  logged as open, not yet fixed. See "Task 4 close-out gate" and "Methodological finding" sections
+  above for the full report and the transferable lesson. **The 16-dim vs 12-dim RL ablation is the
+  only surviving Task 4 claim** — it never routed through AC or λ.
 - `interval_volume` / `book_mid` telemetry: retained as sound instrumentation.
 - Nothing pushed; demo untouched throughout.
