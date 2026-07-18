@@ -612,6 +612,147 @@ excluded.
 **Clean ablation:** `forced_liquidation_rate = 0.0` for both RL arms on all 11 dates — neither arm
 collapsed during evaluation.
 
+## Task 4 close-out gate — three investigations before Phase 2R can close
+
+The corrected 5-way ablation above (RL beats AC/AAC in-sample and on both held-out calm dates,
+loses only on the harder held-out crash date) was flagged as suspicious rather than accepted: it is
+close to the *opposite* of the mechanistic story this phase had been building toward (tie on calm,
+win under stress), and the AC baseline in that table ran at a single hardcoded λ, never swept. Three
+things were required to report before considering the phase closeable: an AC λ-grid check, an
+action-granularity/bucketing investigation, and a full implementation-consistency audit. All three
+are reported below. **None of them are closure — they are the requested report.**
+
+### Gate B — AC λ-grid sweep: the fixed-λ comparison was a strawman baseline (CONFIRMED)
+
+`AC_DEFAULT_LAMBDA = 0.001` is a single hardcoded constant, used identically for every date in the
+ablation with no per-regime tuning — confirmed by reading every call site (`ACOptimalPolicy(...,
+lam=ac_lambda)` and `AdaptiveACPolicy(..., lam=lam)`, always fed the same default). A pre-existing
+but never-run-post-correction `evaluate_ac_lambda_grid` function (Phase 1-era) was parameterized for
+counterfactual mode and run across a wide grid (`1e-6` to `1.0`) on the 4 anchor dates — both held-out
+crash dates and both held-out calm dates — comparing best-tuned AC/Adaptive-AC per date against the
+already-trained RL-16dim arm (`rl/phase2r_lambda_grid_check.py`, local only):
+
+| date | regime | RL-16dim mean_IS | AC @ default λ=1e-3 | **AC @ best λ** | best λ | result at best λ |
+|---|---|---|---|---|---|---|
+| 2024-03-05 | crash (milder) | -1.186% | -4.191% | **-1.682%** | 1e-4 | RL16 still wins, +0.50pp |
+| 2024-08-05 | crash (severe) | -6.482% | -4.960% | **-4.960%** | 1e-3 (=default) | RL16 **loses**, -1.52pp |
+| 2024-07-10 | calm | -0.223% | -1.885% | **+0.027%** | 1e-6 | RL16 **loses**, -0.25pp |
+| 2024-12-10 | calm | -0.802% | -1.868% | **-0.720%** | 1e-6 | RL16 **loses**, -0.08pp |
+
+(Adaptive-AC's best-λ numbers move in the same direction on every date, usually a touch further
+against RL16 — full grid and per-λ table in the script's saved output.)
+
+**This overturns the close-out table's headline claim.** At AC's own best λ per date: AC/AAC ties or
+beats RL-16dim on **three of the four anchor dates** (both calm dates, and the *harder* crash date),
+and RL only clearly wins on the milder crash date (2024-03-05) — where even there the margin over
+best-tuned Adaptive-AC (+0.07pp) is thin enough to be noise at n=50 episodes. The "RL beats AC
+in-sample and on calm dates" finding in the table above is a direct artifact of AC running at a
+single, un-swept λ that happens to only be near-optimal on the one date (2024-08-05) where RL was
+already losing. On every other date, that fixed λ was leaving free performance on the table for AC.
+**The honest picture, once AC is fairly tuned, is closer to "AC/AAC generally ties-or-beats RL,
+except possibly on milder stress" — nearly inverted from the un-swept table.** This is exactly the
+strawman-baseline failure mode flagged as a precondition for closing this phase; it is now confirmed,
+not hypothetical.
+
+Caveat: the grid's most competitive λ was the smallest tested (1e-6) on 3 of 4 dates, meaning AC's
+true unconstrained optimum could be even more patient (lower λ) than anything measured here — this
+grid is a lower bound on how well AC can do, not necessarily its ceiling. Extending the grid further
+downward is cheap (no retraining involved) and worth doing before any final claim is written, but is
+not done here to avoid re-litigating the number a third time before reporting back.
+
+### Gate A — action-granularity/bucketing: NOT the mechanism (investigated, mostly ruled out)
+
+Two sub-hypotheses were tested:
+
+1. **"Baselines execute continuous fractions, RL is bucketed" (simple version) — ruled out.**
+   Every classical baseline (`TWAPPolicy`, `HeuristicPolicy`, `ACOptimalPolicy`, `AdaptiveACPolicy`)
+   computes a continuous target fraction and then calls the identical `nearest_action(target,
+   fractions)` used everywhere else — confirmed by reading `predict()` on all four classes. The Rust
+   environment's `step()` only ever accepts a discrete action index; no strategy, RL included, can
+   execute an exact continuous fraction. There is no asymmetric handicap of this form.
+
+2. **"Coarse buckets disproportionately distort AC's schedule, hurting it more than RL" (subtler
+   version) — investigated quantitatively, does not explain the anomaly.** Simulated AC-Optimal's
+   full 2880-step schedule against the real 20-bucket `ACTION_FRACTIONS` ladder across the same λ
+   grid as Gate B, tracking cumulative bucketing-induced quantity error and end-of-horizon residual
+   (any inventory AC's schedule wanted to hold back past the horizon gets forced-liquidated, a
+   punitive tail event):
+
+   | λ | cumulative \|bucketing error\| (frac of orig. inventory) | residual left at horizon end |
+   |---|---|---|
+   | 1e-6 | 0.229 | 0.00009 (negligible) |
+   | 1e-5 | 0.375 | 0.249 (large — bucket floor forces early rounding to zero) |
+   | 1e-4 | 0.134 | 0.072 |
+   | 1e-3 (old default) | 0.007 (lowest) | 0.0001 |
+   | 1e-2 – 1.0 | 0.03 – 0.08 | ~0 (schedule urgent enough to clear the bucket floor easily) |
+
+   Bucketing distortion is real but **non-monotonic in λ, and small precisely in the region that
+   turns out to be AC's actual best λ (1e-6 on 3/4 dates)** — the 1e-5 region shows the worst
+   distortion (a quarter of inventory unintentionally deferred to a punitive forced-liquidation dump
+   because the intended per-step fraction rounds to zero below the smallest nonzero bucket, 0.1%),
+   but AC's true optimum sits at 1e-6, where the *even smaller* intended per-step size means the
+   schedule is closer to uniform-into-the-floor and distortion happens to be low again. **This rules
+   out "granularity coarseness suppresses AC's true performance" as the explanation for the
+   crash-date loss** — AC reaches its best measured performance at exactly the λ where bucketing
+   distortion is least harmful, not despite it. Granularity is a real, quantifiable but
+   second-order effect here; the λ strawman (Gate B) is the dominant mechanism.
+
+### Gate C — implementation-consistency audit (grep for mirrors, verify reward/config wiring)
+
+- **Reward formula: verified identical in code to what the docs describe, and identical between
+  `step()` (historical) and `step_counterfactual()`** (`src/bin/rl_env.rs:939-949` vs
+  `:1124-1141` — byte-identical formula, no drift term, matches the "What the training reward
+  actually is" section above). `step_batch` delegates to `step()` per instance — no third
+  reimplementation. **No drift found here.**
+- **Calibrated impact wiring: verified correctly threaded, not silently dropped.**
+  `reset_counterfactual` (`rl_env.rs:834-853`) computes `calibrated` from real aggTrades/LOB data and
+  rebinds it into the `cf_config` used to construct `CounterfactualLob` — confirmed via careful
+  reading of the shadowing (`let cf_config = if ... { calibrated } else { cf_config };`), not an
+  obviously-similar bug where the calibrated value gets computed and discarded. **No drift found.**
+- **Third hand-maintained `ACTION_FRACTIONS` mirror — FOUND and FIXED.** `rl/environment.py` carried
+  its own hardcoded copy of the fraction table (currently byte-identical to the real Rust table by
+  luck, unprotected by any test), still imported by the retracted-but-tree-resident
+  `rl/phase2r_vwap_gate.py`. Third instance of this exact bug class in the project. Root-fixed:
+  `environment.py` is now the one canonical Python-side query point (queries the Rust binary at
+  import time); `evaluate.py` imports `ACTION_FRACTIONS` from `environment.py` instead of querying
+  independently. New test asserts identity (`is`, not `==`) so a fourth copy can't silently
+  reappear. Committed locally (`2f129f5`), full 57-test suite green.
+- **AC-Optimal / Adaptive-AC's own market-model parameters (`sigma=0.20`, `eta=0.10`) are hardcoded
+  constants, never calibrated per date — a genuine, previously-undocumented drift between intent and
+  implementation.** `ACOptimalPolicy.__init__` and `AdaptiveACPolicy.__init__` default `sigma=0.20,
+  eta=0.10` and **no call site in `rl/evaluate.py` ever overrides either** — every construction only
+  varies `lam`. Meanwhile the simulator's *own* per-date calibrated impact coefficient and realized
+  volatility (`CounterfactualLobConfig::calibrated`, `realized_volatility` in
+  `src/calibration/impact_fit.rs`, wired in during Task 2) are computed in Rust and never exposed to
+  Python — there is no CLI flag analogous to `--print-action-fractions` for them. This means AC's
+  closed-form schedule shape is derived from a generic textbook volatility/impact assumption that has
+  no connection whatsoever to what the simulator actually calibrated for that specific date, on top
+  of the un-swept λ from Gate B. This is a second, independent way the AC baseline in the close-out
+  table was not fairly parametrized — not yet fixed here (would require a new
+  `--print-calibrated-params` CLI flag plus re-running Gate B's grid with per-date sigma/eta, which
+  is new scope, not part of this report). **Logged as a named open issue, not actioned.**
+- No other hand-maintained numeric mirrors found. Checked: SB3 hyperparameters (`gamma=0.99` in
+  `train.py` is PPO's discount factor, an unrelated concept from the impact model's `gamma` in Rust —
+  confirmed by reading both, not a mirror of the same value); `AC_LAMBDA_GRID` (a grid definition, not
+  a mirror of a canonical value); state-dimension wiring between `train.py` and `evaluate.py` (both
+  key `n_state_dims`/`no_time_features` off the same convention, no divergence found).
+
+### Net effect on Task 4's claims
+
+- The **16-dim vs 12-dim ablation itself is untouched by any of this** — it never depended on AC's λ
+  or parametrization, and the RL-vs-RL numbers stand exactly as reported (16-dim beats 12-dim
+  substantially on both held-out crash dates).
+- The **"RL beats AC/AAC" claims in the corrected 5-way table are not trustworthy as written** — Gate
+  B shows they are contingent on an un-swept, accidentally-favorable-only-once AC λ, and Gate C
+  surfaces a second uncalibrated-parameter issue on top of that. The honest updated claim is closer
+  to: *RL-16dim's generalization advantage over RL-12dim on held-out crash dates is real and
+  unaffected; whether RL beats a properly-tuned classical AC baseline is genuinely unresolved and,
+  on the evidence gathered here, leans toward "no" on 3 of 4 anchor dates.*
+- Two new open items for `docs/phase2r_standing_issues.md`: (1) AC/Adaptive-AC's hardcoded
+  `sigma=0.20`/`eta=0.10` never calibrated per date, and (2) the AC λ-grid should be extended below
+  1e-6 before any final AC-vs-RL number is written, since the grid's edge was still the best point on
+  3/4 dates.
+
 ## Status
 
 - Forced-liquidation loophole + `price_factor` fix (`5630e5d`): **correct, stands, tested.**
@@ -626,9 +767,17 @@ collapsed during evaluation.
 - Classical-baseline fraction-table bug: found (via the ablation's own consistency check),
   root-fixed (single source of truth, cross-language test), and the affected "sharpest finding"
   explicitly retracted above.
-- **Task 4 ablation: complete.** 16-dim beats 12-dim on both held-out crash dates (unaffected by
-  the fraction-table bug); both RL arms beat AC/Adaptive-AC in-sample and on held-out calm dates;
-  both RL arms lose to AC on the more severe held-out crash date (2024-08-05), though 16-dim loses
-  by less than 12-dim.
+- **Task 4 ablation (16-dim vs 12-dim RL): complete and stands.** 16-dim beats 12-dim on both
+  held-out crash dates, unaffected by anything in the close-out gate below.
+- **Task 4 close-out gate (AC λ-grid, granularity, implementation audit): reported, NOT closing the
+  phase.** The un-swept-λ AC/Adaptive-AC comparison in the table above is a strawman baseline
+  (Gate B, confirmed) — at AC's own best λ per date, AC/AAC ties-or-beats RL-16dim on 3 of 4 anchor
+  dates, nearly inverting the "RL beats AC on calm dates" claim. Granularity/bucketing investigated
+  and mostly ruled out as the mechanism (Gate A). A third hand-maintained `ACTION_FRACTIONS` mirror
+  found and root-fixed (Gate C); a second, unfixed AC-parametrization issue found (hardcoded
+  `sigma=0.20`/`eta=0.10`, never calibrated per date). See "Task 4 close-out gate" section above for
+  the full report. **Any "RL beats classical baselines" claim from this phase should be treated as
+  unresolved, not established, until AC is re-run with calibrated sigma/eta and a properly-extended
+  λ grid.**
 - `interval_volume` / `book_mid` telemetry: retained as sound instrumentation.
 - Nothing pushed; demo untouched throughout.

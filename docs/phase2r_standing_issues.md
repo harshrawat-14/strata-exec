@@ -44,8 +44,40 @@ number pair as if they were measured on the same ruler.
   Root-fixed: Python now queries the real table from the Rust binary (`--print-action-fractions`)
   instead of hand-copying it, with a cross-language test asserting identity. See the meta-lesson
   below — this is the second instance of this exact failure mode in the project.
+- **Third `ACTION_FRACTIONS` mirror in `rl/environment.py`** — found during the Task 4 close-out
+  implementation-consistency audit, currently byte-identical to the real table by luck (unprotected
+  by any test), still imported by `rl/phase2r_vwap_gate.py`. Root-fixed the same way: `environment.py`
+  is now the one canonical Python-side query point; `evaluate.py` imports from it instead of
+  querying independently. Identity-asserting regression test added. Third instance of this bug
+  class — see the meta-lesson below, sharpened further.
+- **Action-granularity/bucketing as the cause of the inverted RL-vs-AC pattern** — investigated and
+  mostly ruled out. All classical baselines are bucketed identically to RL (no continuous-execution
+  privilege exists for anyone). The subtler "coarse buckets disproportionately distort AC's schedule"
+  version was quantified directly and found to be small precisely at AC's actual best λ — the
+  un-swept λ (issue #0 above) is the dominant mechanism, not granularity.
 
 ## Open — must survive into the final writeup's honest-limitations section
+
+### 0. AC/Adaptive-AC baseline was not fairly parametrized — the close-out gate's headline finding
+Two independent issues, both found while investigating why the Task 4 corrected ablation showed RL
+beating AC/AAC on calm dates but losing on the harder crash date (a pattern inverted from the
+project's working thesis):
+- **Un-swept λ.** `AC_DEFAULT_LAMBDA=0.001` was used identically for every date; a wide λ-grid sweep
+  on the 4 anchor dates (post-correction simulator, counterfactual mode) shows AC/AAC at their own
+  best λ tie-or-beat RL-16dim on 3 of 4 dates (both held-out calm dates, and the harder held-out
+  crash date), reversing the un-swept table's story. See `docs/phase2r_objective_bias_finding.md`,
+  "Task 4 close-out gate — Gate B."
+- **Hardcoded, uncalibrated market-model parameters.** `ACOptimalPolicy`/`AdaptiveACPolicy` default
+  to `sigma=0.20, eta=0.10` and no call site in `rl/evaluate.py` ever overrides either — every
+  construction only varies `lam`. The simulator's own per-date calibrated impact coefficient and
+  realized volatility (Task 2's `CounterfactualLobConfig::calibrated`, `realized_volatility` in
+  `impact_fit.rs`) are never exposed to Python (no CLI flag analogous to
+  `--print-action-fractions`), so AC's schedule shape reflects generic textbook assumptions with
+  zero connection to what the simulator calibrated for that date. **Not yet fixed** — would need a
+  new CLI flag to expose calibrated sigma/eta per date, plus re-running the λ-grid with those values.
+- **Net effect:** any "RL beats classical execution baselines" claim from Phase 2R should be treated
+  as unresolved, not established, until both of the above are addressed. The RL-vs-RL ablation
+  (16-dim vs 12-dim) is unaffected by either issue.
 
 ### 1. Hindsight trend-following in single-path historical backtesting (IS-metric only)
 Single realized historical paths reward directional timing **in the IS-vs-arrival reporting
@@ -82,11 +114,12 @@ bound for `start_offset > 0`, but all evals use small seeds (0-19, <1% of the ep
 are unaffected in practice. Bounding `start_offset ≤ len − total_steps` would remove the caveat
 entirely. **Deferred** — cosmetic, not measured to affect any reported number.
 
-## Meta-lesson: hand-maintained mirrors of canonical values (second occurrence)
+## Meta-lesson: hand-maintained mirrors of canonical values (THIRD occurrence — pattern confirmed)
 
 **Any value that exists in two places will eventually disagree. Canonical values get read from
-their single source, never copied.** This is the second time in this project a hand-maintained
-mirror of a canonical value caused a silent, real bug:
+their single source, never copied.** This is the third time in this project a hand-maintained
+mirror of a canonical value caused (or risked) a silent, real bug — enough occurrences now that this
+should be treated as a predictable failure mode, not a series of one-off surprises:
 
 1. **CVaR sign inversion** — several call sites reimplemented "CVaR-95" locally (some as
    `np.percentile(arr, 5)`, a single point not a tail mean; the Rust/`parallel_sim.py` siblings had
@@ -96,13 +129,23 @@ mirror of a canonical value caused a silent, real bug:
    `V5_FRACTIONS`/`V6_FRACTIONS` as mirrors of the real Rust `ACTION_FRACTIONS`, which silently
    diverged (matched at 3/20 indices for the `n_state_dims=12` case). Fixed by Python querying the
    real table from the Rust binary instead of copying it.
+3. **A third copy of the same `ACTION_FRACTIONS` table** (found during the Task 4 close-out audit,
+   same phase) — `rl/environment.py` had its own independent hardcoded copy, byte-identical only by
+   luck, unprotected by any test, silently still imported by `rl/phase2r_vwap_gate.py`. This one
+   hadn't diverged *yet*, but existed under the exact same conditions (hand-copied, untested, two
+   places) that caused #2 to diverge. Fixed the same way, plus an identity (`is`) test to make a
+   fourth copy structurally harder to introduce by accident.
 
-Both bugs were structurally identical: a value defined once canonically, copied by hand into a
-second location for convenience, and the copy silently rotted. **Applying this forward:** any new
-constant, table, or formula that needs to be used from both Rust and Python (or from two places in
-either language) should be read from one canonical source at runtime, not hand-transcribed. If a
-review ever finds a second copy of a value that has an authoritative source elsewhere, that is a
-bug by construction, not a style nit — fix it the same way these two were fixed.
+All three were structurally identical: a value defined once canonically, copied by hand into a
+second (or third) location for convenience, with nothing enforcing agreement. Instance #3 is the
+sharpest data point yet: it was found not by a table diverging and breaking something, but by
+**actively grepping for the pattern on request** — meaning the first two occurrences did not, on
+their own, prompt a proactive sweep for more copies of themselves; it took an explicit "assume a
+third mirror-bug exists until proven otherwise" audit to surface it. **Applying this forward:** any
+new constant, table, or formula that needs to be used from both Rust and Python (or from two places
+in either language) should be read from one canonical source at runtime, not hand-transcribed — and
+after *any* mirror-bug fix, a grep for other copies of the same value should be routine, not
+something that only happens when explicitly requested.
 
 ## Deferred by explicit decision — log only, do not action before post-v2-core
 
