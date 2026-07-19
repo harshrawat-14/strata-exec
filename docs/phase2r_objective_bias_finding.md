@@ -686,16 +686,123 @@ Two sub-hypotheses were tested:
    | 1e-3 (old default) | 0.007 (lowest) | 0.0001 |
    | 1e-2 – 1.0 | 0.03 – 0.08 | ~0 (schedule urgent enough to clear the bucket floor easily) |
 
-   Bucketing distortion is real but **non-monotonic in λ, and small precisely in the region that
-   turns out to be AC's actual best λ (1e-6 on 3/4 dates)** — the 1e-5 region shows the worst
-   distortion (a quarter of inventory unintentionally deferred to a punitive forced-liquidation dump
-   because the intended per-step fraction rounds to zero below the smallest nonzero bucket, 0.1%),
-   but AC's true optimum sits at 1e-6, where the *even smaller* intended per-step size means the
-   schedule is closer to uniform-into-the-floor and distortion happens to be low again. **This rules
-   out "granularity coarseness suppresses AC's true performance" as the explanation for the
-   crash-date loss** — AC reaches its best measured performance at exactly the λ where bucketing
-   distortion is least harmful, not despite it. Granularity is a real, quantifiable but
-   second-order effect here; the λ strawman (Gate B) is the dominant mechanism.
+   Bucketing distortion is real and **non-monotonic in λ.**
+
+   **Correction (from the item-1 full 11-date/13-λ grid, run after this section was first written):**
+   the original characterization above — "second-order, small precisely where AC's optimum sits" —
+   understated it. Extending the grid down to 1e-9 and rerunning the same schedule-vs-bucket
+   simulation across the full range shows a **hard floor, not a small effect**: at every λ ≤ 3e-7,
+   on every one of the 11 dates, **100% of the intended schedule rounds down to the zero bucket for
+   the entire horizon** — the per-step target implied by that λ never clears the smallest nonzero
+   action (0.1%), so AC never voluntarily trades at all and the *entire* position gets dumped via
+   punitive forced liquidation at the end. This is not a minor distortion; it is total execution
+   failure, and it is why the `phase2r_lambda_grid_check.py` script's 4-date grid (which only tested
+   down to 1e-6) never surfaced it — 1e-6 happens to sit just above the floor for most dates.
+
+   | λ | residual still unexecuted at horizon end (2024-01-15, representative) |
+   |---|---|
+   | 1e-9 – 3e-7 | **1.0000 — total failure, 100% dumped via punitive liquidation** |
+   | 1e-6 | 0.0001 — essentially fully executed |
+   | 1e-5 | 0.2492 — a quarter of inventory dumped |
+   | 1e-4 | 0.0722 |
+   | 1e-3 (old default) | 0.0001 |
+
+   **Revised conclusion:** granularity is not "ruled out, second-order" — it is the mechanism that
+   determines the *floor* of AC's usable λ range on every date. Below that floor, AC doesn't have a
+   worse schedule, it has no schedule at all. AC's actual optimum (λ≈1e-6 on most dates) sits
+   immediately above this floor, which is now a mechanistic explanation, not just an empirical
+   observation: it's the most patient schedule that still clears the bucket floor reliably. Above the
+   floor, once AC can actually execute, granularity's effect on schedule *quality* really is small
+   (matching the original table's 1e-3-to-1e-2 region) — that part of the original claim stands. Only
+   the "ruled out at the low end" framing was wrong, and is corrected here rather than quietly
+   updated.
+
+### Follow-up (greenlit): full 11-date λ-grid, extended to bracket the true optimum
+
+Gate B's 4-date grid left the optimum at the grid edge (1e-6) on 3/4 dates — not yet bracketed.
+Extended the grid down to 1e-9 and ran all 11 dates (`rl/phase2r_lambda_grid_full.py`,
+`rl/results/phase2r_lambda_grid_full.csv`, 143 rows, ~24 min wall-clock):
+
+| date | regime | RL16 | best AC | @λ | best AAC | @λ | result |
+|---|---|---|---|---|---|---|---|
+| 2024-01-15 | calm bull | +0.37% | +0.91% | 1e-6 | +0.88% | 1e-6 | RL16 loses |
+| 2024-02-20 | moderate vol | -0.80% | -0.53% | 1e-6 | -0.41% | 1e-6 | RL16 loses |
+| 2024-03-05 | crash (flash cascade) | -1.19% | -1.68% | 1e-4 | -1.26% | 1e-5 | **RL16 wins** |
+| 2024-04-15 | correction | -1.06% | -1.09% | 1e-6 | -0.97% | 1e-5 | RL16 loses |
+| 2024-06-10 | quiet consolidation | -0.57% | -0.57% | 1e-6 | -0.55% | 1e-5 | RL16 loses |
+| 2024-07-10 | calm | -0.22% | +0.03% | 1e-6 | +0.04% | 1e-6 | RL16 loses |
+| 2024-08-05 | crash (Yen unwind) | -6.48% | -4.96% | 1e-3 | -4.63% | 1e-4 | RL16 loses |
+| 2024-09-15 | moderate vol | -0.50% | -0.48% | 1e-6 | -0.48% | 1e-6 | RL16 loses |
+| 2024-10-15 | moderate vol | -1.09% | -0.86% | 1e-6 | -0.86% | 1e-6 | RL16 loses |
+| 2024-11-06 | post-election surge | +2.94% | +6.17% | 1e-9 | +6.17% | 1e-9 | RL16 loses |
+| 2024-12-10 | bull run | -0.80% | -0.72% | 1e-6 | -0.64% | 1e-5 | RL16 loses |
+
+**RL-16dim vs best-tuned AC/Adaptive-AC across all 11 dates: 1 win, 10 losses.** The optimum is now
+genuinely bracketed on 9/11 dates (interior at 1e-6, confirmed not still climbing at the grid edge —
+see the granularity correction above for why 1e-6 specifically). Two dates (03-05, 08-05 — the two
+held-out crash dates) have their optimum at a materially higher λ (1e-4/1e-3), meaning some real
+urgency, not patience, is what best serves AC there — and RL only wins on the milder of the two.
+2024-11-06's best λ (1e-9) sits inside what the granularity correction above calls the
+"total-failure zone" for most dates — worth a flag: this date's AC/AAC numbers at 1e-9 need a
+sanity check (does 100%-forced-liquidation coincidentally produce a good price on a strongly
+trending-up day, i.e. is this itself a hindsight-drift artifact analogous to open issue #1?) before
+being treated as a real optimum rather than a fluke; not resolved here.
+
+**This is the decisive answer to the close-out gate's original question.** Once AC/Adaptive-AC are
+run at their own best λ, they beat RL-16dim on 10 of the 11 dates this phase has ever evaluated on,
+across every regime bucket (calm, moderate, crash, trending) except the milder of the two crash days.
+The earlier fixed-λ table's "RL beats AC on calm dates" was not just an artifact on the 4 anchor
+dates — it doesn't hold anywhere in the full date set once AC is fairly tuned.
+
+### Item 4 (greenlit, audit only): is Adaptive-AC's update frequency a hidden hardcoded parameter?
+
+Read `AdaptiveACPolicy` in full (`rl/evaluate.py:426-483`). Findings:
+- `predict()` is called once per environment step, and **every single call** re-derives
+  `current_sigma` from the live state observation and recomputes+renormalizes the *entire* schedule
+  from scratch (`_get_schedule`, cached only by `round(sigma, 2)`). There is no separate "update
+  frequency" or "re-estimation window" parameter anywhere in the class — the update cadence is
+  implicitly "every step" (up to 2880×/episode) purely as a byproduct of how often `predict()` is
+  called, with no mechanism to decouple re-estimation cadence from the environment's step cadence.
+  This is itself another instance of a parameter that was never exposed to be tuned — it isn't even
+  hardcoded to a specific value, it's structurally absent.
+- The input it reacts to (`current_sigma`, Rust `rl_env.rs:1337-1348`) is not raw per-tick noise — it
+  is already a 50-sample rolling-window realized-volatility estimate, annualized. So Adaptive-AC is
+  not literally chasing single-tick noise; it's reactively reshaping its entire multi-hour schedule
+  every single step in response to a ~25-minute rolling vol estimate that itself moves continuously.
+- This directly supports the pre-existing README finding (Phase 1-era, different/synthetic
+  GBM+GARCH simulator, not this phase's calibrated Binance pipeline): "AdaptiveOptimal over-trades
+  during GARCH volatility clustering (+1.22% IS vs +0.76%)." The mechanism this audit surfaces —
+  full schedule reshaping on every step in response to a continuously-moving rolling vol estimate —
+  is a plausible, structurally-supported explanation for that older finding, and the two are
+  consistent even though they come from different simulators. **Not independently re-verified on the
+  current calibrated pipeline here** (that would mean comparing Adaptive-AC's realized cost against a
+  version with slower/smoothed re-estimation, which is new code — out of this audit's scope).
+- **Answer to "should update frequency be a swept parameter rather than hardcoded": yes.** It is
+  currently not a parameter at all (not hardcoded — simply absent), so there is nothing to sweep yet;
+  adding an explicit re-estimation-interval or smoothing knob and sweeping it is a well-scoped,
+  bounded follow-up (same cost order as item 1's grid) if this is prioritized. Logged as a new open
+  item, not actioned.
+
+### Item 2 (greenlit, audit only): mapping calibrated impact onto AC's (σ, η) — design note, no code
+
+Full design note: `docs/phase2r_ac_calibration_design_note.md`. Summary:
+- **σ: no modeling ambiguity.** The simulator already computes properly-annualized realized
+  volatility per date (`realized_volatility` in `impact_fit.rs`, same units as the hardcoded
+  `sigma=0.20`). Exposing and using it is a straightforward, low-risk fix whenever plumbing work is
+  approved — does not need to wait on anything else.
+- **η: genuinely ambiguous, not just unimplemented.** The simulator's calibrated impact law is
+  square-root in participation; AC's `η` is the slope of a *linear* law. There is no single value of
+  `η` that makes the linear model agree with the sqrt model except at one arbitrarily-chosen
+  participation rate — three candidate ways to pick that rate were worked through (linearize at a
+  reference participation, match total cost at TWAP, match the low-participation limit) and none is
+  more "correct" than the others; each is a different modeling commitment with different blind spots,
+  and picking one silently would be a subtler version of this phase's recurring bug class (a value
+  that looks calibrated while still encoding an arbitrary, unstated structural assumption).
+- **Recommendation:** calibrate σ now if/when plumbing is approved; treat η calibration as blocked on
+  item 5's go/no-go rather than adopting a stopgap. The currently-running λ-grid (above) does not
+  depend on η being fixed — it holds the linear-vs-sqrt mismatch constant and only sweeps risk
+  aversion, so it answers "how good can AC get within its own currently-mismatched model," which is
+  still the right question for deciding whether to invest in item 5 at all.
 
 ### Gate C — implementation-consistency audit (grep for mirrors, verify reward/config wiring)
 
@@ -809,12 +916,19 @@ been checked for an equivalent bias against AC's *own* claimed baseline optimali
 - **Task 4 close-out gate (AC λ-grid, granularity, implementation audit): reported, NOT closing the
   phase.** The "RL beats AC/Adaptive-AC" claim in the corrected 5-way table is **retracted, not
   merely weakened** — it rested on three hardcoded baseline parameters (λ, σ, η) that each
-  handicapped the comparator, so it was never supported to begin with (Gate B, confirmed).
-  Granularity/bucketing investigated and mostly ruled out as an independent mechanism (Gate A). A
-  third hand-maintained `ACTION_FRACTIONS` mirror found and root-fixed (Gate C); the AC
-  sigma/eta/lambda hardcoding is a fourth instance of the same duplicated-or-assumed-value bug class,
-  logged as open, not yet fixed. See "Task 4 close-out gate" and "Methodological finding" sections
-  above for the full report and the transferable lesson. **The 16-dim vs 12-dim RL ablation is the
-  only surviving Task 4 claim** — it never routed through AC or λ.
+  handicapped the comparator, so it was never supported to begin with (Gate B, confirmed and then
+  extended to all 11 dates: **best-tuned AC/Adaptive-AC beats RL-16dim on 10 of 11 dates**, RL
+  winning only on the milder held-out crash date). Granularity/bucketing (Gate A) was first reported
+  as second-order and later **corrected** once the grid was extended: it is a hard floor causing
+  total execution failure at very low λ on every date, not a small effect — see the correction inside
+  Gate A. A third hand-maintained `ACTION_FRACTIONS` mirror found and root-fixed (Gate C); AC's
+  sigma/eta/lambda hardcoding and Adaptive-AC's structurally-absent update-frequency parameter are a
+  fourth and fifth instance of the same duplicated-or-assumed-or-unexposed-value bug class — σ is
+  cheap to fix (design note, `docs/phase2r_ac_calibration_design_note.md`), η has no principled fix
+  short of item 5. See "Task 4 close-out gate" and "Methodological finding" sections above for the
+  full report and the transferable lesson. **The 16-dim vs 12-dim RL ablation is the only surviving
+  Task 4 claim about RL** — it never routed through AC or λ. **A properly-tuned classical baseline
+  beating RL almost everywhere is itself the phase's headline empirical finding now, not an absence
+  of one.**
 - `interval_volume` / `book_mid` telemetry: retained as sound instrumentation.
 - Nothing pushed; demo untouched throughout.

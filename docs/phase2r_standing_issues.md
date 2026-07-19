@@ -67,11 +67,21 @@ correct framing is that the earlier "RL beats AC" table was a measurement of an 
 of RL, from the moment it was produced. Two independent issues, both found while investigating why
 the Task 4 corrected ablation showed RL beating AC/AAC on calm dates but losing on the harder crash
 date (a pattern inverted from the project's working thesis):
-- **Un-swept λ.** `AC_DEFAULT_LAMBDA=0.001` was used identically for every date; a wide λ-grid sweep
-  on the 4 anchor dates (post-correction simulator, counterfactual mode) shows AC/AAC at their own
-  best λ tie-or-beat RL-16dim on 3 of 4 dates (both held-out calm dates, and the harder held-out
-  crash date), reversing the un-swept table's story. See `docs/phase2r_objective_bias_finding.md`,
-  "Task 4 close-out gate — Gate B."
+- **Un-swept λ.** `AC_DEFAULT_LAMBDA=0.001` was used identically for every date. A follow-up
+  extended the grid to all 11 dates and down to 1e-9 (greenlit item 1, `rl/results/
+  phase2r_lambda_grid_full.csv`): **AC/Adaptive-AC at their own best λ beat RL-16dim on 10 of the
+  11 dates this phase has ever evaluated on** — RL only wins on 2024-03-05, the milder of the two
+  held-out crash dates. See `docs/phase2r_objective_bias_finding.md`, "Task 4 close-out gate —
+  Gate B" and the "full 11-date λ-grid" follow-up section for the complete per-date table.
+- **Granularity is not second-order — it sets a hard floor on AC's usable λ, corrected from the
+  earlier Gate A writeup.** Extending the grid down to 1e-9 revealed that at λ≤3e-7, on every one of
+  the 11 dates, 100% of AC's intended schedule rounds down to the zero-action bucket for the entire
+  horizon — AC never trades voluntarily and the whole position gets dumped via punitive forced
+  liquidation. The original Gate A conclusion ("granularity distortion is second-order, small
+  precisely where AC's optimum sits") is corrected, not just updated: AC's actual optimum (λ≈1e-6 on
+  9/11 dates) sits immediately above this failure floor, which now has a mechanistic explanation —
+  it's the most patient schedule that still clears the 0.1% minimum bucket. See the "Correction" note
+  inside Gate A in the finding doc for the full before/after.
 - **Hardcoded, uncalibrated market-model parameters.** `ACOptimalPolicy`/`AdaptiveACPolicy` default
   to `sigma=0.20, eta=0.10` and no call site in `rl/evaluate.py` ever overrides either — every
   construction only varies `lam`. The simulator's own per-date calibrated impact coefficient and
@@ -80,11 +90,30 @@ date (a pattern inverted from the project's working thesis):
   `--print-action-fractions`), so AC's schedule shape reflects generic textbook assumptions with
   zero connection to what the simulator calibrated for that date. **Not yet fixed** — would need a
   new CLI flag to expose calibrated sigma/eta per date, plus re-running the λ-grid with those values.
-- **Net effect:** the "RL beats classical execution baselines" claim from Phase 2R is **retracted**.
-  Fixing the two items above (calibrated sigma/eta, extended λ grid) would produce a *new*
-  comparison worth reporting on its own merits — it would not "restore" or "resolve" the old claim,
-  which stays retracted regardless of what that new comparison finds. The RL-vs-RL ablation (16-dim
-  vs 12-dim) is unaffected by either issue and is the one surviving Task 4 claim.
+- **Adaptive-AC's update frequency is not hardcoded — it's structurally absent as a parameter.**
+  Audited (greenlit item 4): `AdaptiveACPolicy` recomputes and renormalizes its full schedule on
+  every single environment step (up to 2880×/episode) purely because `predict()` is called that
+  often, with no re-estimation-window or smoothing knob anywhere in the class. This is a plausible,
+  structurally-supported mechanism for the pre-existing README finding ("AdaptiveOptimal over-trades
+  during GARCH volatility clustering," from an earlier, different synthetic simulator) — not
+  independently re-verified on the current pipeline. **Not yet fixed** — adding an explicit
+  re-estimation-interval parameter and sweeping it is well-scoped future work, same cost order as
+  the λ-grid.
+- **σ is straightforward to calibrate; η is not — see the dedicated design note.** Audited (greenlit
+  item 2, `docs/phase2r_ac_calibration_design_note.md`): σ has a clean per-date calibrated value
+  already computed in Rust (`realized_volatility`), no modeling ambiguity, cheap to wire in whenever
+  approved. η has no principled calibration at all, because the simulator's impact law is
+  square-root and AC's η assumes linear — any single "calibrated" η would silently encode an
+  arbitrary choice of which participation rate to match. Recommendation: don't patch η with a
+  stopgap; treat it as blocked on the item-5 go/no-go (a numerically-optimized sqrt-impact baseline)
+  discussed below.
+- **Net effect:** the "RL beats classical execution baselines" claim from Phase 2R is **retracted**,
+  and the fuller picture (10/11 dates, once AC is fairly tuned) is now in hand: **a properly-tuned
+  classical AC/Adaptive-AC baseline beats RL-16dim on every regime this phase has tested except the
+  milder of the two held-out crash dates.** This is itself a reportable finding, not merely the
+  absence of one — it should be written up plainly rather than treated as a gap to fill. The RL-vs-RL
+  ablation (16-dim vs 12-dim) is unaffected by any of this and remains the one surviving Task 4 claim
+  about RL specifically.
 - **Methodological finding (worth logging on its own, not just as a caveat on the RL number):** four
   instances of the same bug class surfaced this phase — CVaR sign inversion, two independent
   hand-copied `ACTION_FRACTIONS` mirrors, and this hardcoded-baseline-parameter issue. Every one was
