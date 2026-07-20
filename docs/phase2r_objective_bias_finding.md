@@ -717,6 +717,83 @@ Two sub-hypotheses were tested:
    the "ruled out at the low end" framing was wrong, and is corrected here rather than quietly
    updated.
 
+### Gate A follow-up (greenlit): the specific chattering mechanism — tested, NOT confirmed as framed; a clearer mechanism found instead
+
+The hypothesis to test: AC's continuous intent survives 20-bucket rounding because per-step errors
+partly average out over 2880 steps, while RL — learning natively in bucket space with no schedule
+prior — cannot express a smooth slow liquidation once the smallest nonzero bucket (0.1%, confirmed
+by printing the full table below) exceeds what a good per-step schedule wants, and is forced to
+chatter between the zero bucket and an overshoot bucket. Predicted consequence: this should cost
+least on calm days and most on crash days (thin book, precision matters most) — matching where RL
+loses worst.
+
+**Full `ACTION_FRACTIONS` table** (queried live from the Rust binary, not assumed):
+`[0.000, 0.001, 0.003, 0.005, 0.008, 0.010, 0.015, 0.020, 0.030, 0.050, 0.070, 0.100, 0.150, 0.200,
+0.300, 0.400, 0.500, 0.700, 0.900, 1.000]`. Smallest nonzero bucket: 0.001 (0.1%). Largest gaps:
+0.5→0.7 and 0.7→0.9, both 0.200 — confirmed, nothing between 70% and 90% except 90% itself.
+
+**Method:** ran one fixed-seed (seed=0) trajectory each for RL-16dim, AC-Optimal at its per-date best
+λ (from the item-1 grid), and a trivial constant 10%/step policy, on the two held-out crash dates and
+two held-out calm dates, in the real counterfactual simulator (not a toy replica) —
+`rl/phase2r_granularity_investigation.py`, trajectories plotted at `rl/results/plots/
+granularity_<date>.png`, summary in `rl/results/phase2r_granularity_investigation.csv`.
+
+**The specific chattering mechanism is NOT what the trajectories show.** RL does not alternate
+between zero and an overshoot bucket — `frac_isolated_bursts` (a nonzero action immediately
+surrounded by zero actions on both sides, the signature of literal chatter) is **0.2%–1.3% across
+all four dates**, i.e. essentially absent. RL trades on 93–99% of its steps, continuously, in small
+increments (`mean_slippage_bps` per fill: 50–69, actually *lower* than AC's 43–95 on the same dates).
+RL's trajectory is smooth, not jagged. The severity prediction built on the chattering hypothesis
+also fails directly: `mean_slippage_bps` is 53.6 on calm dates vs 59.7 on crash dates (a small
+difference in the predicted direction, not the large one hypothesized), and `frac_isolated_bursts` is
+*higher* on calm dates (0.8%) than crash dates (0.2%) — the opposite of the prediction. **This specific
+mechanism is not confirmed; recorded as tested and not supported, not quietly dropped.**
+
+**What the trajectories show instead — a clearer, decisive mechanism: RL's execution pace does not
+adapt to regime the way tuned-AC's does.** Plotting cumulative-fraction-executed against time
+(`rl/results/plots/granularity_*.png`) shows a consistent pattern across all four dates:
+- **RL finishes in roughly the same wall-clock window regardless of regime** — ~900–1050 of 2880
+  steps (~33–36% of the horizon) on every one of the four dates tested, calm or crash alike.
+- **AC's *tuned* pace varies enormously by regime**, because that's exactly what a properly-set λ is
+  supposed to produce: on calm days (λ=1e-6) it spreads execution across nearly the *entire*
+  2880-step horizon in tiny slices (2,650 trades, still only 63–64% done by step 950, where RL is
+  already ~85% done); on the milder crash (2024-03-05, λ=1e-4) it front-loads faster but still uses
+  most of the horizon (93% by step ~700, dust dumped at the end); on the severe crash (2024-08-05,
+  λ=1e-3) it front-loads *hard* — 73% executed by step ~250, then goes silent (hits the granularity
+  floor documented above) until a terminal forced-liquidation dump for the remaining 27%.
+- **RL's fixed pace happens to roughly match what 2024-03-05 needed (its one win) and is badly
+  mismatched everywhere else:** too fast for the calm days (accepting avoidable impact cost when
+  patience was free — RL's `exec_pct` -0.63 vs AC's -0.45 on 2024-07-10, -0.72 vs -0.43 on
+  2024-12-10), and far too slow for the severe crash (accepting large avoidable drift exposure when
+  urgency was needed — see the decomposition immediately below).
+
+**Crash-date IS decomposition (the other requested analysis), 2024-08-05:**
+
+| policy | drift_pct ("adverse holding") | execution_pct ("spread+impact") | dust_pct | total (= reported mean_IS) |
+|---|---|---|---|---|
+| RL-16dim | **-5.29** | -1.19 | -0.10 | **-6.58** |
+| AC (best λ=1e-3) | -3.11 | -1.67 | 0.00 | -4.79 |
+| TWAP 10%/step (trivial) | **-1.52** | -1.80 | -0.10 | -3.43 |
+
+(Decomposition reconstructs the environment's own `total_IS_pct` exactly for every row — verified,
+not assumed; see `decompose_is()`.) **RL's execution quality is actually fine — its `execution_pct`
+(-1.19) is the best of the three, better than AC's (-1.67).** RL loses almost entirely on the
+`drift_pct` term: -5.29, nearly double AC's -3.11 and more than 3× the trivial policy's -1.52. **Yes,
+RL is back-loading into the falling market** — by continuing to trade gradually across ~950 steps
+while the price keeps falling, RL holds meaningful inventory deep into the crash's continued decline.
+The *naive* 10%/step policy, by finishing in ~160 steps, minimizes drift exposure better than either
+tuned AC or RL, despite having no adaptivity at all — on this date, raw urgency dominates execution
+sophistication. This is a clean, mechanistic, and complete answer to the "is RL back-loading" question:
+yes, specifically through under-urgent, regime-insensitive pacing, not through poor per-trade execution.
+
+**Net revision to Gate A:** the earlier "ruled out" verdict is revised twice now — once (above) to
+"granularity sets a hard floor on AC's usable λ," and now again to identify what *does* explain RL's
+regime-specific losses: not bucket-forced chatter, but **a fixed, regime-blind execution pace that
+happens to only suit the one regime (milder crash) where RL wins.** This directly supports the
+reframe below (a diagnosable RL-setup gap, not a ceiling) and directly motivates the residual/delta
+action-space design sketch (also below): a design that inherits AC's regime-appropriate pace as a
+prior would remove exactly this specific failure mode.
+
 ### Follow-up (greenlit): full 11-date λ-grid, extended to bracket the true optimum
 
 Gate B's 4-date grid left the optimum at the grid edge (1e-6) on 3/4 dates — not yet bracketed.
@@ -753,6 +830,21 @@ run at their own best λ, they beat RL-16dim on 10 of the 11 dates this phase ha
 across every regime bucket (calm, moderate, crash, trending) except the milder of the two crash days.
 The earlier fixed-λ table's "RL beats AC on calm dates" was not just an artifact on the 4 anchor
 dates — it doesn't hold anywhere in the full date set once AC is fairly tuned.
+
+**Reframing (explicit correction to how this result should be recorded):** this is not a settled
+negative result about RL's ceiling — it is a diagnosable gap in this project's RL setup. AC-Optimal
+at its best λ is *linear*-impact-misspecified for a simulator that is calibrated to *square-root*
+impact (see the design note below) — it is provably not optimal here, only locally optimal within
+the wrong model family. A correctly-functioning learner should, at minimum, be able to match a
+misspecified closed-form heuristic on the heuristic's own home ground, since the learner faces the
+true (sqrt) dynamics directly and isn't constrained to any particular functional form. That it
+instead loses on 10/11 dates to a baseline operating on the *wrong* impact model means the shortfall
+is in how this project's RL is set up (state, reward-to-schedule credit assignment, action space —
+see the granularity investigation and the residual-action-space design sketch below), not evidence
+that classical execution beats learned execution in general on this problem. Do not write this up as
+"RL loses to AC, full stop" — write it up as "RL currently fails to close a gap that its own more
+expressive setup should in principle be able to close, and here is the specific mechanism (bucketed
+action space colliding with delayed-reward credit assignment) that plausibly explains why."
 
 ### Item 4 (greenlit, audit only): is Adaptive-AC's update frequency a hidden hardcoded parameter?
 

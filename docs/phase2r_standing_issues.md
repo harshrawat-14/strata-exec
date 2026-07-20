@@ -107,13 +107,47 @@ date (a pattern inverted from the project's working thesis):
   arbitrary choice of which participation rate to match. Recommendation: don't patch η with a
   stopgap; treat it as blocked on the item-5 go/no-go (a numerically-optimized sqrt-impact baseline)
   discussed below.
+- **Granularity chattering hypothesis: tested directly, NOT confirmed as originally framed — a
+  clearer mechanism found instead.** Predicted mechanism: RL, confined to 20 discrete buckets with no
+  schedule prior, would chatter between the zero bucket and an overshoot bucket, worst on crash days.
+  Real single-seed trajectories (RL-16dim, AC at best λ, trivial 10%/step) on both held-out crash
+  dates and both held-out calm dates show RL trades smoothly and continuously (isolated-burst rate
+  0.2–1.3%, essentially no chatter), with per-fill slippage *better* than AC's on 3 of 4 dates tested
+  — the specific chattering mechanism and its calm-vs-crash severity prediction are both not
+  supported by the data. **What the trajectories show instead: RL uses roughly the same execution
+  pace (~33–36% of the horizon) regardless of regime, while tuned-AC's pace adapts sharply by regime**
+  (near-full-horizon patience on calm days, hard front-loading on the severe crash). RL's fixed pace
+  happens to suit the one date it wins (the milder crash) and is mismatched everywhere else — too
+  fast on calm days, too slow on the severe crash. See `docs/phase2r_objective_bias_finding.md`,
+  "Gate A follow-up," for the full trajectory data, plots (`rl/results/plots/granularity_*.png`), and
+  the crash-date IS decomposition (RL's 2024-08-05 loss is ~85% a drift/"adverse-holding" cost from
+  under-urgent pacing, not poor per-trade execution — RL's execution-quality component is actually
+  the best of the three policies tested on that date).
+- **Reframe (explicit correction to how this should be recorded): this is a diagnosable gap in this
+  project's RL setup, not a settled negative result about RL's ceiling.** AC-Optimal is provably
+  misspecified for this simulator (linear-impact closed form against a square-root-calibrated
+  environment — see the calibration design note). A correctly-functioning learner faces the true
+  dynamics directly and should be able to at least match a misspecified heuristic; that RL instead
+  loses on 10/11 dates, via a specific and now-identified mechanism (fixed, regime-blind pacing
+  against a reward signal that only resolves at/near the horizon), points at the RL setup — not at an
+  inherent ceiling on learned execution for this problem. Do not write this phase up as "RL loses to
+  AC" without this framing.
+- **Design sketch logged (no implementation): residual/delta action space.** Motivated directly by
+  the pacing-mismatch mechanism above — reparametrize the action as a multiplier on a reference
+  schedule's recommendation (multiplier≡1.0 reproduces AC exactly) so the agent inherits
+  regime-appropriate pacing and only has to learn deviations, rather than rediscovering an entire
+  2880-step schedule shape per regime from a mostly-terminal reward. Full sketch, including costs and
+  risks, in `docs/phase2r_residual_action_space_design_sketch.md`. **Explicitly invalidates the 16-dim
+  ablation and needs its own phase** — not scoped into Task 4 or this close-out gate.
 - **Net effect:** the "RL beats classical execution baselines" claim from Phase 2R is **retracted**,
   and the fuller picture (10/11 dates, once AC is fairly tuned) is now in hand: **a properly-tuned
   classical AC/Adaptive-AC baseline beats RL-16dim on every regime this phase has tested except the
-  milder of the two held-out crash dates.** This is itself a reportable finding, not merely the
-  absence of one — it should be written up plainly rather than treated as a gap to fill. The RL-vs-RL
-  ablation (16-dim vs 12-dim) is unaffected by any of this and remains the one surviving Task 4 claim
-  about RL specifically.
+  milder of the two held-out crash dates — and there is now a specific, evidenced mechanism (fixed
+  regime-blind pacing) diagnosing why, rather than an unexplained gap.** This is itself a reportable
+  finding, not merely the absence of one — it should be written up as a diagnosed RL-setup limitation,
+  not as "classical execution beats learned execution" in general. The RL-vs-RL ablation (16-dim vs
+  12-dim) is unaffected by any of this and remains the one surviving Task 4 claim about RL
+  specifically.
 - **Methodological finding (worth logging on its own, not just as a caveat on the RL number):** four
   instances of the same bug class surfaced this phase — CVaR sign inversion, two independent
   hand-copied `ACTION_FRACTIONS` mirrors, and this hardcoded-baseline-parameter issue. Every one was
