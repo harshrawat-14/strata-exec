@@ -794,6 +794,73 @@ reframe below (a diagnosable RL-setup gap, not a ceiling) and directly motivates
 action-space design sketch (also below): a design that inherits AC's regime-appropriate pace as a
 prior would remove exactly this specific failure mode.
 
+### "RL learned execution but not urgency" — the two follow-up checks before an item 5/6 decision
+
+The decomposition above supports a specific, stronger headline: **RL learned execution but not
+urgency.** RL's execution quality is the best of the three policies compared (`execution_pct`
+-1.19 vs AC's -1.67 vs the trivial policy's -1.80 on 2024-08-05; mean per-fill slippage 69bps vs AC's
+95bps). Trade-frequency makes the mechanism concrete: AC's urgency swings 1.00 → 0.285 → 0.088 across
+calm → milder-crash → severe-crash (κ=√(λσ²/η) recomputing from live vol, for free), while RL sits at
+0.93–0.99 on every regime tested. Two cheap, no-training checks were run before deciding what to do
+about it (`rl/phase2r_urgency_diagnosis.py`).
+
+**Task A — does AC's pacing combined with RL's execution style beat tuned AC, with no training?**
+Two estimates were compared against a real simulated hybrid: a *naive* analytical one
+(`AC's drift_pct + RL's execution_pct`, added directly) and an *actual* hybrid policy run through the
+real simulator — AC's cumulative schedule sets how much should have been sold by each step, but the
+catch-up is capped at RL's own median per-step chunk size on that date (0.5% of remaining on 2024-08-05,
+0.3% on 2024-03-05) and sliced across as many steps as needed, rather than executed in whatever
+(possibly much larger) single bucket AC-Optimal itself would pick:
+
+| date | RL (pure) | AC (pure, best λ) | **hybrid (simulated)** | naive estimate |
+|---|---|---|---|---|
+| 2024-08-05 (severe crash) | -6.58 | -4.79 | **-5.15 (does not beat AC, -0.36pp; beats RL by +1.43pp)** | -4.30 (would have beaten AC) |
+| 2024-03-05 (milder crash) | -1.11 | -1.64 | **-1.16 (beats AC by +0.48pp; slightly behind pure RL)** | -1.30 (also beats AC) |
+
+**The naive analytical shortcut is unreliable — it disagrees with the real simulated result in both
+magnitude and, on 2024-08-05, direction.** The real hybrid's own decomposition on 2024-08-05 shows why:
+`execution_pct` improves dramatically (-1.67 → -0.81, more than halved — RL-style fine slicing is
+confirmed to be a real, substantial, transferable execution-quality gain), but `drift_pct` gets *worse*
+than pure AC (-3.11 → -4.24) rather than inheriting AC's own drift number, because capping every
+catch-up step at RL's small chunk size imposes a speed limit AC's own (occasionally much larger,
+front-loaded) chunks aren't subject to — on the day that most rewards moving fast, the cap itself
+becomes the bottleneck. **The quantified prize is real but partial and conditional, not a guaranteed
+win**: substantial and unambiguous relative to pure RL (+1.43pp / +0.48pp on the two crash dates), but
+only sometimes enough to beat tuned AC outright, specifically falling short on the date where speed
+matters most. This directly informs the residual-action-space design: its multiplier range/resolution
+must not recreate this same speed-limit bottleneck, or it risks capping exactly the upside this
+experiment just measured as achievable.
+
+**Task B — is regime information present and discriminative early in the episode (dims s2, s10, s11,
+s13), or does it arrive late?** Collected RL's full state vector at every decision point on both crash
+dates and both calm dates (seed=0), compared early-episode windows:
+
+| window | s2 (vol ratio) crash−calm gap | s13 (intraday vol ratio) crash−calm gap | s10 (vol_regime) | s11 (liq_regime) |
+|---|---|---|---|---|
+| step 0 | 0.0000 | 0.0000 | identical (0.500, cold-start default) | identical (0.000) |
+| steps 0–9 | +0.040 | +0.020 | **identical across all 4 dates** | **identical across all 4 dates** |
+| steps 0–49 | +0.167 | +0.103 | **identical across all 4 dates** | **identical across all 4 dates** |
+| steps 0–99 | +0.231 | +0.152 | **identical across all 4 dates** | **identical across all 4 dates** |
+
+**Mixed, precise answer — not a clean "present" or "absent":** the two *continuous* volatility dims
+(s2, s13) carry real, correctly-directioned, and monotonically strengthening signal starting within
+the first 10–50 steps (5–25 minutes) — the severe-crash date is measurably, increasingly distinguishable
+from calm dates on exactly the information channel that should matter. **But the two *discrete*
+regime-bucket dims (s10 vol_regime, s11 liq_regime) — purpose-built as regime indicators — are
+completely flat and bit-identical across all four dates for the entire first 100 steps (50 minutes)
+tested.** Reading `regime_dims()`: the discrete buckets require the rolling realized-vol estimate to
+cross a fixed threshold (0.7×/1.3× `sigma_ref`) before reclassifying away from "normal" — with a return
+buffer that only fills to 50 samples and a `sigma_ref` calibrated at the whole-day level, the *early*
+window's short-sample vol estimate stays inside the "normal" band on every date tested here, even
+though the *continuous* signal is already separating. **This means part of the urgency-learning
+failure is plausibly a credit-assignment problem (continuous info was present and usable, evidence
+below in Task A shows it's exploitable) and part is a genuine, shared state-estimation limitation** —
+the same rolling-vol estimator feeds both RL's state *and* Adaptive-AC's own live-schedule
+recomputation, so a residual-action-space design using an Adaptive-AC-style reference schedule would
+not automatically escape this early-window lag; it would need to be checked, not assumed away.
+(Single-seed, seed=0, on 4 dates — a directional finding, not a statistically exhaustive one; same
+caveat as the granularity investigation above.)
+
 ### Follow-up (greenlit): full 11-date λ-grid, extended to bracket the true optimum
 
 Gate B's 4-date grid left the optimum at the grid edge (1e-6) on 3/4 dates — not yet bracketed.

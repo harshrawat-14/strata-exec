@@ -139,6 +139,47 @@ date (a pattern inverted from the project's working thesis):
   2880-step schedule shape per regime from a mostly-terminal reward. Full sketch, including costs and
   risks, in `docs/phase2r_residual_action_space_design_sketch.md`. **Explicitly invalidates the 16-dim
   ablation and needs its own phase** — not scoped into Task 4 or this close-out gate.
+- **Headline sharpened and validated with two no-training checks before any item 5/6 decision:**
+  "RL learned execution but not urgency" (`execution_pct` -1.19 beats both AC's -1.67 and a trivial
+  policy's -1.80 on 2024-08-05; AC's urgency swings 1.00→0.285→0.088 by regime while RL sits at
+  0.93–0.99 everywhere). Two checks, `rl/phase2r_urgency_diagnosis.py`:
+  - **Task A (does AC-pacing + RL-execution beat tuned AC, no training?): partial, conditional yes —
+    not the clean win a naive estimate suggested.** A real simulated hybrid (AC's cumulative schedule
+    sets urgency, capped at RL's own median chunk size per date) beats pure RL substantially on both
+    crash dates (+1.43pp on 2024-08-05, and a smaller margin on 2024-03-05) and beats tuned AC on the
+    milder crash (+0.48pp) — but falls short of tuned AC on the severe crash (-0.36pp), because
+    capping every step at RL's chunk size imposes a speed limit AC's own larger front-loaded chunks
+    aren't subject to, and on the day speed matters most, that cap becomes the bottleneck. **A naive
+    additive estimate (AC's drift + RL's execution) was tested against this and found unreliable** —
+    wrong in magnitude on both dates, wrong in direction on the severe crash. The real, partial prize:
+    RL's execution-quality edge is confirmed real and substantial, but a residual-action-space design
+    must give the agent enough range/resolution to move as fast as tuned-AC's own urgency sometimes
+    requires, or it will cap the same upside this experiment just measured.
+  - **Task B (is regime info present & discriminative early, when urgency must be decided?): mixed,
+    precise answer.** The continuous vol dims (s2, s13) show real, correctly-directioned, and
+    strengthening separation between the severe-crash date and calm dates starting within the first
+    10–50 steps (5–25 min) — the information is there and, per Task A, exploitable. The discrete
+    regime-bucket dims (s10 vol_regime, s11 liq_regime), purpose-built as regime indicators, are
+    **completely flat and identical across all four dates for the full first 100 steps (50 min)
+    tested** — the rolling realized-vol estimate hasn't crossed the reclassification threshold that
+    early on any date tested. This is shared machinery: the same rolling-vol estimator feeds both
+    RL's state and Adaptive-AC's own live schedule, so a residual-action-space design using an
+    Adaptive-AC-style reference would not automatically escape this early-window lag — it inherits
+    the state problem it doesn't cause. Single-seed (seed=0) directional finding, not exhaustive.
+  - **Recommendation (informed by both, not a unilateral decision):** prioritize the residual/delta
+    action-space design (already sketched) combined with an imitation warm-start (item 6) as the next
+    concrete phase, over item 5. Reasoning: Task A already quantifies a real, substantial, partial
+    prize from combining AC's pacing with RL-style execution — a residual action space plus
+    warm-start directly targets exactly that combination, with BC in multiplier-space trivial to
+    define (target≡1.0 everywhere), and item 3's design note already noted this composability. Item 5
+    (numerically-optimized sqrt-impact schedule) remains valuable for establishing a *theoretical*
+    ceiling and for eventually giving the residual design a better-than-AC reference, but is a deeper,
+    more open-ended, more expensive research thread whose payoff isn't needed to capture the
+    already-quantified practical gap. Two conditions to carry into that future phase, not yet
+    resolved here: (1) multiplier bounds/resolution must accommodate AC's fastest observed urgency
+    (2024-08-05's front-load), not just fine resolution near 1.0, per Task A; (2) the discrete
+    regime-dim lag found in Task B should be checked against whatever reference schedule the residual
+    design ends up using, not assumed fixed by the action-space change alone.
 - **Net effect:** the "RL beats classical execution baselines" claim from Phase 2R is **retracted**,
   and the fuller picture (10/11 dates, once AC is fairly tuned) is now in hand: **a properly-tuned
   classical AC/Adaptive-AC baseline beats RL-16dim on every regime this phase has tested except the

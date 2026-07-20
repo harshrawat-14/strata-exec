@@ -5,6 +5,25 @@ direction for a future, separate phase, not a Task 4 or Phase 2R deliverable. It
 the reasoning behind it survives, motivated directly by the granularity investigation above (RL's
 regime-blind fixed pacing vs AC's regime-adaptive tuned pacing).
 
+**Update — two no-training checks (`rl/phase2r_urgency_diagnosis.py`) ran after this was first
+drafted, and both bear directly on the design, not just the general motivation:**
+1. A real simulated hybrid (AC's cumulative schedule for urgency, catch-up capped at RL's own median
+   chunk size) beat pure RL substantially on both crash dates tested, but only beat tuned AC on the
+   *milder* crash — it fell short on the severe crash specifically because the chunk-size cap imposed
+   a speed limit AC's own larger front-loaded moves aren't subject to. **This means the multiplier
+   bounds/resolution below can't just be fine-grained near 1.0 — they need enough range/step-size to
+   let the agent move as fast as AC's own most urgent moments require, or the design will cap the
+   same upside this experiment measured as achievable.** See `docs/phase2r_objective_bias_finding.md`,
+   "RL learned execution but not urgency," Task A, for the full numbers.
+2. The discrete regime-indicator state dims (vol_regime, liq_regime) were found to be completely flat
+   and uninformative for the first ~100 steps of the episode on every date tested, while the
+   continuous vol-ratio dims did carry real, growing signal in that window. Because the reference
+   schedule for this design would plausibly be Adaptive-AC-style (recomputing from live vol), and that
+   recomputation shares the *same* rolling-vol estimator RL's own state uses, **the reference schedule
+   would not automatically escape this early-window lag — it needs to be checked against whatever
+   reference is chosen, not assumed fixed by moving to this action space.** See the same section,
+   Task B.
+
 ## The idea
 
 Replace the current action semantics ("sell X% of remaining inventory, X ∈ 20 fixed buckets") with:
