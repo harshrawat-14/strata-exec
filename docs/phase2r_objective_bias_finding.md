@@ -805,31 +805,89 @@ calm → milder-crash → severe-crash (κ=√(λσ²/η) recomputing from live 
 about it (`rl/phase2r_urgency_diagnosis.py`).
 
 **Task A — does AC's pacing combined with RL's execution style beat tuned AC, with no training?**
-Two estimates were compared against a real simulated hybrid: a *naive* analytical one
-(`AC's drift_pct + RL's execution_pct`, added directly) and an *actual* hybrid policy run through the
-real simulator — AC's cumulative schedule sets how much should have been sold by each step, but the
-catch-up is capped at RL's own median per-step chunk size on that date (0.5% of remaining on 2024-08-05,
-0.3% on 2024-03-05) and sliced across as many steps as needed, rather than executed in whatever
-(possibly much larger) single bucket AC-Optimal itself would pick:
+First pass capped every catch-up step at RL's own median per-step chunk size (0.5% of remaining on
+2024-08-05, 0.3% on 2024-03-05). **Corrected framing of that first pass, stated plainly: the hybrid was
+second-best on both dates, not a win — best-to-worst was AC > hybrid > RL on 2024-08-05, and RL >
+hybrid > AC on 2024-03-05. Describing this as "beats AC on 2024-03-05" without noting it lost to pure
+RL there was an incomplete framing; corrected here.**
 
-| date | RL (pure) | AC (pure, best λ) | **hybrid (simulated)** | naive estimate |
-|---|---|---|---|---|
-| 2024-08-05 (severe crash) | -6.58 | -4.79 | **-5.15 (does not beat AC, -0.36pp; beats RL by +1.43pp)** | -4.30 (would have beaten AC) |
-| 2024-03-05 (milder crash) | -1.11 | -1.64 | **-1.16 (beats AC by +0.48pp; slightly behind pure RL)** | -1.30 (also beats AC) |
+That RL-derived cap was also identified as the likely binding constraint on 2024-08-05, which means
+the first pass's own construction could have produced its shortfall — a lower bound, not a verdict.
+Re-ran with two more generous caps: AC's own maximum observed single-step chunk, and fully uncapped
+(`rl/phase2r_urgency_hybrid_v2.py`). On both dates tested, AC's own max chunk turned out to already be
+1.0 (its natural end-of-schedule dust-sweep reaches the top bucket), so that variant is mechanically
+identical to uncapped — one real comparison, not two:
 
-**The naive analytical shortcut is unreliable — it disagrees with the real simulated result in both
-magnitude and, on 2024-08-05, direction.** The real hybrid's own decomposition on 2024-08-05 shows why:
-`execution_pct` improves dramatically (-1.67 → -0.81, more than halved — RL-style fine slicing is
-confirmed to be a real, substantial, transferable execution-quality gain), but `drift_pct` gets *worse*
-than pure AC (-3.11 → -4.24) rather than inheriting AC's own drift number, because capping every
-catch-up step at RL's small chunk size imposes a speed limit AC's own (occasionally much larger,
-front-loaded) chunks aren't subject to — on the day that most rewards moving fast, the cap itself
-becomes the bottleneck. **The quantified prize is real but partial and conditional, not a guaranteed
-win**: substantial and unambiguous relative to pure RL (+1.43pp / +0.48pp on the two crash dates), but
-only sometimes enough to beat tuned AC outright, specifically falling short on the date where speed
-matters most. This directly informs the residual-action-space design: its multiplier range/resolution
-must not recreate this same speed-limit bottleneck, or it risks capping exactly the upside this
-experiment just measured as achievable.
+| date | RL (pure) | AC (pure, best λ) | hybrid, RL-capped (original) | **hybrid, uncapped** | ranking |
+|---|---|---|---|---|---|
+| 2024-08-05 (severe crash) | -6.58 | -4.79 | -5.15 | **-3.75 — BEATS both AC and RL** | uncapped hybrid (-3.75) > AC (-4.79) > RL-capped hybrid (-5.15) > RL (-6.58) |
+| 2024-03-05 (milder crash) | -1.11 | -1.64 | -1.16 | **-1.44 — worse than both RL and the RL-capped hybrid** | RL (-1.11) > RL-capped hybrid (-1.16) > uncapped hybrid (-1.44) > AC (-1.64) |
+
+**Not a clean "uncapping fixes it" story — the cap matters in opposite directions on the two dates,
+and that itself is informative.** On 2024-08-05, removing the cap lets the hybrid catch up to AC's
+front-loaded urgency fast enough that it decisively beats both pure policies (`drift_pct` improves
+from -4.24 to -1.90 once unconstrained; `execution_pct` gives some of that back, -0.81 → -1.75, since
+it's no longer always using RL's finest slicing, but the net is a clear win). On 2024-03-05, the
+opposite happens: uncapping lets the hybrid over-commit to larger, costlier chunks than it needs
+(`execution_pct` worsens from -0.59 to -1.20) for a `drift_pct` gain that doesn't fully offset it
+(-0.47 → -0.13) — RL's own organically-learned pacing was already close to right-sized on this milder
+date, and forcing AC's-schedule urgency onto it (at any cap) makes it worse, not better. **The honest
+reading: a fixed cap (any single cap) is the wrong tool — the achievable prize requires resolution
+*and* range that adapt to how urgent the situation actually is, not a single global bound in either
+direction.** This directly sharpens the residual-action-space constraint noted below: it isn't enough
+to give the multiplier a wide range; the design needs to let the agent choose *when* to use that range,
+which is exactly the credit-assignment problem the whole investigation is about, not a solved
+precondition for it.
+
+**This experiment's own reference point (AC's best λ, 1e-4 / 1e-3) is itself hindsight-selected — see
+the honest-λ correction immediately below, which changes which comparison matters most.**
+
+### The λ-selection protocol was hindsight — corrected, and it changes the headline
+
+Every AC/Adaptive-AC number reported so far in this close-out gate (Gate B's grid, the full 11-date
+grid, Task A's hybrid reference schedule) used **the best λ for that specific date**, selected by
+looking at that date's own outcome. That is hindsight: AC is effectively being told the day's
+volatility regime in advance, while RL has to commit to a policy without knowing which day it will
+face. This is the same class of error as the original AC strawman (an unfairly favorable comparator
+parametrization) — just inverted, and one level subtler, since it survived the first correction. The
+2024-11-06 anomaly flagged earlier (best λ=1e-9, sitting inside the granularity total-failure zone for
+every other date) is corroborating evidence of exactly this per-date overfitting, not a coincidence.
+
+**Corrected, no-hindsight protocol:** select one λ using only the 7 `TRAINING_DATES`' aggregate
+outcome (mean AND median agree, and the choice is unchanged even excluding 2024-11-06 — λ=1e-6 for
+both AC and Adaptive-AC, robustly), then apply that single fixed λ unchanged to all 4 held-out dates.
+No new simulation needed — this is a re-aggregation of the already-collected full grid
+(`rl/results/phase2r_lambda_grid_full.csv`).
+
+| date | regime | RL16 | AC/AAC @ **honest λ=1e-6** | AC hindsight-best (for contrast) | @λ | result at honest λ |
+|---|---|---|---|---|---|---|
+| 2024-03-05 | crash (milder) | -1.19 | -2.46 / -3.06 | -1.68 | 1e-4 | **RL16 WINS** (was a loss under hindsight) |
+| 2024-08-05 | crash (severe) | -6.48 | -7.89 / -7.80 | -4.96 | 1e-3 | **RL16 WINS** (was RL's worst loss under hindsight) |
+| 2024-07-10 | calm | -0.22 | +0.03 / +0.04 | +0.03 | 1e-6 | RL16 loses (unchanged — 1e-6 was already this date's optimum) |
+| 2024-12-10 | calm | -0.80 | -0.72 / -0.68 | -0.72 | 1e-6 | RL16 loses (unchanged) |
+
+**RL16 vs honest-λ AC/Adaptive-AC across the 4 anchor dates: 2 wins, 2 losses — RL wins BOTH crash
+dates and loses both calm dates.** This is close to a full reversal of the hindsight headline on the
+dates that motivated this entire investigation. Mechanism, confirmed by reading the code: static
+AC-Optimal's schedule *shape* is a pure function of (λ, σ=0.20, η=0.10, T) — it does not depend on the
+date at all except through λ. A single λ chosen for typical (mostly calm/moderate) training-date
+conditions produces a very patient, near-full-horizon schedule (matching the calm-day pattern shown in
+the trajectory plots above) — and applying that same patient schedule to a real crash day means AC
+gets caught by the price decline for most of the episode, just as RL does, because **a fixed λ cannot
+adapt to which day is a crash; only per-date-optimized (hindsight) λ can, and that adaptation was
+never available to a real, honestly-deployed strategy.**
+
+**This is the headline now, not a footnote: once AC is evaluated the way RL actually is — committing
+to a policy without knowing the day's regime in advance — AC does not demonstrate the
+regime-adaptive advantage the earlier "10/11 dates" and Task A findings credited it with.** The
+motivating premise for the residual-action-space design (import AC's regime-adaptive pacing as a
+prior) needs re-examination in this light: static AC-Optimal at an honest λ is *not* regime-adaptive
+in practice — only Adaptive-AC's *within-episode* live-vol response is, and Task B (below) shows that
+response is itself lagged in exactly the window that matters. Task A's hybrid experiment above still
+used the hindsight-best λ as its reference schedule, so its numbers describe "what if RL could copy an
+oracle's pacing," not "what if RL could copy a real deployed AC's pacing" — a materially different,
+much weaker premise. **Recommendation held pending this finding, per explicit instruction — see the
+standing-issues doc for the updated go/no-go.**
 
 **Task B — is regime information present and discriminative early in the episode (dims s2, s10, s11,
 s13), or does it arrive late?** Collected RL's full state vector at every decision point on both crash
@@ -892,11 +950,22 @@ sanity check (does 100%-forced-liquidation coincidentally produce a good price o
 trending-up day, i.e. is this itself a hindsight-drift artifact analogous to open issue #1?) before
 being treated as a real optimum rather than a fluke; not resolved here.
 
-**This is the decisive answer to the close-out gate's original question.** Once AC/Adaptive-AC are
-run at their own best λ, they beat RL-16dim on 10 of the 11 dates this phase has ever evaluated on,
-across every regime bucket (calm, moderate, crash, trending) except the milder of the two crash days.
-The earlier fixed-λ table's "RL beats AC on calm dates" was not just an artifact on the 4 anchor
-dates — it doesn't hold anywhere in the full date set once AC is fairly tuned.
+> **Superseded below — do not cite the "10/11" number without this correction.** Every λ in this table
+> was selected per-date, using that date's own outcome — hindsight. See "The λ-selection protocol was
+> hindsight — corrected, and it changes the headline" further down: applying one λ chosen honestly
+> from training-date data alone (no per-date peeking) to the held-out dates reverses the result on
+> both crash dates. This table is retained as-is (the per-date-optimal λ values are real, useful data
+> — e.g. for the granularity-floor analysis above), but "1 win, 10 losses" is not the phase's honest
+> headline number. The honest one is 2 wins / 2 losses on the same 4 anchor dates, RL winning both
+> crash dates.
+
+**This was treated as the decisive answer to the close-out gate's original question — see the
+correction above before relying on it.** Once AC/Adaptive-AC are run at their own best λ, they beat
+RL-16dim on 10 of the 11 dates this phase has ever evaluated on, across every regime bucket (calm,
+moderate, crash, trending) except the milder of the two crash days. The earlier fixed-λ table's "RL
+beats AC on calm dates" was not just an artifact on the 4 anchor dates — it doesn't hold anywhere in
+the full date set once AC is fairly tuned **by the hindsight protocol; see the honest-λ correction for
+what changes once that protocol is fixed.**
 
 **Reframing (explicit correction to how this result should be recorded):** this is not a settled
 negative result about RL's ceiling — it is a diagnosable gap in this project's RL setup. AC-Optimal
@@ -1076,18 +1145,28 @@ been checked for an equivalent bias against AC's *own* claimed baseline optimali
   phase.** The "RL beats AC/Adaptive-AC" claim in the corrected 5-way table is **retracted, not
   merely weakened** — it rested on three hardcoded baseline parameters (λ, σ, η) that each
   handicapped the comparator, so it was never supported to begin with (Gate B, confirmed and then
-  extended to all 11 dates: **best-tuned AC/Adaptive-AC beats RL-16dim on 10 of 11 dates**, RL
-  winning only on the milder held-out crash date). Granularity/bucketing (Gate A) was first reported
-  as second-order and later **corrected** once the grid was extended: it is a hard floor causing
-  total execution failure at very low λ on every date, not a small effect — see the correction inside
-  Gate A. A third hand-maintained `ACTION_FRACTIONS` mirror found and root-fixed (Gate C); AC's
-  sigma/eta/lambda hardcoding and Adaptive-AC's structurally-absent update-frequency parameter are a
-  fourth and fifth instance of the same duplicated-or-assumed-or-unexposed-value bug class — σ is
-  cheap to fix (design note, `docs/phase2r_ac_calibration_design_note.md`), η has no principled fix
-  short of item 5. See "Task 4 close-out gate" and "Methodological finding" sections above for the
-  full report and the transferable lesson. **The 16-dim vs 12-dim RL ablation is the only surviving
-  Task 4 claim about RL** — it never routed through AC or λ. **A properly-tuned classical baseline
-  beating RL almost everywhere is itself the phase's headline empirical finding now, not an absence
-  of one.**
+  extended to all 11 dates, initially reported as best-tuned AC/Adaptive-AC beating RL-16dim on 10 of
+  11 dates). Granularity/bucketing (Gate A) was first reported as second-order and later **corrected**
+  once the grid was extended: it is a hard floor causing total execution failure at very low λ on
+  every date, not a small effect. A third hand-maintained `ACTION_FRACTIONS` mirror found and
+  root-fixed (Gate C); AC's sigma/eta/lambda hardcoding and Adaptive-AC's structurally-absent
+  update-frequency parameter are a fourth and fifth instance of the same
+  duplicated-or-assumed-or-unexposed-value bug class.
+- **The "10/11" AC-tuned headline was itself hindsight and has been corrected — this supersedes the
+  bullet above.** Every λ in that grid was selected per-date from that date's own outcome. Selecting
+  one λ honestly (from the 7 training dates' aggregate only, no per-date peeking) and applying it
+  unchanged to the 4 anchor held-out dates gives **2 wins / 2 losses for RL-16dim, winning BOTH crash
+  dates** — close to a full reversal on the dates that motivated this entire investigation. Static
+  AC-Optimal's schedule shape does not depend on the date except through λ, so a single honestly-
+  chosen λ (patient, fit to mostly-calm training conditions) gets caught by a real crash exactly as
+  RL does. See "The λ-selection protocol was hindsight — corrected, and it changes the headline."
+  Two no-training follow-ups (Task A hybrid re-run without the RL-derived speed cap; Task B state-dim
+  discriminability check) also reported — see `docs/phase2r_objective_bias_finding.md` and
+  `docs/phase2r_standing_issues.md` open issue #0 for the full, current picture. **The 16-dim vs
+  12-dim RL ablation remains the only claim in this phase unaffected by any of this** — it never
+  routed through AC or λ. **The honest current state: whether a fairly-evaluated classical baseline
+  beats RL is no longer a settled 10/11 result — it depends on the λ-selection protocol, and the
+  honest protocol does not show AC dominating.** Recommendation on next steps (residual action space,
+  item 5, item 6) explicitly held pending this finding, per instruction — not yet re-decided.
 - `interval_volume` / `book_mid` telemetry: retained as sound instrumentation.
 - Nothing pushed; demo untouched throughout.

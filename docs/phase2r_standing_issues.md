@@ -73,6 +73,23 @@ date (a pattern inverted from the project's working thesis):
   11 dates this phase has ever evaluated on** — RL only wins on 2024-03-05, the milder of the two
   held-out crash dates. See `docs/phase2r_objective_bias_finding.md`, "Task 4 close-out gate —
   Gate B" and the "full 11-date λ-grid" follow-up section for the complete per-date table.
+  **SUPERSEDED — see the next bullet before citing "10/11" anywhere.**
+- **The per-date λ selection above was itself hindsight — corrected, and it reverses the crash-date
+  result.** Every λ in the "10/11" grid was picked using that specific date's own outcome: AC was
+  effectively told the day's regime in advance, which RL never is — the same class of error as the
+  original un-swept-λ strawman, one level subtler, and it survived the first correction undetected
+  until flagged explicitly. The 2024-11-06 anomaly (best λ=1e-9, sitting inside the granularity
+  total-failure zone) was corroborating evidence of this same per-date overfitting, not a coincidence.
+  **Honest protocol: select one λ from the 7 `TRAINING_DATES`' aggregate outcome only (mean and
+  median agree, robust even excluding 2024-11-06: λ=1e-6), apply it unchanged to the 4 held-out
+  dates** (pure re-aggregation of the already-collected grid, no new simulation). Result: **RL-16dim
+  wins BOTH held-out crash dates and loses both held-out calm dates — 2 wins / 2 losses, reversing
+  the crash-date story the "10/11" number was built on.** Mechanism: static AC-Optimal's schedule
+  shape is a pure function of (λ, σ, η, T), independent of the date except through λ — a single
+  honestly-chosen λ (patient, fit to mostly-calm training conditions) produces a patient schedule
+  that gets caught by a real crash exactly as RL does; only *hindsight* per-date λ looked
+  regime-adaptive. See `docs/phase2r_objective_bias_finding.md`, "The λ-selection protocol was
+  hindsight — corrected, and it changes the headline," for the full table.
 - **Granularity is not second-order — it sets a hard floor on AC's usable λ, corrected from the
   earlier Gate A writeup.** Extending the grid down to 1e-9 revealed that at λ≤3e-7, on every one of
   the 11 dates, 100% of AC's intended schedule rounds down to the zero-action bucket for the entire
@@ -143,52 +160,50 @@ date (a pattern inverted from the project's working thesis):
   "RL learned execution but not urgency" (`execution_pct` -1.19 beats both AC's -1.67 and a trivial
   policy's -1.80 on 2024-08-05; AC's urgency swings 1.00→0.285→0.088 by regime while RL sits at
   0.93–0.99 everywhere). Two checks, `rl/phase2r_urgency_diagnosis.py`:
-  - **Task A (does AC-pacing + RL-execution beat tuned AC, no training?): partial, conditional yes —
-    not the clean win a naive estimate suggested.** A real simulated hybrid (AC's cumulative schedule
-    sets urgency, capped at RL's own median chunk size per date) beats pure RL substantially on both
-    crash dates (+1.43pp on 2024-08-05, and a smaller margin on 2024-03-05) and beats tuned AC on the
-    milder crash (+0.48pp) — but falls short of tuned AC on the severe crash (-0.36pp), because
-    capping every step at RL's chunk size imposes a speed limit AC's own larger front-loaded chunks
-    aren't subject to, and on the day speed matters most, that cap becomes the bottleneck. **A naive
-    additive estimate (AC's drift + RL's execution) was tested against this and found unreliable** —
-    wrong in magnitude on both dates, wrong in direction on the severe crash. The real, partial prize:
-    RL's execution-quality edge is confirmed real and substantial, but a residual-action-space design
-    must give the agent enough range/resolution to move as fast as tuned-AC's own urgency sometimes
-    requires, or it will cap the same upside this experiment just measured.
+  - **Task A (does AC-pacing + RL-execution beat tuned AC, no training?): first pass was capped by
+    its own construction — corrected framing, then re-run uncapped.** The first hybrid (AC's
+    cumulative schedule for urgency, catch-up capped at RL's own median chunk size) was **second-best
+    on both dates tested, not a win**: ranking was AC > hybrid > RL on 2024-08-05, and RL > hybrid >
+    AC on 2024-03-05 — "beats AC on 2024-03-05" (the original framing) omitted that it still lost to
+    pure RL there; corrected. Re-run with the cap removed
+    (`rl/phase2r_urgency_hybrid_v2.py`): on 2024-08-05, the uncapped hybrid **beats both AC and RL
+    outright** (-3.75 vs AC's -4.79 and RL's -6.58) — confirming the original cap was the binding
+    constraint, as suspected. But on 2024-03-05, uncapping makes the hybrid *worse* (-1.44, behind
+    both RL and the original capped hybrid) — RL's own organic pacing was already close to right-sized
+    there, and forcing AC's urgency onto it without a cap over-commits to costlier chunks than needed.
+    **No single cap (tight or none) is uniformly right — the achievable prize needs resolution AND
+    range that adapt to how urgent the moment actually is, which is the credit-assignment problem
+    itself, not a precondition solved by picking a better constant.** A naive additive estimate (AC's
+    drift + RL's execution) was tested against both variants and found unreliable regardless — wrong
+    magnitude, sometimes wrong direction. **This experiment's own AC reference schedule (best λ) is
+    itself hindsight-selected — see the λ-protocol correction above, which is the more fundamental
+    finding and changes what this experiment's result even means** (it describes "RL copying an
+    oracle's pacing," not "RL copying a real deployed AC's pacing").
   - **Task B (is regime info present & discriminative early, when urgency must be decided?): mixed,
-    precise answer.** The continuous vol dims (s2, s13) show real, correctly-directioned, and
-    strengthening separation between the severe-crash date and calm dates starting within the first
-    10–50 steps (5–25 min) — the information is there and, per Task A, exploitable. The discrete
-    regime-bucket dims (s10 vol_regime, s11 liq_regime), purpose-built as regime indicators, are
-    **completely flat and identical across all four dates for the full first 100 steps (50 min)
-    tested** — the rolling realized-vol estimate hasn't crossed the reclassification threshold that
-    early on any date tested. This is shared machinery: the same rolling-vol estimator feeds both
-    RL's state and Adaptive-AC's own live schedule, so a residual-action-space design using an
-    Adaptive-AC-style reference would not automatically escape this early-window lag — it inherits
-    the state problem it doesn't cause. Single-seed (seed=0) directional finding, not exhaustive.
-  - **Recommendation (informed by both, not a unilateral decision):** prioritize the residual/delta
-    action-space design (already sketched) combined with an imitation warm-start (item 6) as the next
-    concrete phase, over item 5. Reasoning: Task A already quantifies a real, substantial, partial
-    prize from combining AC's pacing with RL-style execution — a residual action space plus
-    warm-start directly targets exactly that combination, with BC in multiplier-space trivial to
-    define (target≡1.0 everywhere), and item 3's design note already noted this composability. Item 5
-    (numerically-optimized sqrt-impact schedule) remains valuable for establishing a *theoretical*
-    ceiling and for eventually giving the residual design a better-than-AC reference, but is a deeper,
-    more open-ended, more expensive research thread whose payoff isn't needed to capture the
-    already-quantified practical gap. Two conditions to carry into that future phase, not yet
-    resolved here: (1) multiplier bounds/resolution must accommodate AC's fastest observed urgency
-    (2024-08-05's front-load), not just fine resolution near 1.0, per Task A; (2) the discrete
-    regime-dim lag found in Task B should be checked against whatever reference schedule the residual
-    design ends up using, not assumed fixed by the action-space change alone.
+    precise answer — now elevated to its own named issue, #6 below** (discrete regime dims s10/s11
+    flat for the first 100 steps on every date tested, while continuous dims s2/s13 do carry real,
+    strengthening signal in that same window). Summary here, full writeup at issue #6.
+  - **Recommendation: HELD, not decided — the λ-protocol correction changes the premise.** The
+    original recommendation (prioritize residual-action-space + imitation warm-start over item 5) was
+    explicitly conditioned on this finding: *if honest-λ AC doesn't beat RL, the motivating gap
+    changes shape and so does the design.* Honest-λ AC does not beat RL on the dates that motivated
+    the design (2 wins / 2 losses, RL winning both crash dates) — the premise "AC demonstrates
+    regime-adaptive urgency RL should learn to copy" no longer holds for static AC-Optimal at a real,
+    honestly-selected λ; only Adaptive-AC's *within-episode* live-vol response is actually
+    regime-adaptive without hindsight, and issue #6 shows that response itself lags in the decisive
+    early window. **Recommendation not re-issued here — reporting the finding per instruction, next
+    direction to be decided with this in hand, not before it.**
 - **Net effect:** the "RL beats classical execution baselines" claim from Phase 2R is **retracted**,
-  and the fuller picture (10/11 dates, once AC is fairly tuned) is now in hand: **a properly-tuned
-  classical AC/Adaptive-AC baseline beats RL-16dim on every regime this phase has tested except the
-  milder of the two held-out crash dates — and there is now a specific, evidenced mechanism (fixed
-  regime-blind pacing) diagnosing why, rather than an unexplained gap.** This is itself a reportable
-  finding, not merely the absence of one — it should be written up as a diagnosed RL-setup limitation,
-  not as "classical execution beats learned execution" in general. The RL-vs-RL ablation (16-dim vs
-  12-dim) is unaffected by any of this and remains the one surviving Task 4 claim about RL
-  specifically.
+  and so — separately — is the "properly-tuned AC beats RL on 10/11 dates" replacement finding that
+  followed it, **once the λ-selection protocol itself is corrected for hindsight.** The current honest
+  state: RL-16dim wins both held-out crash dates and loses both held-out calm dates against an
+  honestly-tuned static AC/Adaptive-AC (2-2 on the 4 anchor dates) — not a clean win for either side,
+  and specifically not the "classical execution beats learned execution" story the interim "10/11"
+  number told. This should be written up as: the phase found and corrected two layers of the same
+  strawman-baseline failure mode (hardcoded params, then hindsight-selected params), and the honest
+  comparison that remains is close, regime-dependent, and not yet fully explained (see issue #6 for
+  one open mechanism). The RL-vs-RL ablation (16-dim vs 12-dim) is unaffected by any of this and
+  remains the one surviving Task 4 claim about RL specifically.
 - **Methodological finding (worth logging on its own, not just as a caveat on the RL number):** four
   instances of the same bug class surfaced this phase — CVaR sign inversion, two independent
   hand-copied `ACTION_FRACTIONS` mirrors, and this hardcoded-baseline-parameter issue. Every one was
@@ -231,6 +246,27 @@ horizon range, verified with a test). The *fixed* eval horizon (2880 steps) does
 bound for `start_offset > 0`, but all evals use small seeds (0-19, <1% of the episode), so results
 are unaffected in practice. Bounding `start_offset ≤ len − total_steps` would remove the caveat
 entirely. **Deferred** — cosmetic, not measured to affect any reported number.
+
+### 6. Discrete regime-indicator state dims (s10, s11) are dead exactly when urgency must be decided
+Named and elevated from a sub-finding to its own standing issue, per explicit instruction — this is a
+state-representation problem, not merely a footnote on the RL-vs-AC comparison. Measured directly
+(`rl/phase2r_urgency_diagnosis.py`, Task B): `s10` (vol_regime) and `s11` (liq_regime), the two state
+dims specifically engineered to encode which regime the market is in, are **completely flat and
+bit-identical across the severe-crash date and both calm dates for the entire first 100 steps (50
+minutes) of the episode** — the window in which a policy would need to decide how urgently to trade.
+Mechanism, confirmed by reading `regime_dims()`: both dims require the rolling realized-vol estimate
+to cross a fixed 0.7×/1.3× threshold against `sigma_ref` before leaving the "normal" bucket; with a
+return buffer that only starts informative after ~5 samples and a `sigma_ref` calibrated at the
+whole-day level, the short early-window sample doesn't cross that threshold on any date tested here —
+even though the *continuous* vol-ratio dims (s2, s13) do carry real, correctly-directioned, and
+strengthening separation in that same window (measured, not assumed). **This is shared machinery, not
+an RL-specific defect:** the same rolling-vol estimator that produces s2/s10/s11/s13 also drives
+Adaptive-AC's own live schedule recomputation (`current_sigma` in `rl_env.rs`, read by both). Any
+future design that hands RL a reference schedule derived from this estimator (see the residual-action-
+space design sketch) would inherit this same early-window lag, not escape it. **Explicit hard
+requirement for that future phase, not an assumption to carry forward: verify the reference schedule's
+own regime-responsiveness in the first ~100 steps before crediting the design with fixing RL's
+pacing.** Not fixed here — diagnosis only, per explicit scope.
 
 ## Meta-lesson: hand-maintained mirrors of canonical values (THIRD occurrence — pattern confirmed)
 

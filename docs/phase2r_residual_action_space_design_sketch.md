@@ -1,28 +1,46 @@
 # Design sketch: residual/delta action space (multiplier on a reference schedule)
 
-**Status: design sketch only, per explicit instruction — no implementation.** This is a candidate
-direction for a future, separate phase, not a Task 4 or Phase 2R deliverable. It is logged here so
-the reasoning behind it survives, motivated directly by the granularity investigation above (RL's
-regime-blind fixed pacing vs AC's regime-adaptive tuned pacing).
+**Status: design sketch only, per explicit instruction — no implementation. Motivating premise now in
+question — see the correction below before treating this as a settled next step.** This is a
+candidate direction for a future, separate phase, not a Task 4 or Phase 2R deliverable. It was
+motivated by the granularity investigation above (RL's regime-blind fixed pacing vs AC's
+regime-adaptive *tuned* pacing).
 
-**Update — two no-training checks (`rl/phase2r_urgency_diagnosis.py`) ran after this was first
-drafted, and both bear directly on the design, not just the general motivation:**
+**Correction, more fundamental than the two checks below: the "AC's tuned pacing" this design means
+to import was itself hindsight-selected.** The λ used to characterize AC's regime-adaptive pacing
+(1e-4 on 2024-03-05, 1e-3 on 2024-08-05) was picked per-date from that date's own outcome. Selecting
+one λ honestly from training-date data only and applying it unchanged to the held-out dates reverses
+the result: RL-16dim beats honestly-tuned static AC on *both* held-out crash dates. **Static
+AC-Optimal, honestly parametrized, is not actually regime-adaptive in deployment — only its
+per-date-optimized (unavailable-in-practice) version looked that way.** This means the core premise
+motivating this design — "hand the agent AC's regime-appropriate pace as a prior" — needs
+re-examination: which reference schedule would actually BE regime-appropriate without hindsight?
+Adaptive-AC's live within-episode response is the honest candidate, but issue #6
+(`docs/phase2r_standing_issues.md`) shows that response itself lags in exactly the early window where
+urgency gets decided. **This design is not withdrawn, but it is not yet re-justified either — see
+`docs/phase2r_objective_bias_finding.md`, "The λ-selection protocol was hindsight," for the full
+finding, and the standing-issues doc for the current (held, not decided) recommendation.**
+
+**The two no-training checks below (`rl/phase2r_urgency_diagnosis.py`) still bear on the design's
+mechanics regardless of which reference schedule is eventually chosen:**
 1. A real simulated hybrid (AC's cumulative schedule for urgency, catch-up capped at RL's own median
-   chunk size) beat pure RL substantially on both crash dates tested, but only beat tuned AC on the
-   *milder* crash — it fell short on the severe crash specifically because the chunk-size cap imposed
-   a speed limit AC's own larger front-loaded moves aren't subject to. **This means the multiplier
-   bounds/resolution below can't just be fine-grained near 1.0 — they need enough range/step-size to
-   let the agent move as fast as AC's own most urgent moments require, or the design will cap the
-   same upside this experiment measured as achievable.** See `docs/phase2r_objective_bias_finding.md`,
-   "RL learned execution but not urgency," Task A, for the full numbers.
+   chunk size) was **second-best on both dates tested, not a win over AC** — corrected from the
+   original framing. Re-run uncapped: on 2024-08-05 the uncapped hybrid beats both AC and RL outright;
+   on 2024-03-05, uncapping makes it *worse* than both RL and the original capped version, since RL's
+   own pacing was already close to right-sized there and forcing full urgency onto it over-commits to
+   costlier chunks. **No single cap is uniformly right — the multiplier bounds/resolution below can't
+   just be fine-grained near 1.0, and can't just be wide either; the design needs to let the agent
+   choose when to use its range, which is the credit-assignment problem itself, not a precondition
+   solved by a better constant.** See `docs/phase2r_objective_bias_finding.md`, "RL learned execution
+   but not urgency," Task A, for the full numbers (both the original and corrected uncapped results).
 2. The discrete regime-indicator state dims (vol_regime, liq_regime) were found to be completely flat
    and uninformative for the first ~100 steps of the episode on every date tested, while the
-   continuous vol-ratio dims did carry real, growing signal in that window. Because the reference
-   schedule for this design would plausibly be Adaptive-AC-style (recomputing from live vol), and that
-   recomputation shares the *same* rolling-vol estimator RL's own state uses, **the reference schedule
-   would not automatically escape this early-window lag — it needs to be checked against whatever
-   reference is chosen, not assumed fixed by moving to this action space.** See the same section,
-   Task B.
+   continuous vol-ratio dims did carry real, growing signal in that window — now issue #6 in
+   `docs/phase2r_standing_issues.md`. Because any live-adaptive reference schedule for this design
+   shares the *same* rolling-vol estimator RL's own state uses, **the reference schedule would not
+   automatically escape this early-window lag — it needs to be checked against whatever reference is
+   chosen, not assumed fixed by moving to this action space.** This is now a named, hard requirement
+   (issue #6), not a soft note.
 
 ## The idea
 
