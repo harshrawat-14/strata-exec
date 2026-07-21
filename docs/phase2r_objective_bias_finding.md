@@ -877,16 +877,83 @@ gets caught by the price decline for most of the episode, just as RL does, becau
 adapt to which day is a crash; only per-date-optimized (hindsight) λ can, and that adaptation was
 never available to a real, honestly-deployed strategy.**
 
-**This is the headline now, not a footnote: once AC is evaluated the way RL actually is — committing
-to a policy without knowing the day's regime in advance — AC does not demonstrate the
-regime-adaptive advantage the earlier "10/11 dates" and Task A findings credited it with.** The
-motivating premise for the residual-action-space design (import AC's regime-adaptive pacing as a
-prior) needs re-examination in this light: static AC-Optimal at an honest λ is *not* regime-adaptive
-in practice — only Adaptive-AC's *within-episode* live-vol response is, and Task B (below) shows that
-response is itself lagged in exactly the window that matters. Task A's hybrid experiment above still
-used the hindsight-best λ as its reference schedule, so its numbers describe "what if RL could copy an
-oracle's pacing," not "what if RL could copy a real deployed AC's pacing" — a materially different,
-much weaker premise. **Recommendation held pending this finding, per explicit instruction — see the
+**Extended to all 11 dates (free — pure lookup against the already-collected full grid, no new
+simulation; `rl/results/phase2r_honest_lambda_all11.csv`), because n=2-per-regime on the 4 anchor
+dates alone is not enough to lean on:**
+
+| split | RL16 vs honest-λ (best of AC/AAC) | dates |
+|---|---|---|
+| held-out CRASH | **2 / 2 wins** | 2024-03-05, 2024-08-05 |
+| held-out CALM | 0 / 2 wins | 2024-07-10, 2024-12-10 |
+| training (in-sample, mostly calm/moderate) | 0 / 7 wins | all 7 `TRAINING_DATES` |
+
+**The regime-conditional pattern holds, and holds cleanly, at the full n available in this project:
+RL-16dim beats honestly-tuned AC/Adaptive-AC on exactly the two most severe crash dates in the
+dataset, and loses on every one of the other nine (all calm/moderate/training dates).** One nuance
+worth stating precisely rather than rounding away: 2024-04-15 ("BTC correction, moderate stress," a
+training date) is a near-tie loss (-0.02pp) — the pattern is specifically about *severe* regime breaks
+(flash liquidation cascade, Yen unwind), not stress in general, which sharpens rather than weakens the
+mechanistic story below. (2024-11-06, a strongly trending post-election-surge day, is a clear loss at
+honest λ — but its honest-λ AC number is large and positive, +4.98%, plausibly itself partly a
+hindsight-trend artifact of the IS-vs-arrival reporting metric on a strongly-directional day, the same
+effect standing issue #1 already documents; not re-investigated further here, flagged for the
+writeup.)
+
+**What this recovers, and why it is credible now in a way it wasn't before:** RL wins exactly where
+AC's linear-impact, static-schedule assumptions break down under genuine market stress, and loses
+exactly where those assumptions are close to correct (calm, low-impact, close-to-normal conditions).
+**This is the project's original mechanistic thesis** (RL should earn its keep by adapting to
+conditions a closed-form heuristic can't model, and should have nothing to offer where the heuristic
+is already close to optimal) — the same thesis the earlier strawman-λ result inverted, and the
+per-date-hindsight result then re-inverted a second time in AC's favor for the wrong reason.
+**It is credible precisely because it is what's left after both failure modes (an unfairly weak
+baseline, then an unfairly strong hindsight-fit one) have been found and removed — not because it was
+the story going in.** Caveat stated plainly, not buried: the crash-side evidence is still n=2 dates,
+directionally clear and internally consistent (both wins, comfortable margins, +1.27pp and +1.32pp)
+but not a large-sample statistical claim; the calm/training side has much more support (n=9, 0 wins)
+for "AC is hard to beat when its assumptions hold."
+
+**Confirmed with the full Task 4 statistical machinery, not just point estimates (second cheap
+confirmation before any new phase): re-ran the complete 11-date ablation** (`rl/
+phase2r_ablation_honest_lambda.py`, same paired-bootstrap methodology and structure as the original
+Task 4 deliverable, `rl/results/phase2r_ablation_honest_lambda.csv`) **with `ac_lambda=1e-6` (honest)
+instead of the original strawman default (0.001) or per-date hindsight** — this is the version of the
+ablation table that should now be treated as current.
+
+| date | split | RL16 vs AC-Optimal | p-value | RL16 vs Adaptive-AC | p-value |
+|---|---|---|---|---|---|
+| 2024-03-05 | held-out crash | **+1.27pp BEATS** | 0.0000 | +1.87pp BEATS | 0.0000 |
+| 2024-08-05 | held-out crash | **+1.41pp BEATS** | 0.0000 | +1.32pp BEATS | 0.0000 |
+| 2024-07-10 | held-out calm | -0.19pp loses | — | -0.20pp loses | — |
+| 2024-12-10 | held-out calm | -0.08pp loses | 1.0000 | -0.12pp loses | 1.0000 |
+| 7 training dates | in-sample | 1/7 beats AC, 1/7 beats AAC | — | — | — |
+
+**Both crash-date wins are statistically strong, not just point-estimate wins**: paired bootstrap
+(10,000 resamples, matched episode seeds) gives p=0.0000 against both AC-Optimal and Adaptive-AC on
+both held-out crash dates — the delta was never ≤0 in any resample. Overall: **RL-16dim beats
+AC-Optimal on 3/11 dates and Adaptive-AC on 3/11 dates** (both crash dates plus one near-tie training
+date each — 2024-04-15 beats AC-Optimal by +0.03pp but loses to Adaptive-AC; 2024-06-10 beats
+Adaptive-AC by +0.002pp but loses to AC-Optimal — both margins small enough to be noise, reported
+exactly rather than rounded into either bucket). Comparing against whichever baseline is better on
+each date (the more honest bar, since a real deployment would use whichever performed better in
+training) gives the cleaner **2/2 crash, 0/9 elsewhere** picture already shown above. Either way of
+counting, the regime-conditional pattern is the same and now has formal significance testing behind
+the two data points that matter most.
+
+**Consequence for the residual-action-space premise — sharpened, not broken.** Once AC is evaluated
+the way RL actually is — committing to a policy without knowing the day's regime in advance — a
+*fixed-λ* AC does not demonstrate a usable regime-adaptive advantage; RL's execution component was
+already shown to be best-in-class (Task A: -1.19 on 2024-08-05, beating AC's -1.67 and the trivial
+policy's -1.80). What RL is missing is specifically *regime-appropriate urgency* — and Task A (the
+uncapped hybrid re-run) shows no single fixed urgency rule solves this either: uncapped-AC-pacing wins
+on 2024-08-05 but loses on 2024-03-05, exactly mirroring static-AC-at-one-λ's own inability to adapt.
+**The target is adaptive urgency, which is exactly the shape of thing a learned residual should be
+able to supply — but the reference schedule the residual would deviate from cannot be static AC at a
+fixed λ, since that is now shown to be regime-blind by construction.** The reference needs to be
+itself regime-responsive: Adaptive-AC's live-volatility recomputation, or item 5's
+numerically-optimized schedule, are the two live candidates — and Task B's regime-dim lag (standing
+issue #6) is a hard gate on whichever is chosen, not a nice-to-check. **Recommendation on next steps
+still held pending explicit direction — see the
 standing-issues doc for the updated go/no-go.**
 
 **Task B — is regime information present and discriminative early in the episode (dims s2, s10, s11,

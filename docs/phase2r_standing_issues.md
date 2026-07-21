@@ -58,15 +58,22 @@ number pair as if they were measured on the same ruler.
 
 ## Open — must survive into the final writeup's honest-limitations section
 
-### 0. "RL beats classical baselines" is retracted, not merely weakened
-**Framing, stated precisely:** the claim is not weakened by what follows — it was never supported.
-The comparison rested on three baseline parameters (λ, σ, η) that were each hardcoded rather than
-sourced or fitted, and each specific hardcoded value happened to handicap the comparator, not the RL
-arm. Do not carry forward language like "needs more work" or "unresolved pending a rerun" — the
-correct framing is that the earlier "RL beats AC" table was a measurement of an under-tuned AC, not
-of RL, from the moment it was produced. Two independent issues, both found while investigating why
-the Task 4 corrected ablation showed RL beating AC/AAC on calm dates but losing on the harder crash
-date (a pattern inverted from the project's working thesis):
+### 0. THE PHASE HEADLINE: RL wins under real regime stress, loses when AC's assumptions hold — recovered honestly, after two strawman baselines were found and removed
+**Current headline, stated first because everything below is the history of how it was reached:**
+once AC/Adaptive-AC are evaluated the way RL actually is — one λ, chosen without ever looking at a
+held-out date's own outcome — **RL-16dim beats them on exactly the two most severe crash dates in the
+whole 11-date set, and loses on all other nine (both held-out calm dates, and all 7 training dates)**.
+This is the project's original mechanistic thesis (RL earns its keep exactly where a closed-form
+heuristic's assumptions break, and has nothing to offer where they hold) — recovered only after two
+successive strawman-baseline failures were found and corrected, which is what makes it credible now
+rather than merely convenient. See the honest-λ bullet below for the full result and its explicit
+n=2-per-regime-on-crash caveat.
+
+**How this was reached (kept for the record — do not skip past this to just the headline, the history
+is the evidence the headline survived a real adversarial process):** the comparison rested, in
+sequence, on two different unfair baseline-parametrization failures. **Framing, stated precisely for
+both:** neither was "weakened" by the next correction — each was never supported in the first place.
+Do not carry forward language like "needs more work" or "unresolved pending a rerun" for either layer.
 - **Un-swept λ.** `AC_DEFAULT_LAMBDA=0.001` was used identically for every date. A follow-up
   extended the grid to all 11 dates and down to 1e-9 (greenlit item 1, `rl/results/
   phase2r_lambda_grid_full.csv`): **AC/Adaptive-AC at their own best λ beat RL-16dim on 10 of the
@@ -81,15 +88,36 @@ date (a pattern inverted from the project's working thesis):
   until flagged explicitly. The 2024-11-06 anomaly (best λ=1e-9, sitting inside the granularity
   total-failure zone) was corroborating evidence of this same per-date overfitting, not a coincidence.
   **Honest protocol: select one λ from the 7 `TRAINING_DATES`' aggregate outcome only (mean and
-  median agree, robust even excluding 2024-11-06: λ=1e-6), apply it unchanged to the 4 held-out
-  dates** (pure re-aggregation of the already-collected grid, no new simulation). Result: **RL-16dim
-  wins BOTH held-out crash dates and loses both held-out calm dates — 2 wins / 2 losses, reversing
-  the crash-date story the "10/11" number was built on.** Mechanism: static AC-Optimal's schedule
-  shape is a pure function of (λ, σ, η, T), independent of the date except through λ — a single
-  honestly-chosen λ (patient, fit to mostly-calm training conditions) produces a patient schedule
-  that gets caught by a real crash exactly as RL does; only *hindsight* per-date λ looked
-  regime-adaptive. See `docs/phase2r_objective_bias_finding.md`, "The λ-selection protocol was
-  hindsight — corrected, and it changes the headline," for the full table.
+  median agree, robust even excluding 2024-11-06: λ=1e-6), apply it unchanged to every other date**
+  (pure re-aggregation of the already-collected grid, no new simulation — extended from the 4 anchor
+  dates to all 11 once the 4-date result landed, since n=2-per-regime alone isn't enough to lean on).
+  **Full-11-date result (`rl/results/phase2r_honest_lambda_all11.csv`): RL-16dim beats honest-λ
+  AC/Adaptive-AC on 2/2 held-out crash dates, and loses on all other 9 (0/2 held-out calm, 0/7
+  training)** — the regime-conditional pattern holds cleanly at the full n available in this project,
+  not just on the original 4-date subset. One nuance stated precisely: 2024-04-15 ("BTC correction,
+  moderate stress," a training date) is a near-tie loss (-0.02pp) — the win pattern is about *severe*
+  regime breaks specifically (flash liquidation cascade, Yen unwind), not stress in general, which
+  sharpens the mechanistic read rather than weakening it. (2024-11-06's honest-λ AC number is large
+  and positive, +4.98% — plausibly itself partly a hindsight-trend artifact of the IS-vs-arrival
+  metric on a strongly-trending day, per open issue #1; flagged, not resolved here.)
+  **Confirmed with the full Task 4 statistical machinery (second cheap confirmation, greenlit):**
+  re-ran the complete 11-date ablation with paired bootstrap significance testing at honest λ=1e-6
+  (`rl/phase2r_ablation_honest_lambda.py`, `rl/results/phase2r_ablation_honest_lambda.csv`, same
+  methodology as the original Task 4 deliverable). **Both held-out crash-date wins are statistically
+  strong, not just point estimates: p=0.0000 (paired bootstrap, 10,000 resamples, matched episode
+  seeds) against both AC-Optimal and Adaptive-AC on both 2024-03-05 (+1.27pp / +1.87pp) and 2024-08-05
+  (+1.41pp / +1.32pp).** Head-to-head against each baseline individually across all 11 dates: RL-16dim
+  beats AC-Optimal on 3/11 (both crash dates + a +0.03pp near-tie on 2024-04-15) and beats Adaptive-AC
+  on 3/11 (both crash dates + a +0.002pp near-tie on 2024-06-10) — both near-ties small enough to be
+  noise, reported exactly rather than rounded into either bucket. The cleaner "vs whichever baseline is
+  better that day" framing gives 2/2 crash, 0/9 elsewhere, as above. Mechanism: static
+  AC-Optimal's schedule shape is a pure function of (λ, σ, η, T), independent of the date except
+  through λ — a single honestly-chosen λ (patient, fit to mostly-calm training conditions) produces a
+  patient schedule that gets caught by a real crash exactly as RL does; only *hindsight* per-date λ
+  looked regime-adaptive. See `docs/phase2r_objective_bias_finding.md`, "The λ-selection protocol was
+  hindsight — corrected, and it changes the headline," for the full tables and the mechanistic-thesis
+  framing (why this result is credible now, having survived the same adversarial process that killed
+  its two predecessors, with the n=2-per-regime-on-crash caveat stated explicitly rather than implied).
 - **Granularity is not second-order — it sets a hard floor on AC's usable λ, corrected from the
   earlier Gate A writeup.** Extending the grid down to 1e-9 revealed that at λ≤3e-7, on every one of
   the 11 dates, 100% of AC's intended schedule rounds down to the zero-action bucket for the entire
@@ -183,27 +211,31 @@ date (a pattern inverted from the project's working thesis):
     precise answer — now elevated to its own named issue, #6 below** (discrete regime dims s10/s11
     flat for the first 100 steps on every date tested, while continuous dims s2/s13 do carry real,
     strengthening signal in that same window). Summary here, full writeup at issue #6.
-  - **Recommendation: HELD, not decided — the λ-protocol correction changes the premise.** The
-    original recommendation (prioritize residual-action-space + imitation warm-start over item 5) was
-    explicitly conditioned on this finding: *if honest-λ AC doesn't beat RL, the motivating gap
-    changes shape and so does the design.* Honest-λ AC does not beat RL on the dates that motivated
-    the design (2 wins / 2 losses, RL winning both crash dates) — the premise "AC demonstrates
-    regime-adaptive urgency RL should learn to copy" no longer holds for static AC-Optimal at a real,
-    honestly-selected λ; only Adaptive-AC's *within-episode* live-vol response is actually
-    regime-adaptive without hindsight, and issue #6 shows that response itself lags in the decisive
-    early window. **Recommendation not re-issued here — reporting the finding per instruction, next
-    direction to be decided with this in hand, not before it.**
-- **Net effect:** the "RL beats classical execution baselines" claim from Phase 2R is **retracted**,
-  and so — separately — is the "properly-tuned AC beats RL on 10/11 dates" replacement finding that
-  followed it, **once the λ-selection protocol itself is corrected for hindsight.** The current honest
-  state: RL-16dim wins both held-out crash dates and loses both held-out calm dates against an
-  honestly-tuned static AC/Adaptive-AC (2-2 on the 4 anchor dates) — not a clean win for either side,
-  and specifically not the "classical execution beats learned execution" story the interim "10/11"
-  number told. This should be written up as: the phase found and corrected two layers of the same
-  strawman-baseline failure mode (hardcoded params, then hindsight-selected params), and the honest
-  comparison that remains is close, regime-dependent, and not yet fully explained (see issue #6 for
-  one open mechanism). The RL-vs-RL ablation (16-dim vs 12-dim) is unaffected by any of this and
-  remains the one surviving Task 4 claim about RL specifically.
+  - **Recommendation: the residual-action-space premise is SHARPENED, not broken — restated.** The
+    honest result doesn't kill the motivation, it corrects *what* needs importing. RL's execution
+    component was already shown to be best-in-class (Task A: -1.19 on 2024-08-05, beating AC's -1.67
+    and the trivial policy's -1.80) — what RL lacks is specifically regime-appropriate urgency, and
+    Task A's uncapped-hybrid re-run shows no single *fixed* urgency rule solves this (uncapped-AC-
+    pacing wins on 2024-08-05, loses on 2024-03-05 — the same regime-blindness static-AC-at-one-λ has).
+    **The target is adaptive urgency, exactly the shape of thing a learned residual should supply — but
+    the reference schedule cannot be static AC at a fixed λ, since that is now shown to be
+    regime-blind by construction.** The reference must itself be regime-responsive: Adaptive-AC's live
+    volatility recomputation, or item 5's numerically-optimized schedule, are the two live candidates.
+    Issue #6's regime-dim lag is a **hard gate** on whichever reference is chosen, not a nice-to-check
+    — verify the chosen reference's own regime-responsiveness in the first ~100 steps before building
+    anything on top of it. Full detail and the corrected design note in
+    `docs/phase2r_residual_action_space_design_sketch.md`.
+- **Net effect — this IS the phase's headline finding, stated as such, not as a retraction:** the
+  phase found and corrected two layers of the same strawman-baseline failure mode in sequence
+  (hardcoded params, then hindsight-selected params) and, after removing both, recovered the original
+  mechanistic thesis: **RL-16dim beats an honestly-tuned classical baseline specifically where that
+  baseline's assumptions break under real market stress (2/2 severe crash dates), and loses
+  specifically where those assumptions are close to correct (0/9 calm, moderate, and training dates).**
+  This is credible precisely because it is what survived an adversarial process that killed two
+  more-favorable-looking predecessors, not because it was assumed going in. Caveat stated explicitly,
+  not implied: the crash-side evidence is n=2 dates — directionally clear and internally consistent,
+  not a large-sample claim. The RL-vs-RL ablation (16-dim vs 12-dim) is unaffected by any of this and
+  remains a second, independent surviving claim from Task 4.
 - **Methodological finding (worth logging on its own, not just as a caveat on the RL number):** four
   instances of the same bug class surfaced this phase — CVaR sign inversion, two independent
   hand-copied `ACTION_FRACTIONS` mirrors, and this hardcoded-baseline-parameter issue. Every one was

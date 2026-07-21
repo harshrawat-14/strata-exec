@@ -1,25 +1,31 @@
 # Design sketch: residual/delta action space (multiplier on a reference schedule)
 
-**Status: design sketch only, per explicit instruction — no implementation. Motivating premise now in
-question — see the correction below before treating this as a settled next step.** This is a
-candidate direction for a future, separate phase, not a Task 4 or Phase 2R deliverable. It was
-motivated by the granularity investigation above (RL's regime-blind fixed pacing vs AC's
-regime-adaptive *tuned* pacing).
+**Status: design sketch only, per explicit instruction — no implementation. Motivating premise
+SHARPENED by the λ-hindsight correction below, not broken — read it before treating "import AC's
+pacing" as the plan, but this remains the live candidate direction.** This is a candidate direction
+for a future, separate phase, not a Task 4 or Phase 2R deliverable. It was motivated by the
+granularity investigation above (RL's regime-blind fixed pacing vs AC's regime-adaptive *tuned*
+pacing).
 
-**Correction, more fundamental than the two checks below: the "AC's tuned pacing" this design means
-to import was itself hindsight-selected.** The λ used to characterize AC's regime-adaptive pacing
-(1e-4 on 2024-03-05, 1e-3 on 2024-08-05) was picked per-date from that date's own outcome. Selecting
-one λ honestly from training-date data only and applying it unchanged to the held-out dates reverses
-the result: RL-16dim beats honestly-tuned static AC on *both* held-out crash dates. **Static
-AC-Optimal, honestly parametrized, is not actually regime-adaptive in deployment — only its
-per-date-optimized (unavailable-in-practice) version looked that way.** This means the core premise
-motivating this design — "hand the agent AC's regime-appropriate pace as a prior" — needs
-re-examination: which reference schedule would actually BE regime-appropriate without hindsight?
-Adaptive-AC's live within-episode response is the honest candidate, but issue #6
-(`docs/phase2r_standing_issues.md`) shows that response itself lags in exactly the early window where
-urgency gets decided. **This design is not withdrawn, but it is not yet re-justified either — see
+**Correction that sharpens, not withdraws, the premise: the "AC's tuned pacing" originally meant to
+import was characterized using hindsight (per-date-optimal) λ.** Selecting one λ honestly from
+training-date data only and applying it unchanged to the held-out dates shows **RL-16dim beats
+honestly-tuned static AC specifically on the two most severe crash dates in the full 11-date set (2/2),
+and loses on all other nine** — the project's original mechanistic thesis (RL adds value exactly where
+a closed-form heuristic's assumptions break, not elsewhere), recovered after two layers of unfair
+baseline correction. This does not remove the motivation for this design — it corrects *what* needs
+importing. RL's execution component is already best-in-class (Task A: -1.19 vs AC's -1.67 on
+2024-08-05); what it lacks is regime-appropriate urgency, and Task A's uncapped-hybrid re-run shows no
+single *fixed* urgency rule closes that gap (wins on 2024-08-05, loses on 2024-03-05 — the same
+regime-blindness static-AC-at-one-λ has). **The target is adaptive urgency — exactly what a learned
+residual should supply. But the reference schedule this design deviates from cannot be static AC at a
+fixed λ, since that is now shown to be regime-blind by construction; it must itself be
+regime-responsive.** Two live candidates: Adaptive-AC's live within-episode volatility response, or
+item 5's numerically-optimized schedule. Issue #6 (`docs/phase2r_standing_issues.md`) shows
+Adaptive-AC's live response itself lags in exactly the early window where urgency gets decided — a
+**hard gate** on that candidate specifically, to be checked before it's chosen, not after. See
 `docs/phase2r_objective_bias_finding.md`, "The λ-selection protocol was hindsight," for the full
-finding, and the standing-issues doc for the current (held, not decided) recommendation.**
+finding and the mechanistic-thesis framing.
 
 **The two no-training checks below (`rl/phase2r_urgency_diagnosis.py`) still bear on the design's
 mechanics regardless of which reference schedule is eventually chosen:**
