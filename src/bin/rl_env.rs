@@ -164,8 +164,26 @@ pub const ACTION_FRACTIONS: [f64; 20] = [
 /// `GAMMA × 100%` price depression.
 const DEFAULT_GAMMA: f64 = 0.005;
 
-/// Default annualised volatility (synthetic mode).
+/// Default annualised volatility (synthetic mode only — GBM/GARCH book
+/// generation, unrelated to real dates, deliberately left untouched).
 const DEFAULT_SIGMA: f64 = 0.20;
+
+/// Calibrated `sigma_ref` for historical/counterfactual mode, replacing the
+/// synthetic-mode 0.20 default that Phase 3 found silently pinned s10
+/// (vol_regime) at LOW on every real date, calm or crash (see
+/// docs/phase3_plan.md, section C — bug-class instance #4).
+///
+/// Derivation: annualised realised volatility (log-returns, 30s bars, from
+/// `TradeData/AggTrades`), computed with the SAME annualisation this file
+/// now uses (`TRADING_STEPS_PER_YEAR`, fixed at one trading day × 365 —
+/// see below), then the median across the 7 `TRAINING_DATES` in
+/// `rl/evaluate.py` — NOT `HELD_OUT_CRASH_DATES`, which would be the same
+/// hindsight leak already killed for λ. Per-date values: 2024-01-15 0.446,
+/// 02-20 0.500, 04-15 0.772, 06-10 0.260, 09-15 0.316, 10-15 0.600,
+/// 11-06 0.859. Mean 0.536, median 0.500 (robust: excluding 11-06, the
+/// post-election outlier, median is 0.473 — still close). Frozen like λ:
+/// calibrated once from training data only, never touched per-eval-date.
+const CALIBRATED_SIGMA_REF: f64 = 0.4999;
 
 /// Number of initial books used to compute `depth_ref`.
 const DEPTH_REF_SAMPLES: usize = 50;
@@ -174,6 +192,15 @@ const DEPTH_REF_SAMPLES: usize = 50;
 const DEFAULT_TOTAL_STEPS: usize = 2880;
 /// Historical mode default step count (one trading day ≈ 30s cadence).
 const HISTORICAL_DEFAULT_STEPS: usize = 2880;
+
+/// Trading periods used to annualise the rolling realised-vol estimator
+/// (`realised_vol()`). Fixed at one trading day (`HISTORICAL_DEFAULT_STEPS`
+/// steps, ~30s cadence) × 365 trading days/year — deliberately NOT
+/// `cfg.total_steps`, which is the per-episode horizon and is randomised
+/// 200-1440 during training (`RANDOM_HORIZON_MIN`/`MAX`). Annualising
+/// against the episode horizon would make `current_sigma` swing with
+/// episode length alone, for identical underlying market volatility.
+const TRADING_STEPS_PER_YEAR: f64 = HISTORICAL_DEFAULT_STEPS as f64 * 365.0;
 
 /// Synthetic LOB depth scaling so the book can absorb realistic order sizes.
 /// `base_quantity = total_inventory / SYNTHETIC_DEPTH_SCALE` per level.
@@ -1342,9 +1369,12 @@ impl RlEnv {
         let mean = self.return_buffer.iter().sum::<f64>() / n;
         let var = self.return_buffer.iter().map(|r| (r - mean).powi(2)).sum::<f64>() / n;
         let per_step = var.sqrt();
-        // Annualise: multiply by √steps_per_year. Here total_steps ≈ steps_per_episode.
-        // Use total_steps as a coarse annualisation factor.
-        per_step * (self.cfg.total_steps as f64).sqrt()
+        // Annualise against the FIXED TRADING_STEPS_PER_YEAR, never
+        // cfg.total_steps (the per-episode horizon, randomised 200-1440
+        // during training) — see that constant's doc comment. The previous
+        // `(cfg.total_steps as f64).sqrt()` was off by ~19x (sqrt(2880) vs
+        // sqrt(2880*365)) AND varied current_sigma with episode length.
+        per_step * TRADING_STEPS_PER_YEAR.sqrt()
     }
 
     /// Build the 8-dim observation vector.
@@ -1404,8 +1434,11 @@ impl RlEnv {
             state.push(0.0); // [8] permanent impact fraction — zero in non-counterfactual modes
             state.push(0.0); // [9] temporary impact fraction — zero in non-counterfactual modes
         }
-        // [10] vol regime: 0.0=low, 0.5=normal, 1.0=high
-        // [11] liq regime: 0.0=thin, 0.5=normal, 1.0=deep
+        // [10] vol regime: tanh(ln(current_sigma/sigma_ref)); 0=at reference,
+        //      positive=more volatile than reference, negative=calmer.
+        // [11] liq regime: tanh(ln(half_spread/spread_ref)); 0=at reference,
+        //      positive=wider spread than reference (thin), negative=deep.
+        // See regime_dims()'s doc comment for the Phase 3 fix this replaced.
         let (vol_regime, liq_regime) = self.regime_dims();
         state.push(vol_regime);
         state.push(liq_regime);
@@ -1441,19 +1474,41 @@ impl RlEnv {
         state
     }
 
-    /// Discrete-bucketed (vol_regime, liq_regime) used as state dims [10] and [11].
+    /// Continuous regime signals used as state dims [10] and [11].
     ///
-    /// vol_regime ∈ {0.0, 0.5, 1.0} via current_sigma vs sigma_ref (×0.7, ×1.3)
-    /// liq_regime ∈ {0.0, 0.5, 1.0} via current_half_spread / spread_ref (>2.0, <0.5)
+    /// Phase 3 fix (docs/phase3_plan.md, sections C/D) replacing the prior
+    /// 3-way hard-bucketed version. That version was measured to be pinned
+    /// at LOW/"normal" on every real date this project has data for, calm
+    /// or crash alike — not because of a lookahead leak (there is none:
+    /// `sigma_ref` is a config-time constant, never derived from the
+    /// episode's own future), but because `sigma_ref` was hardcoded at 0.20
+    /// (a plausible BTC vol level) while `current_sigma`'s annualisation
+    /// was separately wrong by ~19x, landing every real date's ratio inside
+    /// the "normal" band by simple arithmetic. Both are fixed above
+    /// (`CALIBRATED_SIGMA_REF`, `TRADING_STEPS_PER_YEAR`); fixing only one
+    /// of the two would move every date to the OTHER dead rail instead —
+    /// see the derivation comment on `CALIBRATED_SIGMA_REF`.
+    ///
+    /// Both signals are `tanh(ln(ratio))`: 0.0 at the reference, positive =
+    /// more stressed than reference (higher vol / wider spread), negative =
+    /// calmer. Log-space is deliberate, not just "more continuous than a
+    /// bucket": a raw-ratio `tanh(ratio)` saturates hard at the ratios now
+    /// reachable with a correct reference (crash-day vol ratios reach
+    /// ~2.8-4.1x sigma_ref; tanh(4.1) = 0.9994 alone, which would erase the
+    /// 2024-03-05 vs 2024-08-05 severity difference this project's severity
+    /// analysis depends on). In log space they stay separated:
+    /// tanh(ln 2.8) ≈ 0.774 vs tanh(ln 4.1) ≈ 0.886.
+    ///
+    /// NOTE for anyone diffing against the old encoding (e.g.
+    /// `rl/phase2r_urgency_diagnosis.py`'s "s11: liq_regime (discrete
+    /// 0/.5/1)" comment, now stale): the liquidity sign convention changed.
+    /// Old: 0.0=thin(bad), 1.0=deep(good). New: positive=thin/wider spread
+    /// (bad), matching vol's positive=stressed convention, so both dims
+    /// agree on which sign means "worse."
     fn regime_dims(&self) -> (f64, f64) {
         let sigma_ref = self.cfg.sigma_ref.max(1e-9);
-        let vol_regime = if self.current_sigma < sigma_ref * 0.7 {
-            0.0
-        } else if self.current_sigma > sigma_ref * 1.3 {
-            1.0
-        } else {
-            0.5
-        };
+        let vol_ratio = (self.current_sigma.max(1e-9) / sigma_ref).max(1e-9);
+        let vol_signal = vol_ratio.ln().tanh();
 
         let spread_ref = self.spread_ref.max(1e-9);
         let half_spread = self
@@ -1461,17 +1516,10 @@ impl RlEnv {
             .as_ref()
             .and_then(|b| b.half_spread())
             .unwrap_or(spread_ref);
-        let spread_ratio = half_spread / spread_ref;
-        // Larger spread = thinner book.
-        let liq_regime = if spread_ratio > 2.0 {
-            0.0 // thin
-        } else if spread_ratio < 0.5 {
-            1.0 // deep
-        } else {
-            0.5 // normal
-        };
+        let liq_ratio = (half_spread.max(1e-9) / spread_ref).max(1e-9);
+        let liq_signal = liq_ratio.ln().tanh();
 
-        (vol_regime, liq_regime)
+        (vol_signal, liq_signal)
     }
 
     fn regime_label(&self) -> String {
@@ -1744,6 +1792,10 @@ mod batch_arrow {
 fn parse_cli() -> EnvConfig {
     let args: Vec<String> = std::env::args().collect();
     let mut cfg = EnvConfig::default();
+    // Tracks whether --sigma-ref was passed explicitly, so the
+    // historical/counterfactual calibrated default below doesn't clobber a
+    // caller's deliberate override (e.g. a future λ-style sigma_ref sweep).
+    let mut sigma_ref_explicit = false;
 
     let mut i = 1;
     while i < args.len() {
@@ -1802,6 +1854,13 @@ fn parse_cli() -> EnvConfig {
                     i += 1;
                 }
             }
+            "--sigma-ref" => {
+                if let Some(v) = args.get(i + 1) {
+                    cfg.sigma_ref = v.parse::<f64>().unwrap_or(cfg.sigma_ref);
+                    sigma_ref_explicit = true;
+                    i += 1;
+                }
+            }
             "--fixed-steps" => cfg.fixed_steps = true,
             "--fixed-size" => cfg.fixed_size = true,
             "--no-time-features" => cfg.no_time_features = true,
@@ -1815,6 +1874,14 @@ fn parse_cli() -> EnvConfig {
         && cfg.total_steps == DEFAULT_TOTAL_STEPS
     {
         cfg.total_steps = HISTORICAL_DEFAULT_STEPS;
+    }
+    // Historical/counterfactual runs default to the calibrated sigma_ref
+    // (see CALIBRATED_SIGMA_REF) instead of the synthetic-mode 0.20 — every
+    // caller gets this automatically, no per-call-site flag needed, so
+    // there is exactly one place this can silently regress. Explicit
+    // --sigma-ref still wins, for tests/sweeps that need a different value.
+    if matches!(cfg.mode, RlMode::Historical | RlMode::Counterfactual) && !sigma_ref_explicit {
+        cfg.sigma_ref = CALIBRATED_SIGMA_REF;
     }
     cfg
 }
@@ -2569,6 +2636,74 @@ mod tests {
     }
 
     #[test]
+    fn regime_dims_separate_crash_from_calm_in_first_100_steps() {
+        // Phase 3 fix regression guard (docs/phase3_plan.md, sections C/D):
+        // before this fix, s10 (vol_regime) was measured to be pinned at
+        // LOW/"normal" on every real date, calm or crash, for the entire
+        // episode -- because sigma_ref was hardcoded at 0.20 while
+        // current_sigma's annualisation was separately wrong by ~19x, so no
+        // real date's ratio ever crossed the bucket thresholds. This test
+        // is the "measure first-100-step separation before retraining"
+        // step Step 0 requires: with CALIBRATED_SIGMA_REF and the corrected
+        // annualisation, the first 100 steps of a severe crash date must
+        // read as measurably more "stressed" (higher vol_signal) than a
+        // held-out calm date -- the exact window in which a policy has to
+        // decide how urgently to trade, per the standing-issues doc's
+        // issue #6.
+        let crash_path = "TradeData/BookDepth/BTCUSDT-bookDepth-2024-08-05.csv";
+        let calm_path = "TradeData/BookDepth/BTCUSDT-bookDepth-2024-07-10.csv";
+        if !std::path::Path::new(crash_path).exists() || !std::path::Path::new(calm_path).exists()
+        {
+            eprintln!("skipping: TradeData not present in this checkout");
+            return;
+        }
+
+        fn mean_vol_signal_first_100_steps(lob_path: &str) -> f64 {
+            let cfg = EnvConfig {
+                mode: RlMode::Counterfactual,
+                total_inventory: 1_000_000.0,
+                total_steps: 100,
+                seed: 42,
+                sigma_ref: CALIBRATED_SIGMA_REF,
+                gamma: 0.005,
+                adversarial: false,
+                lob_data_path: Some(lob_path.to_string()),
+                btc_target: 50_000.0,
+                adv_btc: 0.0,
+                agg_trades_path: None,
+                fixed_steps: true,
+                fixed_size: true,
+                no_time_features: true,
+            };
+            let mut env = RlEnv::new(cfg);
+            env.reset(Some(0));
+            let mut vals = Vec::new();
+            for _ in 0..100 {
+                // Action 0 (no trade) -- isolate the market-state signal from
+                // any effect of the agent's own fills.
+                let r = env.step(0);
+                vals.push(r.state[10]);
+                if r.done {
+                    break;
+                }
+            }
+            vals.iter().sum::<f64>() / vals.len() as f64
+        }
+
+        let crash_mean = mean_vol_signal_first_100_steps(crash_path);
+        let calm_mean = mean_vol_signal_first_100_steps(calm_path);
+
+        assert!(
+            crash_mean > calm_mean + 0.1,
+            "vol_signal (s10) must read meaningfully more stressed on a severe \
+             crash date (2024-08-05) than a held-out calm date (2024-07-10) \
+             within the first 100 steps -- got crash_mean={crash_mean:.4}, \
+             calm_mean={calm_mean:.4}. If this regresses, the sigma_ref \
+             calibration or annualisation fix has been undone."
+        );
+    }
+
+    #[test]
     fn training_horizon_episode_fits_within_day_no_stale_tail() {
         // Start-offset bounding guard (Phase 2R). reset_historical picks
         //   start_offset = seed % (len/3)
@@ -2702,12 +2837,14 @@ mod tests {
             // [8..=9] impact dims: 0.0 in synthetic/historical modes
             assert_eq!(r.state[8], 0.0, "s8 (perm impact) must be 0 in synthetic mode");
             assert_eq!(r.state[9], 0.0, "s9 (temp impact) must be 0 in synthetic mode");
-            // [10..=11] regime dims take discrete values {0.0, 0.5, 1.0}.
+            // [10..=11] regime dims: tanh(ln(ratio)) → signed, in (-1, 1).
+            // Phase 3 fix replaced the old 3-way {0.0, 0.5, 1.0} bucketing —
+            // see regime_dims()'s doc comment.
             for k in 10..=11 {
                 let v = r.state[k];
                 assert!(
-                    v == 0.0 || v == 0.5 || v == 1.0,
-                    "s{k} (regime dim) must be in {{0.0, 0.5, 1.0}}, got {v}"
+                    v > -1.0 && v < 1.0,
+                    "s{k} (regime dim, signed tanh) out of range: {v}"
                 );
             }
             if r.done {

@@ -156,13 +156,46 @@ date) — so it needs an eval re-run with per-episode dumping. No training requi
 
 ## Plan
 
-### Step 0 — Repair the regime signal (gates the retrain)
-- Causal trailing-window `sigma_ref` (prior sessions/days), never today's completed day.
-- Fix the annualization factor.
-- Replace s10/s11 hard buckets with the continuous ratio; re-check tanh saturation.
-- **Measure first-100-step crash-vs-calm separation before retraining anything.**
-- Log `sigma_ref` as bug-class instance #4; grep for further hardcoded references per the
-  meta-lesson (after any mirror/default fix, sweeping for siblings is routine, not on request).
+### Step 0 — Repair the regime signal (gates the retrain) — DONE 2026-08-13
+Implemented in `src/bin/rl_env.rs`:
+- `CALIBRATED_SIGMA_REF = 0.4999` — median annualized realized vol across the 7 `TRAINING_DATES`
+  only (never held-out/eval dates — same protocol as λ). Wired as the automatic default for
+  historical/counterfactual mode in `parse_cli()`, so every caller (all of `rl/environment.py`'s
+  launches included) gets it with no per-call-site change; `--sigma-ref` still overrides explicitly.
+- `TRADING_STEPS_PER_YEAR` fixed constant replaces the old `sqrt(cfg.total_steps)` annualization,
+  which was both off by ~19x AND kept varying with the randomized per-episode training horizon
+  (200–1440 steps) — a second bug that would have masked the first if fixed alone (see the trap
+  noted in section C).
+- `regime_dims()` (s10, s11) rewritten from 3-way hard buckets to `tanh(ln(ratio))` — continuous,
+  doesn't saturate at the now-reachable crash-day ratios (~2.8–4.1x), sign convention: positive =
+  more stressed than the training-calibrated reference on both dims.
+- New executable regression test: `tests::regime_dims_separate_crash_from_calm_in_first_100_steps`.
+- 29/29 existing `rl-env` tests + 208/208 lib tests still pass (one stale test literally asserting
+  the old `{0.0, 0.5, 1.0}` set was updated to assert the new signed-tanh range instead).
+
+**Result, measured via the real CLI/Python runtime path (`rl/environment.py`, no test-only
+shortcuts), first-100-step mean:**
+
+| date | regime | s10 (vol) | s11 (liq) |
+|---|---|---:|---:|
+| 2024-08-05 | severe crash | **+0.678** | -0.012 |
+| 2024-03-05 | milder crash | **+0.342** | +0.006 |
+| 2024-07-10 | held-out calm | **-0.219** | -0.141 |
+| 2024-12-10 | held-out calm | **-0.120** | +0.032 |
+
+**s10 is fixed and clean:** both crash dates positive, both calm dates negative, ordered by
+severity (severe > milder crash > either calm day). This is the signal issue #6 needed.
+
+**s11 is NOT fixed — open, not patched speculatively.** No clean crash/calm separation despite
+`spread_ref` never having had the hardcoded-constant bug (it's set causally from the episode's own
+first snapshot). Two candidate explanations, neither diagnosed: the percentage-binned `bookDepth`
+format may genuinely not capture liquidity thinning as cleanly as price captures volatility, or the
+single-snapshot `spread_ref` reference may itself be noisy episode-to-episode. **Left as an open
+item — do not build anything (residual-action-space reference, Adaptive-AC diagnosis) that depends
+on s11 being informative until this is separately diagnosed.**
+
+Corrected in `docs/phase2r_standing_issues.md` issue #6 (append-only correction, original wrong
+mechanism kept visible) and logged as meta-lesson bug-class instance #4.
 
 ### Step 1 — Tail validation (gates IQN) — independent of Step 0
 - Add per-episode outcome dumping to the eval harness.
@@ -183,9 +216,10 @@ are far from optimal"; (b) the only principled route out of the uncalibratable-�
 (c) the only clean imitation expert.
 
 ### Doc fixes (cheap, do alongside)
-- Correct issue #6's mechanism in `phase2r_standing_issues.md` (currently wrong — see C above).
-- Restate the λ framing as preference-not-physics, with the 0/7-severe composition explicit.
-- Soften "provably wrong problem" to the wording in E.
+- ~~Correct issue #6's mechanism in `phase2r_standing_issues.md`~~ — done alongside Step 0.
+- Restate the λ framing as preference-not-physics, with the 0/7-severe composition explicit. Not
+  yet done — still owed in `phase2r_standing_issues.md`/`phase2r_objective_bias_finding.md`.
+- Soften "provably wrong problem" to the wording in E. Not yet done.
 
 ### Explicitly not now
 IQN/DQN (neither exists in the codebase; the only trace is a comment at `rl/train.py:55` — gated on

@@ -300,12 +300,41 @@ requirement for that future phase, not an assumption to carry forward: verify th
 own regime-responsiveness in the first ~100 steps before crediting the design with fixing RL's
 pacing.** Not fixed here — diagnosis only, per explicit scope.
 
-## Meta-lesson: hand-maintained mirrors of canonical values (THIRD occurrence — pattern confirmed)
+**CORRECTION (Phase 3, 2026-08-13) — the mechanism above is wrong; the dims were fixed, see
+`docs/phase3_plan.md` sections C/D.** The stated mechanism ("`sigma_ref` calibrated at the whole-day
+level" — i.e. a lookahead leak) does not match the code: `sigma_ref` was a **hardcoded constant,
+0.20**, unrelated to any date's data (`DEFAULT_SIGMA` in `rl_env.rs`) — there was never a lookahead
+leak. The real, purely arithmetic cause: `sigma_ref` fixed at 0.20 while `current_sigma`'s
+annualisation was separately wrong by ~19x (`sqrt(total_steps)` instead of
+`sqrt(total_steps_per_year)`, and worse, keyed to the per-episode horizon rather than a fixed
+one-day period) — the two errors combined pinned `current_sigma/sigma_ref` inside the "normal"
+bucket band (0.7–1.3) on every real date this project has data for, calm or crash alike. Fixed:
+`sigma_ref` now defaults (in historical/counterfactual mode) to `CALIBRATED_SIGMA_REF = 0.4999`,
+calibrated the same way as λ — median annualised realised volatility across the 7 `TRAINING_DATES`
+only, frozen, never touching held-out or eval dates. Annualisation corrected to a fixed
+`TRADING_STEPS_PER_YEAR` constant. The 3-way hard buckets were also replaced with a continuous
+`tanh(ln(ratio))` signal (approved decision, since a raw-ratio `tanh(ratio)` saturates at the now-
+reachable crash-day ratios of ~2.8–4.1x and would erase the 03-05 vs 08-05 severity difference).
+**Result, measured via the real CLI/Python runtime path, first 100 steps, mean s10:** severe crash
+(2024-08-05) +0.678, milder crash (2024-03-05) +0.342, held-out calm (2024-07-10) −0.219, held-out
+calm (2024-12-10) −0.120 — cleanly ordered by severity, both crash dates positive (above the
+training-calibrated reference), both calm dates negative. **s11 (liq_regime) did NOT show the same
+improvement** — first-100-step means (−0.012, +0.006, −0.141, +0.032 respectively) show no clean
+crash/calm separation, despite `spread_ref` never having had the hardcoded-constant bug (`spread_ref`
+is set causally from the episode's own first snapshot, not a global default). Left as an open
+question for Phase 3 Step 2 rather than patched speculatively — possibly the percentage-binned
+`bookDepth` format genuinely doesn't capture liquidity thinning as cleanly as price captures
+volatility, or `spread_ref`'s single-snapshot reference is itself noisy episode-to-episode; not yet
+diagnosed. Executable regression test:
+`tests::regime_dims_separate_crash_from_calm_in_first_100_steps` in `src/bin/rl_env.rs`.
+
+## Meta-lesson: hand-maintained mirrors of canonical values (FOURTH occurrence — pattern confirmed)
 
 **Any value that exists in two places will eventually disagree. Canonical values get read from
-their single source, never copied.** This is the third time in this project a hand-maintained
-mirror of a canonical value caused (or risked) a silent, real bug — enough occurrences now that this
-should be treated as a predictable failure mode, not a series of one-off surprises:
+their single source, never copied.** This is the fourth time in this project a hardcoded or
+hand-maintained value (not always a literal second copy — instance #4 is a single hardcoded default
+never overridden per its actual context) caused a silent, real bug — enough occurrences now that
+this should be treated as a predictable failure mode, not a series of one-off surprises:
 
 1. **CVaR sign inversion** — several call sites reimplemented "CVaR-95" locally (some as
    `np.percentile(arr, 5)`, a single point not a tail mean; the Rust/`parallel_sim.py` siblings had
@@ -321,17 +350,29 @@ should be treated as a predictable failure mode, not a series of one-off surpris
    hadn't diverged *yet*, but existed under the exact same conditions (hand-copied, untested, two
    places) that caused #2 to diverge. Fixed the same way, plus an identity (`is`) test to make a
    fourth copy structurally harder to introduce by accident.
+4. **`sigma_ref` hardcoded at a plausible-looking constant (0.20)** (Phase 3, found while
+   diagnosing issue #6 above) — not a second copy of a value, but the same failure mode's sibling:
+   a config value defaulted once and never sourced from the data it was implicitly claiming to
+   represent, for every real historical date this project runs against. Compounded by a second,
+   independent bug (annualisation wrong by ~19x) that happened to mask the first — fixing either
+   alone would have moved the dependent state dims to the opposite dead rail and looked like a fix.
+   Fixed by calibrating `CALIBRATED_SIGMA_REF` from data (the 7 `TRAINING_DATES`, same protocol as
+   λ) and wiring it as the automatic default for historical/counterfactual mode in `parse_cli()` —
+   one place, applies to every caller, no per-call-site flag to forget.
 
-All three were structurally identical: a value defined once canonically, copied by hand into a
-second (or third) location for convenience, with nothing enforcing agreement. Instance #3 is the
-sharpest data point yet: it was found not by a table diverging and breaking something, but by
-**actively grepping for the pattern on request** — meaning the first two occurrences did not, on
-their own, prompt a proactive sweep for more copies of themselves; it took an explicit "assume a
-third mirror-bug exists until proven otherwise" audit to surface it. **Applying this forward:** any
-new constant, table, or formula that needs to be used from both Rust and Python (or from two places
-in either language) should be read from one canonical source at runtime, not hand-transcribed — and
-after *any* mirror-bug fix, a grep for other copies of the same value should be routine, not
-something that only happens when explicitly requested.
+All four were structurally similar: a value defined or assumed once, either copied by hand into a
+second location or simply left at a default that was never revisited for the context it was
+actually used in, with nothing enforcing agreement with reality. Instance #3 was found not by a
+table diverging and breaking something, but by **actively grepping for the pattern on request** —
+meaning the first two occurrences did not, on their own, prompt a proactive sweep for more copies of
+themselves; it took an explicit "assume a third mirror-bug exists until proven otherwise" audit to
+surface it. Instance #4 was found the same way, applied to a different question ("assume there's a
+hardcoded value masquerading as calibrated somewhere in the state vector"). **Applying this
+forward:** any new constant, table, or formula that needs to be used from both Rust and Python (or
+from two places in either language, or that implicitly claims to represent real data) should be
+read from one canonical, data-derived source at runtime, not hand-transcribed or left at a
+plausible-looking default — and after *any* fix in this class, a grep/audit for siblings should be
+routine, not something that only happens when explicitly requested.
 
 ## Deferred by explicit decision — log only, do not action before post-v2-core
 
