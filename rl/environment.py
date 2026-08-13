@@ -1,8 +1,23 @@
 import gymnasium as gym
+import os
 import subprocess
 import json
 import numpy as np
 from typing import Optional
+
+#: Path to the compiled environment binary. Overridable via
+#: STRATAEXEC_RL_ENV_BIN so a caller can point at a binary built from an older
+#: commit without swapping files in `target/`.
+#:
+#: This exists to make `rl/results/PROVENANCE.md`'s checkpoint-boundary rule
+#: MECHANICAL rather than a manual procedure. Any RL checkpoint trained before
+#: Phase 3 Step 0 (commit 0e3356b) -- RL16, RL12 -- must be evaluated against a
+#: pre-Step-0 binary, because Step 0 changed what state dims s2/s10/s11/s13
+#: contain and feeding those checkpoints the new values silently changes their
+#: numbers with no error. Doing that by copying binaries over each other is
+#: exactly the kind of stateful, easy-to-forget step this project keeps getting
+#: bitten by; an explicit env var leaves a record in the command line instead.
+RL_ENV_BIN = os.environ.get("STRATAEXEC_RL_ENV_BIN", "./target/release/rl-env")
 
 
 def _query_action_fractions() -> list:
@@ -20,7 +35,7 @@ def _query_action_fractions() -> list:
     canonical source at runtime.
     """
     result = subprocess.run(
-        ["./target/release/rl-env", "--print-action-fractions"],
+        [RL_ENV_BIN, "--print-action-fractions"],
         capture_output=True, text=True, check=True,
     )
     return json.loads(result.stdout.strip())
@@ -63,7 +78,7 @@ def _query_env_constants() -> dict:
         # this import indefinitely. DEVNULL makes that path hit EOF and exit;
         # the timeout is the backstop if it ever does neither.
         result = subprocess.run(
-            ["./target/release/rl-env", "--print-env-constants"],
+            [RL_ENV_BIN, "--print-env-constants"],
             capture_output=True, text=True, check=True,
             stdin=subprocess.DEVNULL, timeout=30,
         )
@@ -143,7 +158,7 @@ class StrataExecEnv(gym.Env):
 
 
         self.cmd = [
-            "./target/release/rl-env",
+            RL_ENV_BIN,
             "--rl-mode", mode,
         ]
         if adversarial:

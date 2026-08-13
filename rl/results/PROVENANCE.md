@@ -92,21 +92,46 @@ a hardcoded `sigma_ref = 0.20` that no call site overrode and that diverged from
 environment after Step 0; and guardrails (arctanh clip 0.999, sigma clamp 2.0) that bound
 precisely on the severe-crash range.
 
-**Measured effect of the fix** (counterfactual mode, honest λ=1e-6, 5 seeds, 400-step
-horizon — deltas only; the absolute values use a shorter horizon than the canonical eval and
-are NOT comparable to published numbers):
+**Measured on the canonical harness** (`evaluate_all_strategies_on_date`, counterfactual,
+honest λ=1e-6, 50 episodes, full 2880-step horizon, pre-Step-0 binary):
 
-| date | regime | Δ IS (fixed − buggy) |
-|---|---|---:|
-| 2024-08-05 | crash, severe | −0.062 pp |
-| 2024-03-05 | crash, milder | +0.079 pp |
-| 2024-07-10 | held-out calm | −0.001 pp |
-| 2024-12-10 | held-out calm | +0.056 pp |
+| date | published AAC | corrected-inversion AAC | Δ |
+|---|---:|---:|---:|
+| 2024-03-05 | −3.0606 | −9.0756 | **−6.015 pp** |
+| 2024-08-05 | −7.7992 | −8.9514 | **−1.152 pp** |
 
-**Headline impact: none.** RL16's published margins over Adaptive-AC on the two crash dates
-are **+1.32 pp** and **+1.87 pp** — roughly 20x the shift. The regime-conditional result does
-not depend on this bug. But **no Adaptive-AC number should be cited as "AC with live
-volatility re-estimation" until re-run**, because until this fix that is not what it was.
+> An earlier note here reported ±0.06 pp from a 400-step probe. That was wrong — the effect
+> compounds over the full 2880-step horizon. The table above supersedes it.
+
+**But do NOT adopt these corrected numbers either — they are differently wrong.** Measuring
+the reconstruction against the environment's own `current_sigma` shows why:
+
+| binary | env's real `current_sigma` | fixed inversion reads | buggy inversion read |
+|---|---|---|---|
+| post-Step-0 | 0.4999 – 0.9712 | **0.4999 – 0.9712** (exact) | 0.4000 – 0.5886 |
+| pre-Step-0 | *(mis-annualized ~19x low)* | 0.0308 – 0.2000 | 0.2308 – 0.4000 |
+
+The fix is unambiguously correct — on the post-Step-0 binary it recovers `current_sigma`
+exactly. The problem is that the **pre-Step-0 binary's `current_sigma` is itself wrong** (the
+~19x annualization error Step 0 fixed). Inverting a broken value correctly yields sigma ~0.03,
+which makes AC pathologically patient and explains the −9.08% on a crash date. The `1.0 +` bug
+had been *accidentally compensating* for the annualization bug by inflating sigma back into a
+plausible range. **Two bugs were cancelling.**
+
+**Consequence — Adaptive-AC cannot be correctly evaluated alongside RL16 at all**, in either
+configuration, because the two requirements conflict: RL16 needs the pre-Step-0 binary (its
+training distribution), and Adaptive-AC needs the post-Step-0 binary (correct annualization).
+**Adaptive-AC comparisons are blocked on the Step 2 retrain**, after which both live on the
+post-Step-0 binary and the conflict disappears. Until then, treat every Adaptive-AC column as
+provisional and do not regenerate it — replacing one misconfiguration with another is not
+progress.
+
+**Scope — what is NOT affected.** `ACOptimalPolicy` reads only `obs[0]`/`obs[1]` (inventory
+and time fraction); its sigma is a fixed constructor parameter, never reconstructed from the
+state. TWAP and Heuristic likewise. Verified directly: on the pre-Step-0 binary, AC-Optimal,
+TWAP, **and RL16 all reproduce `phase2r_ablation_honest_lambda.csv` to the last decimal**. The
+project's primary headline is stated against AC-Optimal, so **the regime-conditional result
+stands**; only its Adaptive-AC half is in question.
 
 **Files produced under the pre-Step-0 binary** (all correctly RL16-checkpoint-consistent, do not
 re-derive from a post-Step-0 binary without retraining first): `phase2r_ablation_honest_lambda.csv`,

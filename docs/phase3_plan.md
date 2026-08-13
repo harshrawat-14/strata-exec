@@ -320,11 +320,35 @@ single most severe date**. `s10 = tanh(ln(ratio))` applies the log first and inv
 `AdaptiveACPolicy` now prefers `s10`, falling back to `s2` only on pre-Step-0 binaries (where
 `s10` is the old dead bucket). This is an unplanned second payoff from the Step 0 encoding choice.
 
-**Measured impact on Adaptive-AC** (5 seeds, honest λ; deltas only — absolute values use a
-shorter horizon than the canonical eval): −0.062 pp on 2024-08-05, +0.079 pp on 2024-03-05,
-−0.001 / +0.056 pp on the held-out calm dates. **The headline is unaffected** — RL16's margins
-over Adaptive-AC on the crash dates are +1.32 / +1.87 pp, ~20× the shift. But no Adaptive-AC
-number should be described as "AC with live volatility re-estimation" until re-run.
+**Measured impact on Adaptive-AC — larger than first estimated, and the conclusion is that
+Adaptive-AC is currently unmeasurable, not that it needs re-running.** On the canonical
+harness (50 episodes, full 2880-step horizon) the corrected inversion moves Adaptive-AC by
+**−6.02 pp on 2024-03-05 and −1.15 pp on 2024-08-05** — not the ±0.06 pp a 400-step probe
+first suggested; the effect compounds over the horizon.
+
+But the corrected numbers are *also* wrong, for a different reason. Verified against the
+environment's own `current_sigma`: on the post-Step-0 binary the fixed inversion recovers it
+**exactly** (0.4999–0.9712), confirming the fix. On the pre-Step-0 binary, `current_sigma` is
+itself the ~19x-mis-annualized value, so inverting it correctly yields sigma ≈ 0.03 — AC goes
+pathologically patient and gets crushed on a crash. **The `1.0 +` bug had been accidentally
+compensating for the annualization bug; two bugs were cancelling.**
+
+Since RL16 requires the pre-Step-0 binary and Adaptive-AC requires the post-Step-0 one, the
+two cannot be correctly evaluated together. **Adaptive-AC comparisons are blocked on Step 2's
+retrain** — do not regenerate that column before then; swapping one misconfiguration for
+another is not progress. Recorded in `rl/results/PROVENANCE.md`.
+
+**Scope — the headline is unaffected.** `ACOptimalPolicy` reads only `obs[0]`/`obs[1]` and
+takes sigma as a fixed parameter; it never reconstructs volatility from the state, and neither
+do TWAP or Heuristic. Verified directly: on the pre-Step-0 binary, AC-Optimal, TWAP, **and
+RL16 reproduce `phase2r_ablation_honest_lambda.csv` to the last decimal**. The primary
+regime-conditional claim is stated against AC-Optimal and stands; only its Adaptive-AC half is
+provisional.
+
+**Binary selection is now mechanical**, not a manual file swap: `STRATAEXEC_RL_ENV_BIN`
+overrides the binary path (`rl/environment.py`), so PROVENANCE.md's checkpoint-boundary rule
+is enforced by the command line and leaves a record, rather than depending on remembering to
+copy files into `target/`.
 
 **Not a bug (recorded to prevent rediscovery):** a raw-protocol probe appeared to show
 `current_sigma` frozen at 0.2 for a whole episode. That was an artifact of the probe using

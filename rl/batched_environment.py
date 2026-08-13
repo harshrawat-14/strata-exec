@@ -25,6 +25,8 @@ import numpy as np
 import pyarrow as pa
 import pyarrow.ipc as ipc
 
+from environment import RL_ENV_BIN
+
 
 class BatchedStrataExecEnv:
     """N environment instances stepped together in one rl-env process."""
@@ -77,7 +79,7 @@ class BatchedStrataExecEnv:
             os.remove(self.socket_path)
 
         cmd = [
-            "./target/release/rl-env",
+            RL_ENV_BIN,
             "--rl-mode", mode,
             "--batch-size", str(batch_size),
             "--socket-path", self.socket_path,
