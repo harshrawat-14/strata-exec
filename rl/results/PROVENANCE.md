@@ -37,3 +37,41 @@ historical mode was rejected for that ablation (dims 8/9 would be dead in one ar
 other, testing the 16-dim representation with two of its own distinguishing features disabled).
 Any future CSV produced under the corrected simulator should be named/tagged clearly as
 post-correction and listed in this table.
+
+## Second boundary: Phase 3 Step 0's state-signal repair (2026-08-13) — a per-checkpoint hazard, not a per-file one
+
+**Phase 3 Step 0** (`docs/phase3_plan.md`, commit `0e3356b`) fixed `sigma_ref` (was hardcoded at
+0.20, unrelated to any date's data) and the volatility annualization (~19x error) in
+`src/bin/rl_env.rs`, and replaced state dims s10/s11's 3-way hard buckets with a continuous
+signal. This changes what state dims **s2, s10, s11, s13** contain on every date — a real input
+distribution shift, not a cosmetic one.
+
+**This is a boundary on *checkpoints*, not on CSV files the way the Task 2/3 boundary above is.**
+Any RL checkpoint trained *before* commit `0e3356b` (this includes `RL16`/`ppo_ablation_16dim_cf_best`
+and `RL12`/the 12-dim ablation checkpoint — check training date against the commit if unsure) was
+trained on the OLD, broken s2/s10/s11/s13 distribution. Evaluating that checkpoint against the
+CURRENT (post-`0e3356b`) `rl_env.rs` binary silently feeds it out-of-distribution state — the model
+was never shown these input values during training. This is **not cosmetic**: confirmed directly
+(`docs/phase3_tail_validation.md`'s opening section) that it materially changes the checkpoint's
+behavior — e.g. 2024-08-05 RL16 mean IS moved from the published −6.48% to −4.49% under the
+post-Step-0 binary, no error or warning, a large silent divergence.
+
+**Rule: any further evaluation of a pre-`0e3356b` checkpoint (RL16, RL12) must be run against a
+`rl-env` binary built from a commit before `0e3356b`** (e.g. `2246c9f`, the last commit before Step
+0 — build via an isolated `git worktree add --detach <commit>` so the current tree's
+`src/bin/rl_env.rs` is untouched), **not** the current `target/release/rl-env`. This stays true
+until Phase 3 Step 2 retrains RL16/RL12 on the repaired state, at which point a NEW checkpoint
+supersedes the old one and should be evaluated against the current (post-Step-0) binary instead.
+
+Verification method for reproducing exactly (from `docs/phase3_tail_validation.md`): AC-Optimal and
+TWAP only read `obs[0]`/`obs[1]` (inventory/time fraction), so they reproduce identically regardless
+of binary version — use them as a canary. If AC-Optimal/TWAP numbers match a known-good CSV exactly
+but RL16/Adaptive-AC (which read `obs[2]`, the recalibrated volatility ratio) don't, you're on the
+wrong binary.
+
+**Files produced under the pre-Step-0 binary** (all correctly RL16-checkpoint-consistent, do not
+re-derive from a post-Step-0 binary without retraining first): `phase2r_ablation_honest_lambda.csv`,
+`phase2r_severity_expansion_full.csv`, `phase2r_severity_expansion_new_days.csv`,
+`phase3_tail_validation_episodes.csv`, `phase3_tail_validation_summary.csv`,
+`phase3_tail_validation_cvar_bootstrap.csv`, `phase3_tail_validation_crux.csv`, and (per the
+severity-expansion doc) `phase2r_honest_lambda_all11.csv`, `phase2r_lambda_grid_full.csv`.
