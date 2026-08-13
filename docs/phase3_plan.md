@@ -238,10 +238,21 @@ on s11 being informative until this is separately diagnosed.**
 Corrected in `docs/phase2r_standing_issues.md` issue #6 (append-only correction, original wrong
 mechanism kept visible) and logged as meta-lesson bug-class instance #4.
 
-### Step 1 — Tail validation (gates IQN) — independent of Step 0
-- Add per-episode outcome dumping to the eval harness.
-- Requirements #2, #3, #4 above.
-- Add CVaR columns to the 17-day severity run.
+### Step 1 — Tail validation (gates IQN) — independent of Step 0 — DONE 2026-08-13, mixed result
+Full writeup: `docs/phase3_tail_validation.md`. Per-episode dumping added
+(`rl/phase3_tail_validation_eval.py`, all 25 V2 dates, not just 17). Requirement #2 (severity → CVaR
+advantage) and #4 (bootstrap robustness, CVaR-90/95/99) **MET** — top-7-severity CVaR clean sweep,
+same pattern as the mean result; raw CVaR deltas significant at p<0.0001 across all quantiles on both
+crash holdouts. **Requirement #3 (the crux — mean-controlled tail advantage) NOT MET**: once each
+date's episodes are mean-centered, RL's residual tail/dispersion is not distinguishably better than
+AC-Optimal's or Adaptive-AC's, per-date or pooled (n=400, 8 crash-regime dates). Read as: the CVaR
+edge is RL's already-known mean edge propagating into the tail, not a separate risk-shaping
+mechanism — do not claim "RL manages tail risk" as a finding distinct from the mean-cost result.
+Also surfaced a standing methodological hazard: RL16's checkpoint predates Phase 3 Step 0's state
+repair, so evaluating it with the current (post-Step-0) `rl_env.rs` silently feeds it
+out-of-distribution state and materially changes its numbers — this document's results all use a
+pre-Step-0 binary built in an isolated worktree; see the doc's opening section before running any
+further eval of the current RL16/RL12 checkpoints.
 
 ### Step 2 — Retrain on the repaired state
 - Re-measure whether RL's urgency now varies by regime.
