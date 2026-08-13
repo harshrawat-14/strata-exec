@@ -515,8 +515,50 @@ def train(
         # make_multi_date_eval_env for the rationale and the held-out-in-selection
         # caveat.
         if mode == "counterfactual" and multi_dates:
-            from evaluate import HELD_OUT_CRASH_DATES
-            eval_dates = list(dict.fromkeys(multi_dates + list(HELD_OUT_CRASH_DATES)))
+            # Phase 3 fix: select on the TRAINING dates only, so held-out dates
+            # stay genuinely held out.
+            #
+            # The previous behavior appended HELD_OUT_CRASH_DATES to the
+            # selection set. That was a deliberate, documented tradeoff, but it
+            # is the same class of error this project already caught twice with
+            # lambda (un-swept, then hindsight-per-date): information from the
+            # evaluation set leaking into a selection step, which tilts the
+            # comparison toward this project's own method. It made the phrase
+            # "held-out crash dates" in the headline do less work than it looks
+            # like it does -- the model was chosen partly BY its score on them.
+            #
+            # It existed for a real reason: the V1 training set contains only
+            # ONE crash-regime date, so selecting on training dates alone was
+            # nearly blind to crash behavior and could not tell a wait-collapsed
+            # policy from a good one. The V2 split (4 crash dates in training)
+            # removes that constraint, so the leak is no longer a necessary
+            # price. The guard below keeps the old behavior -- loudly -- for any
+            # training set that still lacks crash exposure, rather than silently
+            # reintroducing the blindness the append was protecting against.
+            eval_dates = list(dict.fromkeys(multi_dates))
+            try:
+                from evaluate import SEVERITY_RANK_V2
+                n_crash = sum(
+                    1 for d in eval_dates
+                    if SEVERITY_RANK_V2.get(d, (0, "unknown", ""))[1] == "crash"
+                )
+            except ImportError:
+                n_crash = 0
+            if n_crash < 2:
+                from evaluate import HELD_OUT_CRASH_DATES
+                eval_dates = list(dict.fromkeys(eval_dates + list(HELD_OUT_CRASH_DATES)))
+                print(
+                    f"WARNING: training set has only {n_crash} crash-regime date(s); "
+                    f"falling back to including HELD_OUT_CRASH_DATES in best-model "
+                    f"selection so crash behavior is not invisible to it. Held-out "
+                    f"crash results from this run are NOT a clean generalization "
+                    f"measure -- use the V2 split to avoid this."
+                )
+            else:
+                print(
+                    f"Best-model selection uses training dates only "
+                    f"({n_crash} crash-regime); held-out dates stay clean."
+                )
         elif mode == "counterfactual":
             eval_dates = [lob_date]
         else:
