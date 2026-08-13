@@ -154,6 +154,47 @@ date) — so it needs an eval re-run with per-episode dumping. No training requi
 
 ---
 
+## V2 date split — 25-date pool, regime-balanced — DONE 2026-08-15
+
+The `TradeData` pool grew from 11 to 25 dates (the 14 severity-expansion dates were always real
+data, just never assigned a train/held-out role). Implemented in `rl/evaluate.py` as
+`SEVERITY_RANK_V2` / `TRAINING_DATES_V2` / `HELD_OUT_DATES_V2`, additive — **V1's `TRAINING_DATES`/
+`HELD_OUT_CRASH_DATES` are untouched**, so every existing result remains reproducible exactly as
+before. V2 is for new work (this session's Step 1/s11 work, and Step 2's eventual retrain) going
+forward.
+
+**Why:** V1's training set has 0/7 severe-crash days by construction (finding A above) — a real,
+earned result for "how does a desk calibrate λ with no future crash to tune on," but it cannot
+answer "does a model that has seen *some* crash dynamics generalize to a crash it hasn't seen,"
+because it never sees any. V2 answers that second question.
+
+**Method:** classified all 25 dates by AC's own honest-λ realized cost (`ac_mean_IS`, the same
+severity proxy the severity-expansion doc already validated — not a new metric), tercile split into
+crash/normal/calm. The three multi-day event windows (A: 04-12–15, B: 07-04–12, C: 08-02–05) were
+assigned to train/held-out as *whole windows or at one temporal boundary*, never interleaved
+day-by-day, to avoid leaking one event's dynamics across the train/held-out boundary:
+- Window A: kept entirely in training (extends the existing 04-15 precedent).
+- Window B: split at one boundary — early/acute six days (07-04–09, includes 3 of its 4 crash days)
+  to training, later three (07-10–12, calmer) stay held-out (07-10 was already a V1 anchor).
+- Window C: kept entirely held-out — these are the direct run-up to the 08-05 flagship crash
+  holdout; training on any of them would leak into the comparison this project's headline result
+  depends on most.
+
+**Result — crash exposure is now balanced, not absent:**
+
+| regime | train | held-out |
+|---|---:|---:|
+| crash | 4 | 4 |
+| normal | 6 | 3 |
+| calm | 6 | 2 |
+
+16 train / 9 held-out. Both crash holdout anchors (2024-08-05, 2024-03-05) remain held out.
+Guarded by `rl/tests/test_date_split_v2.py` (9 tests, all passing) — asserts no overlap, full
+25-date coverage, training crash exposure ≥3, held-out crash exposure ≥2 with both flagship dates
+present, every regime ≥2 on both sides, and window C's no-leakage property specifically.
+
+---
+
 ## Plan
 
 ### Step 0 — Repair the regime signal (gates the retrain) — DONE 2026-08-13
