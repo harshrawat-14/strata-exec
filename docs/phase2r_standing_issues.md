@@ -328,6 +328,33 @@ volatility, or `spread_ref`'s single-snapshot reference is itself noisy episode-
 diagnosed. Executable regression test:
 `tests::regime_dims_separate_crash_from_calm_in_first_100_steps` in `src/bin/rl_env.rs`.
 
+**CORRECTION 2 (Phase 3, 2026-08-13) — s11 diagnosed to completion: genuine null result, not an
+open question.** The "not yet diagnosed" note above is resolved. Two independent checks (Python
+directly against the raw `TradeData/BookDepth` CSVs, bypassing the simulator; and the real Rust/
+Python CLI pipeline via `rl/environment.py`) confirm both candidate explanations were partially
+right, and identify the actual mechanism: (1) `half_spread()`, as synthesized from Binance's
+percentage-binned `bookDepth` format (`notional/depth` of the whole cumulative ±1% band, not a
+literal top-of-book quote — see `diff_levels()` in `lob_replay.rs`), genuinely is a weak liquidity
+proxy — even measured exactly at each date's true minimum-depth snapshot, its ratio to the day's
+median is 0.90–1.08 on all four dates tested, no crash signal at any point in the day. (2) Raw depth
+(`bid_depth_up_to`, the same quantity already live as s4) is a materially better liquidity signal —
+a `tanh(ln(depth_ref/current_depth))` reformulation peaks at +0.85/+0.89 on the two crash dates,
+correctly above both calm dates' peaks of +0.46/+0.69 — but only at step 1743/2880 (2024-08-05) and
+2395/2879 (2024-03-05), i.e. 60–83% through the trading day, matching this project's own stress
+survey almost exactly (independently recovers 2024-03-05's "22% of daily median" finding: measured
+0.218). **Within the first 100 steps, neither formula shows any separation** (verified directly,
+not assumed) — the liquidity event on both held-out crash dates simply has not happened yet 50
+minutes into the day. Unlike volatility (a sustained, whole-day regime property on these same
+dates), liquidity thinning here is a sharp, late-arriving, ~1-2-snapshot event that mean-reverts
+fast — a fact about market microstructure and about when these two specific real crashes occurred
+intraday, not an arithmetic bug reachable by reformulating a same-step, causal (no-lookahead)
+signal. **Treated as a genuine null result at the same rigor bar as the VPIN finding (issue #4
+below): s11/liq_regime is not a usable early-decision signal at this data's resolution for the two
+crash dates this project has ground truth for.** Not patched — swapping in raw depth would not have
+passed an s10-style first-100-step regression test either (checked, not assumed), so doing so would
+have been a cosmetic fix. Full derivation and numbers in `docs/phase3_plan.md`'s Step 0 section (the
+"s11 diagnosed further" paragraph).
+
 ## Meta-lesson: hand-maintained mirrors of canonical values (FOURTH occurrence — pattern confirmed)
 
 **Any value that exists in two places will eventually disagree. Canonical values get read from

@@ -227,13 +227,54 @@ shortcuts), first-100-step mean:**
 **s10 is fixed and clean:** both crash dates positive, both calm dates negative, ordered by
 severity (severe > milder crash > either calm day). This is the signal issue #6 needed.
 
-**s11 is NOT fixed — open, not patched speculatively.** No clean crash/calm separation despite
-`spread_ref` never having had the hardcoded-constant bug (it's set causally from the episode's own
-first snapshot). Two candidate explanations, neither diagnosed: the percentage-binned `bookDepth`
-format may genuinely not capture liquidity thinning as cleanly as price captures volatility, or the
-single-snapshot `spread_ref` reference may itself be noisy episode-to-episode. **Left as an open
-item — do not build anything (residual-action-space reference, Adaptive-AC diagnosis) that depends
-on s11 being informative until this is separately diagnosed.**
+**s11 diagnosed further (2026-08-13) — genuine null result for early-window liquidity regime
+detection, not patched.** Root cause is now understood and independently confirmed two ways
+(Python straight off the raw `TradeData/BookDepth` CSVs, bypassing the simulator entirely, and the
+real Rust/Python CLI pipeline via `rl/environment.py` driving `./target/release/rl-env`) — two
+compounding factors, not one:
+
+1. **`half_spread()` is a weak liquidity-thinning proxy for this data.** Binance's `bookDepth`
+   format bins depth at *fixed percentage distances from mid* (±1%, ±2%, ...), cumulative from the
+   mid outward. `LobReplay`'s `diff_levels()` recovers a "best bid/ask price" for the innermost band
+   as `notional/depth` — a volume-weighted average price of *everything resting within that whole
+   1%-wide band*, not a literal top-of-book quote. That quantity tracks the distributional *shape*
+   of resting liquidity inside a fixed-width window, not the *total depth* available — so real
+   depth withdrawal barely moves it. Measured directly: even evaluated exactly at each date's true
+   minimum-depth snapshot, `half_spread`'s ratio to its day median is 0.90–1.08 on all four dates
+   tested (both crashes included) — no crash signal at all, at any point in the day.
+2. **Raw depth (`bid_depth_up_to`, the same quantity already live as s4) is a substantially better
+   liquidity signal, but the real event it detects is late and extremely localized.** A
+   `tanh(ln(depth_ref/current_depth))` reformulation peaks at +0.85 (2024-08-05) and +0.89
+   (2024-03-05) — but at step **1743/2880** and **2395/2879** respectively (60% and 83% through the
+   trading day), matching the project's own stress survey almost exactly (independently recovers
+   2024-03-05's "depth drops to 22% of daily median" finding: measured ratio 0.218). Both held-out
+   calm dates show a much lower peak (+0.46, +0.69) at similarly late points, confirming the
+   direction is right. **But within the first 100 steps — the window this project tests and needs
+   for early urgency decisions — neither `half_spread` nor this raw-depth reformulation shows any
+   separation** (first-100-step means all sit in ±0.15 noise band, confirmed on the real CLI path:
+   -0.04/-0.07/-0.00/+0.15 for 08-05/03-05/07-10/12-10), because on both held-out crash dates the
+   liquidity-thinning event genuinely has not happened yet 50 minutes into the day. This is a fact
+   about *when* these two real crashes occurred intraday, not an arithmetic bug reachable by
+   reformulating a same-step signal — no causal (no-lookahead) quantity computed from data up to the
+   current step can report an event that hasn't occurred yet.
+
+This explains why s10 and s11 diverge post-fix even though both had a real underlying signal to
+recover: **volatility is a sustained, whole-day regime property on these dates** (current_sigma
+reads elevated from the first 100 steps onward, consistent with pre-crash jitters / GARCH-style
+persistence), while **liquidity thinning on Binance BTCUSDT is a sharp, late-arriving, ~1-2-snapshot
+event that mean-reverts fast** — not a regime the way volatility is one. Swapping the s11 formula
+(half_spread → raw depth) would not have passed an s10-style first-100-step regression test either
+(verified directly, not assumed), so implementing it would have been exactly the cosmetic fix this
+phase was warned against forcing. **Treated as a genuine null result, same rigor bar as the VPIN
+finding (`docs/phase2r_standing_issues.md` issue #4): s11/liq_regime is not a usable early-decision
+signal at this data's resolution, for the two crash dates this project has ground truth for — left
+unfixed, not patched to look better. Do not build anything (residual-action-space reference,
+Adaptive-AC diagnosis) that depends on s11 being informative early in an episode.** A same-step
+"is the book thin right now" reading (raw depth vs. `depth_ref`, already close to what s4 exposes)
+remains a materially truer quantity than the current `half_spread`-based s11 and could be worth
+swapping in as a coincident (not early-warning) liquidity reading in a future phase if one is
+motivated to do so — but that is a different, weaker claim than "regime detection," and is not
+implemented here since it does not fix the diagnosed problem.
 
 Corrected in `docs/phase2r_standing_issues.md` issue #6 (append-only correction, original wrong
 mechanism kept visible) and logged as meta-lesson bug-class instance #4.
