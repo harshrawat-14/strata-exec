@@ -366,7 +366,35 @@ a 0.1% tolerance.
 term ~58×, so Step 2's retrain optimizes a different objective than RL16/RL12 did. State repair
 and reward change are confounded unless separated by an ablation.
 
-### Step 2 — Retrain on the repaired state
+### Step 2 — Retrain on the repaired state (IN PROGRESS)
+
+**Run config:** counterfactual, 16 V2 training dates, CPU (per the MPS-collapse finding),
+500k timesteps, `--name phase3_step2_16dim_v2`. Best-model selection uses training dates only
+(4 crash-regime) — held-out dates stay clean, unlike the RL16 run (see the selection-leak fix).
+
+**Cross-binary comparison is valid — verified, not assumed.** The new model must be evaluated
+on the post-Step-0 binary (its training distribution) while RL16 must use the pre-Step-0 one,
+so the obvious objection is that they are being scored in different environments. They are not.
+Every use of `cfg.sigma_ref` was classified:
+
+| use | lines | affects |
+|---|---|---|
+| `reset_synthetic` GARCH + synthetic book | 573 | **dynamics — synthetic mode only, not used here** |
+| `var_penalty` | 956, 1165 | reward |
+| state encoding (s2, s6, s13, regime dims) | 1415, 1432, 1488, 1531 | observation |
+| info fields / `regime_label` | 1060, 1278, 1548–1550 | reporting |
+| `current_sigma` init / warmup | 511, 1388 | observation |
+
+**Nothing in the counterfactual fill, impact, or price path reads `sigma_ref`** — that market
+comes from real Binance data through an impact model Step 0 did not touch. So implementation
+shortfall, which depends only on actions against that market, is directly comparable across the
+two binaries provided each model is given the state encoding it was trained on.
+
+**Confound to state when reporting (already recorded in PROVENANCE.md):** this retrain changes
+the state signal *and* the ~58x wait-penalty simultaneously. A behavior change cannot be
+attributed to the state repair alone without an ablation arm holding the old reward scale. Do
+not claim attribution without it.
+
 - Re-measure whether RL's urgency now varies by regime.
 - **Imitation learning only if it does not.** Note there is currently no clean expert to imitate:
   hindsight-λ AC leaks the oracle, honest-λ AC is regime-blind by construction, Adaptive-AC reads
