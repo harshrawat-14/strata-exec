@@ -295,6 +295,53 @@ out-of-distribution state and materially changes its numbers — this document's
 pre-Step-0 binary built in an isolated worktree; see the doc's opening section before running any
 further eval of the current RL16/RL12 checkpoints.
 
+### Step 1.5 — Consistency repair after Step 0 (DONE 2026-08-13) — required before Step 2
+
+An audit of the Step 0 change found four wiring defects. Three were live; one was a false alarm
+caught during verification and is recorded so it is not "rediscovered" later.
+
+**Fixed:**
+1. **`sigma_ref` mirrored in Python (bug-class instance #5, self-inflicted).** Step 0 recalibrated
+   the Rust constant and left `rl/evaluate.py`'s `AdaptiveACPolicy(sigma_ref=0.20)` (live, never
+   overridden) and `rl/batched_environment.py`'s (dead — declared, never forwarded, so callers'
+   values were silently ignored). Now read from the binary via a new `--print-env-constants`
+   flag, mirroring `--print-action-fractions`. `batched_environment` now actually forwards
+   `--sigma-ref`, defaulting to `None` so the binary applies its own per-mode default.
+2. **Adaptive-AC's volatility inversion was wrong** — `s2` is `tanh(ratio)`, not
+   `tanh(ratio − 1)` (that is `s13`), but the code inverted with a spurious `1.0 +`. Pre-existing,
+   not introduced by Step 0.
+3. **Guardrails mis-scaled after recalibration** — the arctanh clip (0.999) saturated at ratio
+   3.80 and the sigma clamp at 2.0, both binding on the severe-crash range.
+
+**Also found: `s2` cannot represent crash-day volatility at all.** Once the policy trades, own
+impact feeds back into realized vol and 2024-08-05 reaches sigma **6.57** (ratio ~13), where
+`tanh` is 1.0 to within 6e-12. Inverting `s2` there caps at 4.20 — a **36% understatement on the
+single most severe date**. `s10 = tanh(ln(ratio))` applies the log first and inverts exactly, so
+`AdaptiveACPolicy` now prefers `s10`, falling back to `s2` only on pre-Step-0 binaries (where
+`s10` is the old dead bucket). This is an unplanned second payoff from the Step 0 encoding choice.
+
+**Measured impact on Adaptive-AC** (5 seeds, honest λ; deltas only — absolute values use a
+shorter horizon than the canonical eval): −0.062 pp on 2024-08-05, +0.079 pp on 2024-03-05,
+−0.001 / +0.056 pp on the held-out calm dates. **The headline is unaffected** — RL16's margins
+over Adaptive-AC on the crash dates are +1.32 / +1.87 pp, ~20× the shift. But no Adaptive-AC
+number should be described as "AC with live volatility re-estimation" until re-run.
+
+**Not a bug (recorded to prevent rediscovery):** a raw-protocol probe appeared to show
+`current_sigma` frozen at 0.2 for a whole episode. That was an artifact of the probe using
+`{"cmd":"step"}` instead of the real wire format `{"action":N}`. With the correct protocol,
+`current_sigma` warms up at `sigma_ref` and tracks realized volatility correctly.
+
+**New regression coverage** (`rl/tests/test_evaluate.py`): Python/Rust `sigma_ref` identity; an
+AST-based sweep that fails if any float-literal `sigma_ref` default reappears under `rl/`; and an
+inversion check that verifies the reconstruction against the environment's own `current_sigma`
+(now emitted in the info dict) rather than against itself — including the high-sigma trading
+regime. Verified the inversion test *would* have caught the original bug: it errs 20–38% against
+a 0.1% tolerance.
+
+**Reward-scale boundary recorded** in `rl/results/PROVENANCE.md`: Step 0 raised the wait-penalty
+term ~58×, so Step 2's retrain optimizes a different objective than RL16/RL12 did. State repair
+and reward change are confounded unless separated by an ablation.
+
 ### Step 2 — Retrain on the repaired state
 - Re-measure whether RL's urgency now varies by regime.
 - **Imitation learning only if it does not.** Note there is currently no clean expert to imitate:

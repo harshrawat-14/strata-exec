@@ -28,6 +28,87 @@ def _query_action_fractions() -> list:
 
 ACTION_FRACTIONS = _query_action_fractions()
 
+
+# Pre-Step-0 fallback. The Step 0 commit (0e3356b) recalibrated sigma_ref from
+# this value to CALIBRATED_SIGMA_REF; binaries built before it have neither the
+# new constant nor the --print-env-constants flag. 0.20 is the CORRECT value to
+# use against such a binary -- it is what that binary's environment actually
+# runs -- so this fallback is a version-matched default, not a guess.
+_PRE_STEP0_SIGMA_REF = 0.20
+
+
+def _query_env_constants() -> dict:
+    """
+    Single source of truth for scalar environment constants, same mechanism as
+    `_query_action_fractions` above (see that docstring for why this project
+    reads canonical values at runtime instead of mirroring them).
+
+    Phase 3, bug-class instance #5: Step 0 recalibrated `sigma_ref` in Rust
+    while `rl/evaluate.py`'s AdaptiveACPolicy and `rl/batched_environment.py`
+    each kept a hardcoded `sigma_ref: float = 0.20` default that no call site
+    overrode -- so the Python baseline silently reconstructed volatility
+    against a reference the environment no longer used.
+
+    Falls back for binaries predating the flag rather than raising: evaluating
+    the pre-Step-0 RL16/RL12 checkpoints REQUIRES a pre-Step-0 binary (see
+    `rl/results/PROVENANCE.md`), so that path is a supported configuration, not
+    an error. `sigma_ref_source` records which case was taken so callers and
+    tests can assert on it instead of inferring.
+    """
+    try:
+        # stdin=DEVNULL and a timeout are load-bearing, not defensive padding:
+        # `parse_cli` IGNORES unrecognized flags, so a pre-Step-0 binary handed
+        # --print-env-constants does not error -- it falls through and starts
+        # the stdin JSON loop. Inheriting the parent's stdin there would block
+        # this import indefinitely. DEVNULL makes that path hit EOF and exit;
+        # the timeout is the backstop if it ever does neither.
+        result = subprocess.run(
+            ["./target/release/rl-env", "--print-env-constants"],
+            capture_output=True, text=True, check=True,
+            stdin=subprocess.DEVNULL, timeout=30,
+        )
+        constants = json.loads(result.stdout.strip())
+        if "calibrated_sigma_ref" not in constants:
+            raise KeyError("calibrated_sigma_ref")
+        constants["sigma_ref_source"] = "binary"
+        return constants
+    except (
+        subprocess.CalledProcessError,
+        subprocess.TimeoutExpired,
+        json.JSONDecodeError,
+        FileNotFoundError,
+        KeyError,
+    ):
+        # Pre-Step-0 binary: unrecognized flag ignored, env loop ran and exited
+        # on EOF, so stdout is a startup banner rather than the constants JSON.
+        return {
+            "calibrated_sigma_ref": _PRE_STEP0_SIGMA_REF,
+            "default_sigma": _PRE_STEP0_SIGMA_REF,
+            "trading_steps_per_year": None,
+            "sigma_ref_source": "pre_step0_fallback",
+        }
+
+
+ENV_CONSTANTS = _query_env_constants()
+
+#: sigma_ref in force for historical/counterfactual mode -- the modes every
+#: Python-side policy is evaluated in. Do NOT hardcode this value anywhere.
+CALIBRATED_SIGMA_REF = ENV_CONSTANTS["calibrated_sigma_ref"]
+
+#: True when the binary in use emits the Step 0 continuous regime dims
+#: (s10 = tanh(ln(current_sigma/sigma_ref))); False against a pre-Step-0
+#: binary, where s10 is the old dead 3-way bucket {0.0, 0.5, 1.0}.
+#:
+#: This gates which state dim a Python policy should invert to recover
+#: volatility, and the difference is material, not stylistic. s2 =
+#: tanh(ratio) saturates: with own-impact-driven volatility the ratio reaches
+#: ~13 on 2024-08-05, where tanh is 1.0 to within 6e-12 and no inversion can
+#: recover it -- s2 caps out around ratio 8.4 (sigma ~4.2), understating a
+#: true sigma of 6.57 by ~36%. s10 applies the log FIRST, so the same ratio
+#: encodes as tanh(2.58) = 0.988 and inverts exactly. Prefer s10 wherever it
+#: is available; fall back to s2 only where it is not.
+REGIME_DIMS_ARE_CONTINUOUS = ENV_CONSTANTS["sigma_ref_source"] == "binary"
+
 class StrataExecEnv(gym.Env):
 
     metadata = {"render_modes": []}

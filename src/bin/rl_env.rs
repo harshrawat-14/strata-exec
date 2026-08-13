@@ -1047,6 +1047,17 @@ impl RlEnv {
             "interval_volume": self.interval_volume_at_step(),
             "is_contribution": -(fill_cost + perm_cost),
             "regime": self.regime_label(),
+            // Exposed so Python-side policies (AdaptiveACPolicy) and diagnostics
+            // can read the volatility estimate DIRECTLY instead of inverting it
+            // out of state dim s2 = tanh(current_sigma / sigma_ref). That
+            // inversion is lossy at the ratios real crash dates reach (tanh
+            // saturates: ratio 2.8 -> 0.9926, ratio 4.1 -> 0.99945, so the
+            // difference between a moderate and a severe crash lives in the
+            // 4th decimal) and it was additionally being done with a wrong
+            // formula. Emitting both values makes the state-vector encoding
+            // verifiable against ground truth rather than assumed.
+            "current_sigma": self.current_sigma,
+            "sigma_ref": self.cfg.sigma_ref,
         });
 
         if self.adversarial.is_some() {
@@ -1254,6 +1265,17 @@ impl RlEnv {
             "btc_scale": self.cfg.btc_target / total,
             "is_contribution": -(fill_cost + perm_cost),
             "regime": self.regime_label(),
+            // Exposed so Python-side policies (AdaptiveACPolicy) and diagnostics
+            // can read the volatility estimate DIRECTLY instead of inverting it
+            // out of state dim s2 = tanh(current_sigma / sigma_ref). That
+            // inversion is lossy at the ratios real crash dates reach (tanh
+            // saturates: ratio 2.8 -> 0.9926, ratio 4.1 -> 0.99945, so the
+            // difference between a moderate and a severe crash lives in the
+            // 4th decimal) and it was additionally being done with a wrong
+            // formula. Emitting both values makes the state-vector encoding
+            // verifiable against ground truth rather than assumed.
+            "current_sigma": self.current_sigma,
+            "sigma_ref": self.cfg.sigma_ref,
             "depth_reduction_pct": depth_reduction_pct,
             "permanent_impact_pct": permanent_impact_pct,
             "adjusted_book_depth": adjusted_depth,
@@ -2073,6 +2095,30 @@ fn main() {
     // maintaining its own copy. See docs/phase2r_objective_bias_finding.md.
     if std::env::args().any(|a| a == "--print-action-fractions") {
         println!("{}", json!(ACTION_FRACTIONS));
+        return;
+    }
+
+    // Same single-source-of-truth mechanism as --print-action-fractions above,
+    // for the scalar constants Python-side policies need. Added Phase 3 after
+    // finding instance #5 of this project's canonical-value bug class: the
+    // Step 0 fix recalibrated sigma_ref in Rust (0.20 -> CALIBRATED_SIGMA_REF)
+    // while `rl/evaluate.py`'s AdaptiveACPolicy and `rl/batched_environment.py`
+    // each kept their own hardcoded `sigma_ref: float = 0.20` default that no
+    // call site ever overrode -- so the Python baseline was reconstructing
+    // volatility against a reference the environment had stopped using. Any
+    // future scalar Python needs from this binary belongs here, not in a
+    // hand-copied Python default.
+    if std::env::args().any(|a| a == "--print-env-constants") {
+        println!(
+            "{}",
+            json!({
+                // sigma_ref actually in force, BY MODE -- these differ, and the
+                // caller must pick the one matching the mode it is running.
+                "calibrated_sigma_ref": CALIBRATED_SIGMA_REF,
+                "default_sigma": DEFAULT_SIGMA,
+                "trading_steps_per_year": TRADING_STEPS_PER_YEAR,
+            })
+        );
         return;
     }
 

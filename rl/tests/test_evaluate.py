@@ -265,3 +265,228 @@ class TestAcLambdaOverride:
         sched_low = low._get_schedule(0.20)
         sched_high = high._get_schedule(0.20)
         assert not np.allclose(sched_low, sched_high)
+
+
+class TestSigmaRefSingleSourceOfTruth:
+    """
+    Regression coverage for bug-class instance #5 (Phase 3). Step 0
+    recalibrated the environment's `sigma_ref` in Rust, but `evaluate.py`'s
+    AdaptiveACPolicy and `batched_environment.py` each kept a hardcoded
+    `sigma_ref: float = 0.20` default that no call site overrode -- so the
+    Python baseline reconstructed volatility against a reference the
+    environment had stopped using. Fifth instance in this project of a
+    hand-maintained mirror of a canonical value causing a silent bug
+    (cf. TestComputeCvar95 and TestActionFractionsSingleSourceOfTruth above).
+    """
+
+    def test_python_sigma_ref_matches_rust_source_of_truth(self):
+        from environment import CALIBRATED_SIGMA_REF, ENV_CONSTANTS
+
+        repo_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        binary = os.path.join(repo_root, "target", "release", "rl-env")
+        if not os.path.exists(binary):
+            pytest.skip("target/release/rl-env not built in this checkout")
+        result = subprocess.run(
+            [binary, "--print-env-constants"], capture_output=True, text=True,
+            check=True, stdin=subprocess.DEVNULL, timeout=30,
+        )
+        rust_constants = json.loads(result.stdout.strip())
+        assert CALIBRATED_SIGMA_REF == rust_constants["calibrated_sigma_ref"], (
+            "Python's CALIBRATED_SIGMA_REF must equal the Rust environment's "
+            "real constant -- divergence means Adaptive-AC is reconstructing "
+            "volatility against a reference the environment does not use."
+        )
+        assert ENV_CONSTANTS["sigma_ref_source"] == "binary", (
+            "constants must have been read from the binary here, not the "
+            "pre-Step-0 fallback -- the fallback is only correct against a "
+            "binary built before commit 0e3356b"
+        )
+
+    def test_adaptive_ac_default_sigma_ref_is_not_a_hardcoded_literal(self):
+        from environment import CALIBRATED_SIGMA_REF
+
+        policy = AdaptiveACPolicy(n_state_dims=16)
+        assert policy.sigma_ref == CALIBRATED_SIGMA_REF, (
+            "AdaptiveACPolicy's default sigma_ref must come from the binary, "
+            "not a literal in this file"
+        )
+
+    def test_no_hardcoded_sigma_ref_literals_remain_in_rl_python(self):
+        """
+        The meta-lesson made executable: after any fix in this bug class,
+        sweeping for siblings is routine, not something that only happens when
+        explicitly requested. Fails if a float-literal `sigma_ref` default is
+        reintroduced anywhere under rl/.
+        """
+        import ast
+        import glob
+
+        rl_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        offenders = []
+
+        def _is_numeric_literal(node):
+            return isinstance(node, ast.Constant) and isinstance(node.value, (int, float))
+
+        # Parse rather than regex: several files legitimately DESCRIBE the old
+        # `sigma_ref = 0.20` literal in docstrings, and a source-text scan
+        # flags that prose as a violation. The AST only sees real bindings.
+        for path in glob.glob(os.path.join(rl_dir, "**", "*.py"), recursive=True):
+            with open(path) as fh:
+                try:
+                    tree = ast.parse(fh.read(), filename=path)
+                except SyntaxError:
+                    continue
+            rel = os.path.relpath(path, rl_dir)
+            for node in ast.walk(tree):
+                # Default argument values: `def f(..., sigma_ref=0.20)`
+                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    args = node.args
+                    positional = args.posonlyargs + args.args
+                    for arg, default in zip(positional[len(positional) - len(args.defaults):],
+                                            args.defaults):
+                        if arg.arg == "sigma_ref" and _is_numeric_literal(default):
+                            offenders.append(f"{rel}:{default.lineno}: default sigma_ref={default.value}")
+                    for arg, default in zip(args.kwonlyargs, args.kw_defaults):
+                        if default is not None and arg.arg == "sigma_ref" and _is_numeric_literal(default):
+                            offenders.append(f"{rel}:{default.lineno}: default sigma_ref={default.value}")
+                # Assignments: `sigma_ref = 0.20` / `self.sigma_ref = 0.20`
+                elif isinstance(node, ast.Assign) and _is_numeric_literal(node.value):
+                    for tgt in node.targets:
+                        name = tgt.id if isinstance(tgt, ast.Name) else (
+                            tgt.attr if isinstance(tgt, ast.Attribute) else None)
+                        if name == "sigma_ref":
+                            offenders.append(f"{rel}:{node.lineno}: sigma_ref={node.value.value}")
+                elif isinstance(node, ast.AnnAssign) and node.value is not None \
+                        and _is_numeric_literal(node.value):
+                    tgt = node.target
+                    name = tgt.id if isinstance(tgt, ast.Name) else (
+                        tgt.attr if isinstance(tgt, ast.Attribute) else None)
+                    if name == "sigma_ref":
+                        offenders.append(f"{rel}:{node.lineno}: sigma_ref={node.value.value}")
+
+        assert not offenders, (
+            "hardcoded sigma_ref literal(s) reintroduced -- read the value from "
+            "the Rust binary instead (see environment._query_env_constants):\n"
+            + "\n".join(offenders)
+        )
+
+
+class TestAdaptiveACVolatilityInversion:
+    """
+    Verifies AdaptiveACPolicy's state->sigma reconstruction against GROUND
+    TRUTH from the environment, rather than asserting the formula matches
+    itself. The environment emits `current_sigma` in its info dict precisely
+    so this check is possible.
+
+    The bug this guards: `state[2]` is tanh(current_sigma/sigma_ref), but the
+    policy inverted it as `sigma_ref * (1.0 + arctanh(s2))` -- a spurious
+    `1.0 +` borrowed from s13's different definition -- so every Adaptive-AC
+    result in this project was produced against a volatility the policy was
+    never given.
+    """
+
+    CRASH_DATE = "2024-08-05"   # most severe day in the dataset
+    CALM_DATE = "2024-07-10"    # held-out calm
+
+    def _roll(self, date, n_steps=60):
+        """Run a real episode; return (inverted_sigma, true_sigma) pairs."""
+        import numpy as np
+        from environment import StrataExecEnv
+
+        env = StrataExecEnv(
+            mode="counterfactual", lob_date=date, agg_date=None,
+            btc_target=50_000.0, n_state_dims=16, total_steps=n_steps,
+            fixed_steps=True, fixed_size=True, no_time_features=False,
+        )
+        try:
+            obs, info = env.reset(seed=0)
+            pairs = []
+            for _ in range(n_steps):
+                obs, _r, done, _t, info = env.step(0)  # action 0: don't trade
+                if "current_sigma" not in info:
+                    pytest.skip("binary predates current_sigma in info dict")
+                # Exercise the real code path, not a reimplementation of it.
+                policy = AdaptiveACPolicy(n_state_dims=16)
+                policy.sigma_ref = info["sigma_ref"]
+                inverted = policy._recover_sigma(obs)
+                pairs.append((inverted, float(info["current_sigma"])))
+                if done:
+                    break
+            return pairs
+        finally:
+            env.close()
+
+    def _require_data(self, date):
+        path = f"TradeData/BookDepth/BTCUSDT-bookDepth-{date}.csv"
+        if not os.path.exists(path):
+            pytest.skip(f"{path} not present in this checkout")
+
+    @pytest.mark.parametrize("date_attr", ["CRASH_DATE", "CALM_DATE"])
+    def test_inversion_recovers_true_sigma(self, date_attr):
+        date = getattr(self, date_attr)
+        self._require_data(date)
+        pairs = self._roll(date)
+        assert pairs, "episode produced no steps"
+        # Tolerance is derived, not guessed. arctanh is ill-conditioned near
+        # |x|->1: at the ratio 2024-08-05 actually reaches (~4.19, s2 ~
+        # 0.99954) its derivative 1/(1-x^2) is ~1088, so the wire's finite
+        # decimal precision on s2 amplifies to a measured worst-case relative
+        # error of 6.8e-6. 1e-3 leaves ~150x headroom over that while still
+        # sitting SIX orders of magnitude below the bug it exists to catch
+        # (the spurious `1.0 +` inflated sigma by a factor of ~8.7).
+        for inverted, truth in pairs:
+            assert abs(inverted - truth) < 1e-3 * max(1.0, truth), (
+                f"state[2] inversion does not recover the environment's real "
+                f"current_sigma on {date}: got {inverted}, truth {truth}. The "
+                f"spurious '1.0 +' bug (or a new encoding change) is present."
+            )
+
+    def test_inversion_holds_in_the_high_sigma_trading_regime(self):
+        """
+        The passive (action 0) rolls above only reach sigma ~2. Once the policy
+        actually TRADES, own impact feeds back into realized volatility and
+        2024-08-05 reaches sigma ~6.5 (ratio ~13) -- the regime where the old
+        guardrails bound hardest (the 2.0 clamp) and where inverting s2 is
+        impossible (tanh(13) is 1.0 to within 6e-12). This is the case that
+        motivated preferring s10, so it needs its own coverage rather than
+        being inferred from the passive rolls.
+        """
+        import numpy as np
+        from environment import StrataExecEnv
+
+        self._require_data(self.CRASH_DATE)
+        env = StrataExecEnv(
+            mode="counterfactual", lob_date=self.CRASH_DATE, agg_date=None,
+            btc_target=50_000.0, n_state_dims=16, total_steps=400,
+            fixed_steps=True, fixed_size=True, no_time_features=False,
+        )
+        try:
+            policy = AdaptiveACPolicy(n_state_dims=16, lam=1e-6, total_steps=400)
+            obs, info = env.reset(seed=0)
+            peak, worst_rel, done = 0.0, 0.0, False
+            while not done:
+                action, _ = policy.predict(obs)
+                obs, _r, done, _t, info = env.step(int(action))
+                if "current_sigma" not in info:
+                    pytest.skip("binary predates current_sigma in info dict")
+                truth = float(info["current_sigma"])
+                policy.sigma_ref = info["sigma_ref"]
+                rel = abs(policy._recover_sigma(obs) - truth) / max(1e-12, truth)
+                peak = max(peak, truth)
+                worst_rel = max(worst_rel, rel)
+        finally:
+            env.close()
+
+        assert peak > 3.0, (
+            f"this date should drive sigma well past the old 2.0 clamp once "
+            f"trading feeds back into volatility; only reached {peak:.3f} -- "
+            f"the test is no longer exercising the regime it exists for"
+        )
+        assert peak < 20.0, (
+            f"observed sigma {peak:.3f} hit the 20.0 backstop clamp; the clamp "
+            f"is meant not to bind on real data -- re-derive it"
+        )
+        assert worst_rel < 1e-3, (
+            f"inversion breaks down in the high-sigma regime: worst relative "
+            f"error {worst_rel:.2e} at peak sigma {peak:.3f}"
+        )

@@ -355,13 +355,15 @@ passed an s10-style first-100-step regression test either (checked, not assumed)
 have been a cosmetic fix. Full derivation and numbers in `docs/phase3_plan.md`'s Step 0 section (the
 "s11 diagnosed further" paragraph).
 
-## Meta-lesson: hand-maintained mirrors of canonical values (FOURTH occurrence — pattern confirmed)
+## Meta-lesson: hand-maintained mirrors of canonical values (FIFTH occurrence — and #5 was self-inflicted)
 
 **Any value that exists in two places will eventually disagree. Canonical values get read from
-their single source, never copied.** This is the fourth time in this project a hardcoded or
+their single source, never copied.** This is the fifth time in this project a hardcoded or
 hand-maintained value (not always a literal second copy — instance #4 is a single hardcoded default
 never overridden per its actual context) caused a silent, real bug — enough occurrences now that
-this should be treated as a predictable failure mode, not a series of one-off surprises:
+this should be treated as a predictable failure mode, not a series of one-off surprises. **Instance
+#5 was introduced by the fix for instance #4, in the session that wrote this warning** — see its
+entry below:
 
 1. **CVaR sign inversion** — several call sites reimplemented "CVaR-95" locally (some as
    `np.percentile(arr, 5)`, a single point not a tail mean; the Rust/`parallel_sim.py` siblings had
@@ -387,7 +389,26 @@ this should be treated as a predictable failure mode, not a series of one-off su
    λ) and wiring it as the automatic default for historical/counterfactual mode in `parse_cli()` —
    one place, applies to every caller, no per-call-site flag to forget.
 
-All four were structurally similar: a value defined or assumed once, either copied by hand into a
+5. **`sigma_ref` mirrored in Python, created by the Step 0 fix itself** (Phase 3) — Step 0
+   recalibrated `sigma_ref` in Rust (0.20 -> `CALIBRATED_SIGMA_REF`) and left two Python
+   copies behind: `rl/evaluate.py`'s `AdaptiveACPolicy(sigma_ref=0.20)`, which was live and
+   which no call site overrode, and `rl/batched_environment.py`'s, which was *dead* —
+   declared but never stored or forwarded, so a caller passing `sigma_ref=X` silently got the
+   default. Fixed by a `--print-env-constants` flag on the Rust binary read at import time,
+   mirroring the `--print-action-fractions` mechanism from instances #2/#3, with an AST-based
+   test that fails if any float-literal `sigma_ref` default reappears under `rl/`.
+
+   **This instance is the sharpest evidence the meta-lesson is not yet operational.** It was
+   introduced *in the same session that rewrote this very section to say "after any fix in
+   this class, a grep/audit for siblings should be routine, not something that only happens
+   when explicitly requested"* — and then the grep was not run. The rule was known, written
+   down, and still skipped. Two consequences worth carrying forward: (a) the sweep has to be
+   part of the change itself, not a follow-up step that depends on remembering, which is why
+   the check is now an executable test rather than a documented habit; and (b) recording a
+   lesson is not the same as adopting one — treat any un-automated process rule in this
+   project as *aspirational* until something mechanical enforces it.
+
+All five were structurally similar: a value defined or assumed once, either copied by hand into a
 second location or simply left at a default that was never revisited for the context it was
 actually used in, with nothing enforcing agreement with reality. Instance #3 was found not by a
 table diverging and breaking something, but by **actively grepping for the pattern on request** —

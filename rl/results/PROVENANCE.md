@@ -69,6 +69,45 @@ of binary version — use them as a canary. If AC-Optimal/TWAP numbers match a k
 but RL16/Adaptive-AC (which read `obs[2]`, the recalibrated volatility ratio) don't, you're on the
 wrong binary.
 
+### Third boundary: Step 0 also changed the training reward (affects retrains, not evals)
+
+The wait-penalty term in the reward is `var_penalty = 0.01 * (current_sigma /
+sigma_ref)^2 * q_frac^2`. Step 0 raised `current_sigma` ~19x (annualization fix) and
+`sigma_ref` 2.5x (0.20 -> 0.4999), so the **ratio rose ~7.6x and the squared term ~58x**.
+The penalty is applied only on no-fill (waiting) steps, so waiting is now materially more
+expensive relative to trading than it was for every model trained before `0e3356b`.
+
+This is arguably a *correction* — at the old scale the term was nearly inert — but it means
+**any model retrained after Step 0 is optimizing a different objective than RL16/RL12 were**.
+Do not attribute a post-retrain behavior change purely to the state-signal repair; the reward
+changed underneath it too. Phase 3 Step 2 should report both as confounded unless separated
+by an ablation.
+
+### Adaptive-AC correction (2026-08-13) — affects every table containing an Adaptive-AC column
+
+`AdaptiveACPolicy` reconstructs volatility from the state vector, and that reconstruction was
+wrong in three compounding ways (full detail in the class docstring in `rl/evaluate.py`):
+a spurious `1.0 +` in the inversion (s2 is `tanh(ratio)`, not `tanh(ratio - 1)` — that is s13);
+a hardcoded `sigma_ref = 0.20` that no call site overrode and that diverged from the
+environment after Step 0; and guardrails (arctanh clip 0.999, sigma clamp 2.0) that bound
+precisely on the severe-crash range.
+
+**Measured effect of the fix** (counterfactual mode, honest λ=1e-6, 5 seeds, 400-step
+horizon — deltas only; the absolute values use a shorter horizon than the canonical eval and
+are NOT comparable to published numbers):
+
+| date | regime | Δ IS (fixed − buggy) |
+|---|---|---:|
+| 2024-08-05 | crash, severe | −0.062 pp |
+| 2024-03-05 | crash, milder | +0.079 pp |
+| 2024-07-10 | held-out calm | −0.001 pp |
+| 2024-12-10 | held-out calm | +0.056 pp |
+
+**Headline impact: none.** RL16's published margins over Adaptive-AC on the two crash dates
+are **+1.32 pp** and **+1.87 pp** — roughly 20x the shift. The regime-conditional result does
+not depend on this bug. But **no Adaptive-AC number should be cited as "AC with live
+volatility re-estimation" until re-run**, because until this fix that is not what it was.
+
 **Files produced under the pre-Step-0 binary** (all correctly RL16-checkpoint-consistent, do not
 re-derive from a post-Step-0 binary without retraining first): `phase2r_ablation_honest_lambda.csv`,
 `phase2r_severity_expansion_full.csv`, `phase2r_severity_expansion_new_days.csv`,

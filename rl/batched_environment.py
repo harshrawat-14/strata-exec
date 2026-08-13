@@ -37,7 +37,16 @@ class BatchedStrataExecEnv:
         agg_date: Optional[str] = None,
         total_inventory: float = 1_000_000.0,
         total_steps: int = 2880,
-        sigma_ref: float = 0.20,
+        # None (the default) means "let the binary pick the mode-appropriate
+        # value" -- CALIBRATED_SIGMA_REF for historical/counterfactual,
+        # DEFAULT_SIGMA for synthetic. Do NOT default this to a literal: it
+        # was previously `0.20`, which was both a hardcoded mirror of a
+        # canonical Rust constant (bug-class instance #5) and, worse, dead --
+        # declared here but never stored or forwarded to the subprocess, so a
+        # caller passing sigma_ref=X silently got the default instead. Passing
+        # a literal default now would be actively harmful, since it would
+        # override the calibrated per-mode default the binary applies.
+        sigma_ref: Optional[float] = None,
         gamma: float = 0.005,
         btc_target: float = 50_000.0,
         fixed_steps: bool = True,
@@ -84,6 +93,10 @@ class BatchedStrataExecEnv:
             cmd.append("--fixed-size")
         if no_time_features:
             cmd.append("--no-time-features")
+        if sigma_ref is not None:
+            # Only forwarded when explicitly requested; omitting the flag is
+            # what lets the binary apply its own mode-appropriate default.
+            cmd += ["--sigma-ref", str(sigma_ref)]
 
         self.process = subprocess.Popen(cmd, stderr=subprocess.DEVNULL)
 
