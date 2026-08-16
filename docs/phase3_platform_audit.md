@@ -4,8 +4,17 @@ Written 2026-08-16, triggered by the Step 2 negative result. The question asked 
 correct: the changes were meant to improve RL and the score went backwards, so what broke between
 planning and implementation?
 
-**Answer: one severe pre-existing bug, three secondary defects. The plan was sound; the training
-pipeline never delivered the data the plan specified.**
+**Answer: TWO critical pre-existing bugs and three secondary defects. The plan was sound; the
+training pipeline never delivered the data the plan specified, and the eval harness cannot support
+the statistical claims built on it.**
+
+| # | finding | severity | status |
+|---|---|---|---|
+| 1 | training saw 3 of 16 dates, zero crash dates | **critical** | fixed |
+| 5 | eval episodes are near-duplicates; crash p-values not credible | **critical** | recorded, needs a decision |
+| 2 | train/eval horizon mismatch (200-1440 vs 2880) | secondary | deliberate defer |
+| 3 | `CALIBRATED_SIGMA_REF` calibrated on V1, used with V2 | secondary (self-inflicted) | recorded |
+| 4 | reward terminal-heavy but correctly aligned | not a bug | quantified |
 
 ---
 
@@ -114,6 +123,48 @@ shortfall), while `evaluate.py`'s harness negates it so higher-is-better. Both a
 consistent; do not compare them directly.
 
 ---
+
+## 5. CRITICAL — eval episodes are near-duplicates; crash-date statistics are not credible (NOT fixed)
+
+`reset_counterfactual` sets `start_offset = seed % (len/3)`, i.e. a random start in the first third
+of the day — 960 possible starts on a 2880-snapshot day. **Every eval in this project uses seeds
+0–19**, so all 20 "episodes" start within **19 snapshots (9.5 minutes) of each other, out of 8
+hours of available starts — 2% of the range.** They replay essentially the same market path.
+
+Measured directly (AC-Optimal, honest λ, horizon 1440 so *every* start is valid and no episode runs
+past the end of data — this isolates the clustering effect from standing issue #5):
+
+| date | seeds 0–19 (current eval) | starts spread 0–912 | variance understated | mean shift |
+|---|---|---|---:|---:|
+| 2024-08-05 (crash) | mean +9.323, std **0.1085** | mean +3.049, std **3.2299** | **29.8×** | **6.275 pp** |
+| 2024-06-10 (calm) | mean +1.088, std 0.0477 | mean +1.024, std 0.1734 | 3.6× | 0.065 pp |
+
+**The distortion is concentrated exactly on crash dates** — which is where the entire headline
+lives. On a crash day, *when you start* determines whether you experience the crash at all; on a
+calm day it barely matters. So the reported crash-date numbers describe "starting at 00:00 UTC,
+immediately before the crash," not "a crash day" — and a representative sample of start times gives
+roughly a third of the reported severity.
+
+**What this does and does not invalidate:**
+
+- **Paired direction survives.** All policies face identical paths, so "on this path, RL beat AC by
+  X" remains true and the sign of every reported delta stands.
+- **Statistical significance does not.** `p=0.0000` from a paired bootstrap over 20 near-duplicate
+  paths is not evidence at n=20; the effective independent sample size is close to 1. Every p-value
+  and CI on a crash date is drastically overconfident.
+- **Generalization does not.** "RL beats AC on crash dates" is supported only as "at this start time
+  on these two crash days."
+
+**Why it was not caught:** standing issue #5 discusses `start_offset` only as a *bounds* question
+(does `start_offset + horizon` exceed the data?) and concludes "cosmetic, not measured to affect any
+reported number." That conclusion is correct for the bound and wrong for the clustering — a
+different failure mode of the same parameter that the note's framing made easy to skip past.
+
+**Why it is hard to fix, and why it is left for a decision:** the eval horizon is 2880 on a
+2880-snapshot day, so the only start offset that fits the data exactly is 0. Varying the start
+requires either a shorter eval horizon (changes every published number) or multi-day data (does not
+exist here). This is a design tension, not a typo, and choosing between those costs is the user's
+call — so it is recorded rather than unilaterally changed.
 
 ## What this changes
 
