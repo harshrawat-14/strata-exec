@@ -15,6 +15,7 @@ the statistical claims built on it.**
 | 2 | train/eval horizon mismatch (200-1440 vs 2880) | secondary | deliberate defer |
 | 3 | `CALIBRATED_SIGMA_REF` calibrated on V1, used with V2 | secondary (self-inflicted) | recorded |
 | 4 | reward terminal-heavy but correctly aligned | not a bug | quantified |
+| 6 | policy still ~98% uniform-random after 500k steps (underfit) | **material** | recorded, actionable |
 
 ---
 
@@ -165,6 +166,36 @@ different failure mode of the same parameter that the note's framing made easy t
 requires either a shorter eval horizon (changes every published number) or multi-day data (does not
 exist here). This is a design tension, not a typo, and choosing between those costs is the user's
 call — so it is recorded rather than unilaterally changed.
+
+## 6. Policy is underfit at 500k timesteps — entropy never leaves uniform (NOT fixed — actionable)
+
+Across the whole corrective run, `train/entropy_loss` moved from **−2.99 to −2.92**. Max entropy for
+a 20-action space is ln(20) = 2.996, so the stochastic policy sat at **~98% of uniform-random for
+the entire 500k steps** — it barely sharpened.
+
+**This is not the entropy-floor callback misfiring.** That callback only raises `ent_coef` when
+entropy drops below `floor=1.2`; at 2.92 it is far above the trigger and relaxing toward
+`base_coef=0.05`. The floor is doing nothing here.
+
+**The likely reading is underfitting, and there is a direct in-repo reference point:** the v6r run
+documented in `AdaptiveEntropyCallback`'s own docstring reached entropy **~2.1** and only began its
+collapse slide **between 1.1M and 2.0M steps**. Our runs stop at **500k** — before the regime where
+that historical run was still meaningfully learning. Contributing factors, in likely order:
+
+1. **Too few timesteps.** 500k appears to be well short of where this task's policies sharpen.
+2. **`ent_coef=0.05` is high for PPO** (typical 0.001–0.01) and is applied as a constant floor-relaxed
+   baseline, actively opposing sharpening for the whole run.
+3. **Very small per-step rewards** (1e−5 on trades, down to 1e−8 on calm-day waits, §4) give a weak
+   advantage signal to push against that bonus.
+
+**Why it matters for the question asked:** a policy at 98% uniform entropy has learned only a weak
+preference ordering. `deterministic=True` at eval takes the argmax, so it still produces structured
+behavior (4–8 distinct actions with clear modes) — but the margin between actions is thin, which
+caps achievable performance regardless of how good the state signal is. **Fixing the data pipeline
+(§1) removes the blocker; this is plausibly the next binding constraint.**
+
+**Cheapest next experiments:** raise `--timesteps` to 1.5–2M (matching the historical runs), and
+sweep `--ent-coef` down toward 0.01. Both are single-flag changes on the corrected pipeline.
 
 ## What this changes
 
