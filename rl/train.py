@@ -351,20 +351,34 @@ def make_env(
     fixed_size=False,
     jump_diffusion=False,
     no_time_features=False,
+    worker_date=None,
 ):
     import random
 
     def _init():
-        date = lob_date
-        agg = agg_date
-        if multi_dates:
-            date = random.choice(multi_dates)
-            agg = date
+        # `_init` runs ONCE per SubprocVecEnv worker. It used to do
+        # `date = random.choice(multi_dates)` here, which pinned each worker to
+        # a single RANDOM date for the whole run -- so an N-date training set
+        # was really trained on at most n_envs dates, chosen by luck. The Step 2
+        # run (16 dates, n_envs=4) hit 3 distinct dates and ZERO crash dates,
+        # defeating the entire purpose of the V2 split.
+        #
+        # Two correct strategies, picked by the caller in train():
+        #   worker_date  -- this worker owns one date, assigned round-robin so
+        #                   the workers jointly cover every date. Used when
+        #                   n_envs >= len(multi_dates). No respawns, and every
+        #                   PPO batch contains all dates rather than a random
+        #                   subset, so regime coverage is guaranteed per update.
+        #   lob_dates    -- redraw per episode (respawns the subprocess).
+        #                   Correct at any n_envs but ~15x slower on short
+        #                   episodes, so it is the fallback when there are more
+        #                   dates than workers.
         env = StrataExecEnv(
             mode=mode,
             adversarial=adversarial,
-            lob_date=date,
-            agg_date=agg,
+            lob_date=worker_date if worker_date else (lob_date if not multi_dates else None),
+            agg_date=worker_date if worker_date else (agg_date if not multi_dates else None),
+            lob_dates=None if worker_date else multi_dates,
             btc_target=btc_target,
             n_state_dims=n_state_dims,
             seed=seed,
@@ -507,7 +521,39 @@ def train(
         # while reducing parallelism after ppo_lstm_v6_time_features was
         # killed under sustained near-zero free memory. Now respects the
         # parameter so a caller can actually control it.
-        env_fns = [make_env(**env_kwargs) for _ in range(n_envs)]
+        # Date coverage (Phase 3 audit fix). With multi_dates, raise n_envs to
+        # cover every date so each worker owns one and no date goes unseen --
+        # the failure that made the Step 2 run train on 3 of 16 dates and zero
+        # crash dates. Subprocesses are cheap here (~70MB each, measured), so
+        # one per date is affordable; the per-episode-respawn fallback is
+        # ~15x slower on short episodes and only used if the caller pins n_envs
+        # below the date count.
+        if multi_dates and n_envs < len(multi_dates):
+            print(
+                f"n_envs={n_envs} < {len(multi_dates)} training dates: raising "
+                f"n_envs to {len(multi_dates)} so every date is covered by a "
+                f"dedicated worker (was: {n_envs} random dates, rest unseen)."
+            )
+            n_envs = len(multi_dates)
+
+        if multi_dates:
+            env_fns = [
+                make_env(**env_kwargs, worker_date=multi_dates[i % len(multi_dates)])
+                for i in range(n_envs)
+            ]
+            from collections import Counter
+            try:
+                from evaluate import SEVERITY_RANK_V2
+                mix = Counter(
+                    SEVERITY_RANK_V2.get(multi_dates[i % len(multi_dates)],
+                                         (0, "unknown", ""))[1]
+                    for i in range(n_envs)
+                )
+                print(f"Training worker date coverage: {len(set(multi_dates))} dates, regime mix {dict(mix)}")
+            except ImportError:
+                pass
+        else:
+            env_fns = [make_env(**env_kwargs) for _ in range(n_envs)]
         train_env = SubprocVecEnv(env_fns)
 
         # Phase 2R fix (2): eval across ALL dates (training + held-out crash),

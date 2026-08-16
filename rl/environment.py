@@ -142,8 +142,29 @@ class StrataExecEnv(gym.Env):
         jump_diffusion: bool = False,
         no_time_features: bool = False,
         total_steps: Optional[int] = None,
+        lob_dates: Optional[list] = None,
     ):
         import os
+        # Per-episode date resampling. When `lob_dates` is given, this env
+        # re-draws a date on every reset() instead of being permanently bound
+        # to one.
+        #
+        # Fixes a severe pre-existing training bug (Phase 3 audit): train.py's
+        # make_env did `date = random.choice(multi_dates)` INSIDE `_init`,
+        # which SubprocVecEnv runs exactly once per worker. Each worker was
+        # therefore pinned to a single date for the entire run, so a training
+        # set of N dates was really trained on at most n_envs of them. The
+        # Step 2 run (16 V2 dates, n_envs=4) actually trained on THREE distinct
+        # dates -- 2024-06-10, 2024-09-15, 2024-04-13 -- and ZERO crash dates,
+        # which is why the whole point of the V2 split (4 crash dates in
+        # training) never reached the learner. This affected every prior
+        # multi-date run in the project, including RL16.
+        self._lob_dates = list(lob_dates) if lob_dates else None
+        if self._lob_dates:
+            import random as _random
+            self._rng = _random.Random()
+            lob_date = self._rng.choice(self._lob_dates)
+            agg_date = lob_date
         if lob_date:
 
             lob_path = f"TradeData/BookDepth/BTCUSDT-bookDepth-{lob_date}.csv"
@@ -199,7 +220,9 @@ class StrataExecEnv(gym.Env):
             self.cmd.append("--no-time-features")
 
         # Diagnostic: print the full command so --agg-trades presence is easy to verify.
-        if mode == "counterfactual":
+        # Suppressed when resampling per episode -- otherwise this prints once
+        # per episode per worker and floods the training log.
+        if mode == "counterfactual" and not self._lob_dates:
             import sys
             print(f"[StrataExecEnv] cmd: {' '.join(self.cmd)}", file=sys.stderr)
 
@@ -219,6 +242,9 @@ class StrataExecEnv(gym.Env):
         self.process = None
         self.current_seed = seed
         self._last_info = {}
+        # Tracks which date the current cmd/process is bound to, so
+        # _rebind_date can skip a respawn when the redraw picks the same date.
+        self._current_date = lob_date
 
     def _send(self, obj: dict) -> dict:
         if self.process is None or self.process.poll() is not None:
@@ -228,6 +254,32 @@ class StrataExecEnv(gym.Env):
         self.process.stdin.flush()
         response = self.process.stdout.readline()
         return json.loads(response.decode())
+
+    def _rebind_date(self, date: str):
+        """
+        Point this env at a different date for the next episode.
+
+        The date reaches the binary as a `--lob-data` / `--agg-trades` CLI
+        argument, so switching it means respawning the subprocess. Only the
+        two path arguments are rewritten; every other flag is left exactly as
+        constructed, so no other config can drift as a side effect.
+        """
+        if date == self._current_date:
+            return  # already bound; keep the live process
+        for i, tok in enumerate(self.cmd):
+            if tok.startswith("TradeData/BookDepth/"):
+                self.cmd[i] = f"TradeData/BookDepth/BTCUSDT-bookDepth-{date}.csv"
+            elif tok.startswith("TradeData/AggTrades/"):
+                self.cmd[i] = f"TradeData/AggTrades/BTCUSDT-aggTrades-{date}.csv"
+        self._current_date = date
+        # Drop the running process; _send respawns from the updated cmd.
+        if self.process and self.process.poll() is None:
+            self.process.terminate()
+            try:
+                self.process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                self.process.kill()
+        self.process = None
 
     def _start_process(self):
         self.process = subprocess.Popen(
@@ -242,6 +294,14 @@ class StrataExecEnv(gym.Env):
         seed: Optional[int] = None,
         options: Optional[dict] = None,
     ):
+        # Resample the episode's date BEFORE resetting, so a multi-date
+        # training set is actually sampled across episodes rather than pinned
+        # per worker. See the `lob_dates` note in __init__ for the bug this
+        # fixes. Rebinding requires respawning the subprocess, because the
+        # date is passed to the binary as a CLI argument -- `_rebind_date`
+        # kills the current process and `_send` respawns it on the next call.
+        if self._lob_dates:
+            self._rebind_date(self._rng.choice(self._lob_dates))
         use_seed = seed if seed is not None else self.current_seed
         result = self._send({"reset": True, "seed": use_seed})
         self._last_info = result.get("info", {})
