@@ -2124,6 +2124,38 @@ fn main() {
 
     let cfg = parse_cli();
 
+    // Step 3 (sqrt-impact baseline): the per-date calibrated impact_coefficient
+    // (Y), sigma, and adv_btc used by counterfactual mode are computed inside
+    // reset_counterfactual (via CounterfactualLobConfig::calibrated) and, until
+    // now, only ever printed to stderr as a diagnostic -- no caller could read
+    // them back. A numerically-optimized baseline needs these exact fitted
+    // values (not a second, hand-copied estimate -- see "Standing rules" in
+    // docs/phase3_plan.md on canonical values). Reuses reset_counterfactual
+    // unmodified, so there is exactly one place that computes calibration.
+    if std::env::args().any(|a| a == "--print-calibration") {
+        let mut env = RlEnv::new(cfg);
+        let _ = env.reset(Some(0));
+        let cf = env.cf_lob.as_ref().expect(
+            "--print-calibration requires counterfactual mode with --lob-data \
+             (and ideally --agg-trades, or calibration falls back to defaults)",
+        );
+        let c = cf.config();
+        println!(
+            "{}",
+            json!({
+                "impact_coefficient": c.impact_coefficient,
+                "sigma": c.sigma,
+                "adv_btc": c.adv_btc,
+                "rho": c.rho,
+                "permanent_fraction": c.permanent_fraction,
+                "temporary_fraction": c.temporary_fraction,
+                "dt": c.dt,
+                "btc_scale": c.btc_scale,
+            })
+        );
+        return;
+    }
+
     if let Some((batch_size, socket_path)) = parse_batch_args() {
         run_batch_server(cfg, batch_size, &socket_path);
         return;

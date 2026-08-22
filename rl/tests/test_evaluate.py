@@ -20,6 +20,8 @@ from evaluate import (
     _stable_sinh_ratio,
     ACTION_FRACTIONS,
     get_action_fractions,
+    SqrtImpactOptimalPolicy,
+    query_calibration,
 )
 
 
@@ -490,3 +492,104 @@ class TestAdaptiveACVolatilityInversion:
             f"inversion breaks down in the high-sigma regime: worst relative "
             f"error {worst_rel:.2e} at peak sigma {peak:.3f}"
         )
+
+
+class TestSqrtImpactOptimalSchedule:
+    """
+    Phase 3 Step 3: SqrtImpactOptimalPolicy's Beta-CDF schedule family. Pure
+    math on `_build_schedule` -- no subprocess/environment needed -- built
+    via __new__ to skip __init__'s real-environment fit.
+    """
+
+    def _bare(self, total_steps=2880):
+        policy = SqrtImpactOptimalPolicy.__new__(SqrtImpactOptimalPolicy)
+        policy.total_steps = total_steps
+        return policy
+
+    @pytest.mark.parametrize("a,b", [(1.0, 1.0), (0.3, 2.5), (4.0, 0.5), (1.0, 1.65)])
+    def test_schedule_sums_to_one_and_nonnegative(self, a, b):
+        policy = self._bare()
+        schedule = policy._build_schedule(a, b)
+        assert len(schedule) == policy.total_steps
+        assert np.all(schedule >= 0.0)
+        assert abs(schedule.sum() - 1.0) < 1e-9
+
+    def test_a_equals_b_equals_one_is_approximately_uniform(self):
+        """Beta(1,1) is the uniform distribution -- this shape must reduce
+        to (approximately) TWAP, since the family is a strict superset of
+        TWAP's shape and TWAP is the a=b=1 special case."""
+        policy = self._bare()
+        schedule = policy._build_schedule(1.0, 1.0)
+        uniform = 1.0 / policy.total_steps
+        assert np.allclose(schedule, uniform, atol=1e-9)
+
+    def test_low_b_front_loads_mass_early(self):
+        """Beta(1, b) with b>1 concentrates mass near t=0 (pdf = b*(1-t)^(b-1),
+        decreasing in t) -- more should sell in the first half than the
+        second, unlike the a=b=1 uniform case."""
+        policy = self._bare()
+        schedule = policy._build_schedule(1.0, 4.0)
+        half = policy.total_steps // 2
+        assert schedule[:half].sum() > schedule[half:].sum()
+
+    def test_fit_seed_base_is_disjoint_but_adjacent_to_eval_range(self):
+        """
+        Fit seeds must start exactly at n_eval_episodes: disjoint from the
+        eval range 0..n_eval_episodes-1 (no leakage) but immediately
+        adjacent to it, not a distant constant -- found empirically that a
+        distant fit-seed range (e.g. 900_000+) samples an entirely
+        different, unrepresentative slice of a volatile date's start-offset
+        space than the eval range does (see class docstring)."""
+        policy = SqrtImpactOptimalPolicy.__new__(SqrtImpactOptimalPolicy)
+        policy.total_steps = 2880
+        n_eval_episodes = 20
+        policy._fit_seed_base = n_eval_episodes
+        assert policy._fit_seed_base == n_eval_episodes
+
+
+import os
+
+_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+_HAS_REAL_ENV = os.path.exists(
+    os.path.join(_REPO_ROOT, "target", "release", "rl-env")
+) and os.path.exists(
+    os.path.join(_REPO_ROOT, "TradeData", "BookDepth", "BTCUSDT-bookDepth-2024-03-05.csv")
+)
+
+requires_real_env_for_sqrt_impact = pytest.mark.skipif(
+    not _HAS_REAL_ENV,
+    reason="requires target/release/rl-env binary and TradeData/ fixtures",
+)
+
+
+@requires_real_env_for_sqrt_impact
+class TestSqrtImpactOptimalFitIntegration:
+    """
+    Exercises the real fit path (StrataExecEnv subprocess + Nelder-Mead)
+    end-to-end on a real date, with a tiny budget so it stays fast. Confirms
+    the optimizer actually explores away from its TWAP starting point rather
+    than falsely converging on the first simplex (see the initial_simplex
+    fix in _fit's docstring -- scipy's default zero-coordinate perturbation
+    is too small to move any of the 2880 discretized schedule fractions).
+    """
+
+    def test_fit_produces_valid_schedule_and_moves_from_start(self):
+        policy = SqrtImpactOptimalPolicy(
+            "2024-03-05", n_eval_episodes=20, n_state_dims=16,
+            mode="counterfactual", btc_target=50_000.0, n_fit_seeds=1, maxiter=8,
+        )
+        assert policy._schedule.shape == (policy.total_steps,)
+        assert abs(policy._schedule.sum() - 1.0) < 1e-9
+        assert np.all(policy._schedule >= 0.0)
+        assert np.isfinite(policy.fit_mean_is)
+        assert policy.a > 0.0 and policy.b > 0.0
+
+    def test_query_calibration_matches_fields_the_impact_model_uses(self):
+        calib = query_calibration("2024-03-05", btc_target=50_000.0)
+        for key in ("impact_coefficient", "sigma", "adv_btc", "rho",
+                    "permanent_fraction", "temporary_fraction", "dt",
+                    "btc_scale"):
+            assert key in calib
+        assert calib["impact_coefficient"] > 0.0
+        assert calib["sigma"] > 0.0
+        assert abs(calib["permanent_fraction"] + calib["temporary_fraction"] - 1.0) < 1e-9

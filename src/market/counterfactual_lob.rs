@@ -148,6 +148,15 @@ pub struct CounterfactualLob {
 }
 
 impl CounterfactualLob {
+    /// Read access to the (possibly calibrated) config in force for this
+    /// instance. Exists so callers outside this module -- e.g. `rl_env.rs`'s
+    /// `--print-calibration` -- can read back the per-date fitted
+    /// impact_coefficient/sigma/adv_btc without duplicating the calibration
+    /// logic that produced them (see `CounterfactualLobConfig::calibrated`).
+    pub fn config(&self) -> &CounterfactualLobConfig {
+        &self.config
+    }
+
     pub fn new(mut replay: LobReplay, config: CounterfactualLobConfig) -> Self {
         // Peek at first snapshot, compute depth_ref in simulation units, then rewind.
         let depth_ref = {

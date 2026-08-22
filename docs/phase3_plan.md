@@ -401,11 +401,26 @@ not claim attribution without it.
   the same broken estimator, and the numerical optimizer is item 5. That alone sequences imitation
   after the state fix.
 
-### Step 3 — Item 5: numerically-optimized sqrt-impact baseline
+### Step 3 — Item 5: numerically-optimized sqrt-impact baseline — DONE 2026-08-22
 Promoted to the critical path. It is simultaneously (a) the readability leg of the comparison —
 without it, "RL loses" cannot be distinguished from "AC's linear assumption costs little" or "both
 are far from optimal"; (b) the only principled route out of the uncalibratable-η problem; and
 (c) the only clean imitation expert.
+
+**Result (`docs/phase3_step3_result.md`): AC was not a strawman.**
+`SqrtImpactOptimalPolicy` (Beta-CDF schedule family, fit against the real simulator, not a
+closed-form guess) beats AC-Optimal on all four dates tested, but only by 0.05-0.38pp — RL still
+beats it by +0.73pp/+1.16pp on the two held-out crash dates, nearly identical to RL's margin over
+AC-Optimal itself. Fixing AC's linear-impact assumption recovers almost none of RL's crash-day
+edge. Combined with Step 2b (RL's crash edge doesn't come from pacing either), this leaves
+per-fill reactivity to the realized order book as the standing explanation, not schedule shape or
+impact-model mismatch — which undercuts the residual-action-space and imitation-learning
+proposals' shared premise a second time. On calm/normal dates the pattern reverses: Sqrt-Impact
+Optimal is the best or tied-best strategy, RL is the worst. Also surfaced a load-bearing
+methodology finding along the way: mean_IS on 2024-08-05 varies by more than an order of magnitude
+(−0.7% to −9.7%) depending purely on which ~10-20 episodes get sampled from the first third of the
+day — a sharp, quantified version of audit finding 5, and a risk for any future date-specific
+fitting or calibration in this codebase, not just this baseline.
 
 ### Doc fixes (cheap, do alongside)
 - ~~Correct issue #6's mechanism in `phase2r_standing_issues.md`~~ — done alongside Step 0.
