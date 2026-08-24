@@ -167,7 +167,15 @@ requires either a shorter eval horizon (changes every published number) or multi
 exist here). This is a design tension, not a typo, and choosing between those costs is the user's
 call — so it is recorded rather than unilaterally changed.
 
-## 6. Policy is underfit at 500k timesteps — entropy never leaves uniform (NOT fixed — actionable)
+## 6. Policy is underfit at 500k timesteps — entropy never leaves uniform (FIXED 2026-08-24)
+
+**Update:** fixed and closed by Phase 3 Step 4 (`docs/phase3_step4_result.md`) — retrained with
+`--timesteps 1500000 --ent-coef 0.01`, entropy_loss moved from -2.85 to -1.27 (~95% → ~42% of max),
+a genuine sharpening. The regime-conditional IS pattern survived but shifted in a mixed direction
+(smaller crash-date edge, smaller calm-date loss, larger normal-date loss); pacing responsiveness
+got MORE wrong-direction (-0.0216 → -0.0892), ruling out "needs more training" as an explanation for
+the pacing dissociation. Original finding text below, for the record.
+
 
 Across the whole corrective run, `train/entropy_loss` moved from **−2.99 to −2.92**. Max entropy for
 a 20-action space is ln(20) = 2.996, so the stochastic policy sat at **~98% of uniform-random for

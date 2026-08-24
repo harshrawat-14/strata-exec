@@ -422,6 +422,17 @@ methodology finding along the way: mean_IS on 2024-08-05 varies by more than an 
 day — a sharp, quantified version of audit finding 5, and a risk for any future date-specific
 fitting or calibration in this codebase, not just this baseline.
 
+### Step 4 — Audit finding 6 (underfit policy): fixed, doesn't change the story — DONE 2026-08-24
+Retrained with `--timesteps 1500000 --ent-coef 0.01` (vs Step 2b's 500k/0.05) per the audit's
+"cheapest next experiments." Entropy genuinely sharpened (entropy_loss -2.85 → -1.27, ~95% → ~42% of
+max). **Result (`docs/phase3_step4_result.md`): the regime-conditional pattern survives, but shifts
+in a mixed direction** — crash-date edge over AC-Optimal shrank (+1.10/+1.21pp → +0.92/+0.92pp),
+calm-date loss shrank (-1.42pp → -0.80pp), normal-date loss grew (-0.20pp → -0.46pp). **Pacing got
+MORE wrong-direction, not less**: responsiveness -0.0216 → -0.0892 (>4×) — a sharper, 3×-longer-trained
+policy moved further from regime-responsive urgency, ruling out "the policy just needs more training"
+as an explanation for Step 2b's pacing dissociation. Audit finding 6 is closed. Confound: timesteps
+and ent_coef were changed together, not isolated (both were the audit's joint recommendation).
+
 ### Doc fixes (cheap, do alongside)
 - ~~Correct issue #6's mechanism in `phase2r_standing_issues.md`~~ — done alongside Step 0.
 - Restate the λ framing as preference-not-physics, with the 0/7-severe composition explicit. Not
