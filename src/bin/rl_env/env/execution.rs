@@ -298,7 +298,15 @@ impl RlEnv {
 
         if (time_done || cf_exhausted) && self.remaining > 0.001 * self.cfg.total_inventory {
             let mid = self.current_mid.max(1e-12);
-            let mut book = self.cf_lob.as_ref().map(|cf| cf.current_adjusted_book());
+            // Once the replay has run past its last snapshot the adjusted book
+            // is empty, so a dump against it fills nothing and the whole
+            // remainder would be priced by the punitive fallback. Dump into the
+            // last real book instead: this step's, after our own fill.
+            let mut book = if cf_exhausted {
+                Some(adjusted_book)
+            } else {
+                self.cf_lob.as_ref().map(|cf| cf.current_adjusted_book())
+            };
             let liq = ForcedLiquidation::price(book.as_mut(), self.remaining, mid, self.spread_ref);
             total_reward_adj -= self.settle_forced_liquidation(&liq, mid);
             forced = Some(liq);

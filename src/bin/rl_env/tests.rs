@@ -1407,3 +1407,43 @@ mod cli {
         assert!(err.contains("requires a value"), "{err}");
     }
 }
+
+#[test]
+fn forced_liquidation_at_data_exhaustion_walks_the_last_real_book() {
+    // Regression guard: a fixed-horizon counterfactual episode that starts
+    // at a non-zero offset runs past the day's last snapshot before its
+    // clock ends. The adjusted book is then empty, and the forced dump used
+    // to fill nothing and price 100% of the remainder by the punitive
+    // fallback (mid - 5 * spread_ref) -- cheap enough that never trading
+    // beat competent execution. The dump must consume the last real book.
+    let lob_path = "TradeData/BookDepth/BTCUSDT-bookDepth-2024-01-15.csv";
+    if !std::path::Path::new(lob_path).exists() {
+        eprintln!("skipping: {lob_path} not present in this checkout");
+        return;
+    }
+    let cfg = EnvConfig {
+        mode: RlMode::Counterfactual,
+        lob_data_path: Some(lob_path.to_string()),
+        btc_target: 50_000.0,
+        fixed_steps: true,
+        fixed_size: true,
+        no_time_features: true,
+        ..EnvConfig::default()
+    };
+    let mut env = RlEnv::new(cfg);
+    env.reset(Some(17)); // start offset 17: data runs out before the clock
+    let mut last = env.step(0);
+    while !last.done {
+        last = env.step(0); // wait every step
+    }
+    let info = &last.info;
+    let filled = info["forced_liq_filled_qty"].as_f64().unwrap_or(0.0);
+    assert!(
+        info["forced_liquidation_qty"].as_f64().unwrap_or(0.0) > 0.0,
+        "all-wait episode must end in a forced liquidation: {info}"
+    );
+    assert!(
+        filled > 0.0,
+        "forced dump at data exhaustion must fill against real depth, got {filled}"
+    );
+}

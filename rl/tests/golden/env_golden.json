@@ -70,10 +70,10 @@
      "depth_reduction_pct": 0.0,
      "fill_price": 101.90413807845877,
      "fill_qty": 0.0,
-     "forced_liq_filled_notional": 0.0,
-     "forced_liq_filled_qty": 0.0,
-     "forced_liq_punitive_notional": 99741707.41816162,
-     "forced_liq_residual_qty": 1000000.0,
+     "forced_liq_filled_notional": 21383770.89244674,
+     "forced_liq_filled_qty": 215304.01999999996,
+     "forced_liq_punitive_notional": 76238336.33522163,
+     "forced_liq_residual_qty": 784695.9800000001,
      "forced_liquidation_qty": 1000000.0,
      "interval_volume": 0.0,
      "is_contribution": -0.0,
@@ -83,12 +83,12 @@
      "remaining": 0.0,
      "sigma_ref": 0.4999,
      "step": 2880,
-     "total_IS_pct": 0.25829258183838427,
-     "total_is_dollar": 258292.58183838427
+     "total_IS_pct": 2.3778927723316254,
+     "total_is_dollar": 2377892.772331625
     },
     "n_steps": 2880,
-    "sha256": "c74c9127b19c6075de1353bf0d6f282a19cb93417378f2c51d25af5149ed7dc6",
-    "total_reward": -0.029089174599439403
+    "sha256": "d46a1265b43205f0ca478e8796a55bbcf6ce2c9ecc9b23d52dd0a366a76b4dff",
+    "total_reward": -0.050285176504371705
    },
    "all_wait/seed17": {
     "final_info": {
@@ -99,10 +99,10 @@
      "depth_reduction_pct": 0.0,
      "fill_price": 101.58425783955987,
      "fill_qty": 0.0,
-     "forced_liq_filled_notional": 0.0,
-     "forced_liq_filled_qty": 0.0,
-     "forced_liq_punitive_notional": 99138660.34284808,
-     "forced_liq_residual_qty": 1000000.0,
+     "forced_liq_filled_notional": 21316646.574724052,
+     "forced_liq_filled_qty": 215304.01999999996,
+     "forced_liq_punitive_notional": 75771495.49640198,
+     "forced_liq_residual_qty": 784695.9800000001,
      "forced_liquidation_qty": 1000000.0,
      "interval_volume": 0.0,
      "is_contribution": -0.0,
@@ -112,12 +112,12 @@
      "remaining": 0.0,
      "sigma_ref": 0.4999,
      "step": 2863,
-     "total_IS_pct": 0.8613396571519226,
-     "total_is_dollar": 861339.6571519226
+     "total_IS_pct": 2.911857928873971,
+     "total_is_dollar": 2911857.928873971
     },
     "n_steps": 2863,
-    "sha256": "b379d9ed67cb25ab7ccb7d3666de6c93a789a9c2b78c62050bf4a564f1249a4e",
-    "total_reward": -0.03190025876552122
+    "sha256": "f217a9a81fa27ed23120eee375f4cb0dda8fa8243e5ccdcada8255be9858154b",
+    "total_reward": -0.052405441482741774
    },
    "random/seed0": {
     "final_info": {
@@ -382,10 +382,10 @@
      "depth_reduction_pct": 0.0,
      "fill_price": 99.29927689621331,
      "fill_qty": 0.0,
-     "forced_liq_filled_notional": 0.0,
-     "forced_liq_filled_qty": 0.0,
-     "forced_liq_punitive_notional": 96773517.2514263,
-     "forced_liq_residual_qty": 1000000.0,
+     "forced_liq_filled_notional": 16491393.429493371,
+     "forced_liq_filled_qty": 169599.75999999998,
+     "forced_liq_punitive_notional": 78648342.31569347,
+     "forced_liq_residual_qty": 830400.2399999999,
      "forced_liquidation_qty": 1000000.0,
      "interval_volume": 0.0,
      "is_contribution": -0.0,
@@ -395,12 +395,12 @@
      "remaining": 0.0,
      "sigma_ref": 0.4999,
      "step": 2854,
-     "total_IS_pct": 3.226482748573706,
-     "total_is_dollar": 3226482.7485737056
+     "total_IS_pct": 4.860264254813164,
+     "total_is_dollar": 4860264.2548131645
     },
     "n_steps": 2854,
-    "sha256": "d2588e143a34aad5c972aa632dd634df808f4ce6e487cce0815a8861fc32a1e4",
-    "total_reward": -0.03958345587665391
+    "sha256": "fe4ceb91a70bb012e883d52eca083b39f5d2ff7d132383977083073d9750143b",
+    "total_reward": -0.055921270939048494
    },
    "all_wait/seed17": {
     "final_info": {
@@ -411,10 +411,10 @@
      "depth_reduction_pct": 0.0,
      "fill_price": 99.22749886848383,
      "fill_qty": 0.0,
-     "forced_liq_filled_notional": 0.0,
-     "forced_liq_filled_qty": 0.0,
-     "forced_liq_punitive_notional": 97119877.51232727,
-     "forced_liq_residual_qty": 1000000.0,
+     "forced_liq_filled_notional": 16479472.701247614,
+     "forced_liq_filled_qty": 169599.75999999998,
+     "forced_liq_punitive_notional": 78937197.76693802,
+     "forced_liq_residual_qty": 830400.2399999999,
      "forced_liquidation_qty": 1000000.0,
      "interval_volume": 0.0,
      "is_contribution": -0.0,
@@ -424,12 +424,12 @@
      "remaining": 0.0,
      "sigma_ref": 0.4999,
      "step": 2837,
-     "total_IS_pct": 2.880122487672731,
-     "total_is_dollar": 2880122.4876727313
+     "total_IS_pct": 4.583329531814367,
+     "total_is_dollar": 4583329.531814367
     },
     "n_steps": 2837,
-    "sha256": "8236d9636d24bdb95e9859e56dee392ab7a427fd57009db38028de08eb7273fc",
-    "total_reward": -0.035159330248862745
+    "sha256": "e963281fb2290b563d39abaa006d4afb1610fdbf06fcc21c5424cc3011cb45b5",
+    "total_reward": -0.0521914006902791
    },
    "random/seed0": {
     "final_info": {
@@ -538,10 +538,10 @@
      "depth_reduction_pct": 0.0,
      "fill_price": 99.29927689621331,
      "fill_qty": 0.0,
-     "forced_liq_filled_notional": 0.0,
-     "forced_liq_filled_qty": 0.0,
-     "forced_liq_punitive_notional": 96773517.2514263,
-     "forced_liq_residual_qty": 1000000.0,
+     "forced_liq_filled_notional": 16491393.429493371,
+     "forced_liq_filled_qty": 169599.75999999998,
+     "forced_liq_punitive_notional": 78648342.31569347,
+     "forced_liq_residual_qty": 830400.2399999999,
      "forced_liquidation_qty": 1000000.0,
      "interval_volume": 0.0,
      "is_contribution": -0.0,
@@ -551,12 +551,12 @@
      "remaining": 0.0,
      "sigma_ref": 0.4999,
      "step": 2854,
-     "total_IS_pct": 3.226482748573706,
-     "total_is_dollar": 3226482.7485737056
+     "total_IS_pct": 4.860264254813164,
+     "total_is_dollar": 4860264.2548131645
     },
     "n_steps": 2854,
-    "sha256": "d2588e143a34aad5c972aa632dd634df808f4ce6e487cce0815a8861fc32a1e4",
-    "total_reward": -0.03958345587665391
+    "sha256": "fe4ceb91a70bb012e883d52eca083b39f5d2ff7d132383977083073d9750143b",
+    "total_reward": -0.055921270939048494
    },
    "all_wait/seed17": {
     "final_info": {
@@ -567,10 +567,10 @@
      "depth_reduction_pct": 0.0,
      "fill_price": 99.22749886848383,
      "fill_qty": 0.0,
-     "forced_liq_filled_notional": 0.0,
-     "forced_liq_filled_qty": 0.0,
-     "forced_liq_punitive_notional": 97119877.51232727,
-     "forced_liq_residual_qty": 1000000.0,
+     "forced_liq_filled_notional": 16479472.701247614,
+     "forced_liq_filled_qty": 169599.75999999998,
+     "forced_liq_punitive_notional": 78937197.76693802,
+     "forced_liq_residual_qty": 830400.2399999999,
      "forced_liquidation_qty": 1000000.0,
      "interval_volume": 0.0,
      "is_contribution": -0.0,
@@ -580,12 +580,12 @@
      "remaining": 0.0,
      "sigma_ref": 0.4999,
      "step": 2837,
-     "total_IS_pct": 2.880122487672731,
-     "total_is_dollar": 2880122.4876727313
+     "total_IS_pct": 4.583329531814367,
+     "total_is_dollar": 4583329.531814367
     },
     "n_steps": 2837,
-    "sha256": "8236d9636d24bdb95e9859e56dee392ab7a427fd57009db38028de08eb7273fc",
-    "total_reward": -0.035159330248862745
+    "sha256": "e963281fb2290b563d39abaa006d4afb1610fdbf06fcc21c5424cc3011cb45b5",
+    "total_reward": -0.0521914006902791
    },
    "random/seed0": {
     "final_info": {
