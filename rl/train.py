@@ -35,6 +35,14 @@ from training.envs import (  # noqa: F401
 )
 
 
+# Policy LSTM architecture for fresh runs. The single source for both model
+# construction and what gets logged: train() previously logged
+# lstm_hidden=128/lstm_layers=2 from unused parameters while building 64x1,
+# so every run's MLflow params misrecorded its architecture.
+LSTM_HIDDEN_SIZE = 64
+LSTM_LAYERS = 1
+
+
 def train(
     total_timesteps: int = 500_000,
     adversarial: bool = False,
@@ -48,8 +56,6 @@ def train(
     lr_schedule: str = "cosine_restarts",
     ent_coef: float = 0.05,
     jump_diffusion: bool = False,
-    lstm_hidden: int = 128,
-    lstm_layers: int = 2,
     n_envs: int = 4,
     no_time_features: bool = False,
     resume_from: str = None,
@@ -110,8 +116,8 @@ def train(
             mlflow.set_tag("resumed_n_envs", n_envs)
         else:
             mlflow.log_params(dict(
-                lstm_hidden=lstm_hidden,
-                lstm_layers=lstm_layers,
+                lstm_hidden=LSTM_HIDDEN_SIZE,
+                lstm_layers=LSTM_LAYERS,
                 n_state_dims=n_state_dims,
                 ent_coef=ent_coef,
                 lr_schedule=lr_schedule,
@@ -141,7 +147,8 @@ def train(
             print("  Jump diffusion: Poisson jump events ACTIVE")
         print(f"  ent_coef: {ent_coef}")
         print(f"  lr_schedule: {lr_schedule} (base_lr={base_lr:.2e})")
-        print(f"  LSTM: {lstm_hidden} hidden × {lstm_layers} layers")
+        print(f"  LSTM: {LSTM_HIDDEN_SIZE} hidden × {LSTM_LAYERS} layers"
+              f"{' (resumed runs keep the checkpoint architecture)' if resume_from else ''}")
         print(f"  n_state_dims: {n_state_dims}"
               f"{' (time features s12-s15 included)' if n_state_dims == 16 else ''}")
         print("=" * 60)
@@ -311,8 +318,8 @@ def train(
                 ent_coef=ent_coef,
                 policy_kwargs=dict(
                     net_arch=dict(pi=[64, 64], vf=[64, 64]),
-                    lstm_hidden_size=64,
-                    n_lstm_layers=1,
+                    lstm_hidden_size=LSTM_HIDDEN_SIZE,
+                    n_lstm_layers=LSTM_LAYERS,
                     activation_fn=torch.nn.Tanh,
                     enable_critic_lstm=True,
                 ),

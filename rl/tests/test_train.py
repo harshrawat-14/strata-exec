@@ -324,3 +324,46 @@ class TestMemoryLoggingCallback:
             )
         finally:
             mlflow.set_tracking_uri(original_uri)
+
+
+class TestLoggedArchitectureMatchesModel:
+    """train() used to log lstm_hidden=128 / lstm_layers=2 from unused
+    parameters while building a 64x1 LSTM, so every run's MLflow params
+    misrecorded its architecture. Logged values must be what is built."""
+
+    class _Stop(Exception):
+        pass
+
+    def test_logged_lstm_params_match_constructed_policy(self, monkeypatch):
+        import train as train_module
+
+        logged = {}
+        built = {}
+
+        def fake_log_params(params):
+            logged.update(params)
+
+        class FakeRecurrentPPO:
+            def __init__(self, *args, policy_kwargs=None, **kwargs):
+                built.update(policy_kwargs or {})
+                raise TestLoggedArchitectureMatchesModel._Stop()
+
+        class FakeRun:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+        monkeypatch.setattr(train_module.mlflow, "start_run", lambda **k: FakeRun())
+        monkeypatch.setattr(train_module.mlflow, "log_params", fake_log_params)
+        monkeypatch.setattr(train_module, "SubprocVecEnv", lambda fns: object())
+        monkeypatch.setattr(train_module, "make_multi_date_eval_env", lambda *a, **k: object())
+        monkeypatch.setattr(train_module, "RecurrentPPO", FakeRecurrentPPO)
+
+        with pytest.raises(self._Stop):
+            train(mode="synthetic", total_timesteps=1, n_envs=1, force_device="cpu",
+                  run_name="arch_check")
+
+        assert logged["lstm_hidden"] == built["lstm_hidden_size"]
+        assert logged["lstm_layers"] == built["n_lstm_layers"]
