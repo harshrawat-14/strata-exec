@@ -1,7 +1,7 @@
 # Phase 3 Step 3 — numerically-optimized sqrt-impact baseline
 
 Written 2026-08-22. Answers the question Step 3 was promoted to the critical path to
-separate (`docs/phase3_plan.md`): Step 2b showed RL beats AC-Optimal on both held-out
+separate (`docs/proposals/research-roadmap.md`): Step 2b showed RL beats AC-Optimal on both held-out
 crash dates while pacing *slower* and *less* urgently than AC overall, so the crash-date
 advantage does not come from timing. That leaves two live explanations. (a) AC's
 LINEAR-impact assumption is a poor fit to this project's real, empirically
@@ -38,7 +38,7 @@ cost model should ever do. Diagnosis, not assumption: re-ran the *same fixed sch
 % max_start` restricts starts to the first third of the day, but that third is far from
 homogeneous on this date. This is a sharper, quantified version of the platform audit's
 finding 5 ("eval episodes are near-duplicates, crash-date statistics are not credible,"
-`docs/phase3_platform_audit.md`) — every mean_IS anywhere in this project for
+`docs/methodology/platform-audit.md`) — every mean_IS anywhere in this project for
 2024-08-05 (this table, Step 2, Step 2b, RL16) is scored against one arbitrary narrow
 slice of a day whose true outcome distribution is far wider than that slice suggests.
 

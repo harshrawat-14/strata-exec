@@ -28,7 +28,7 @@ binary whose state encoding it was trained on:
     Step 2 (post-Step-0) -> default ./target/release/rl-env
 Comparing implementation shortfall across the two is valid because nothing in
 the counterfactual fill/impact/price path reads sigma_ref -- verified and
-recorded in docs/phase3_plan.md, Step 2. Comparing PACE across them is even
+recorded in docs/proposals/research-roadmap.md, Step 2. Comparing PACE across them is even
 safer, since pace is a function of actions alone.
 
 Usage (run once per model, with the matching binary):

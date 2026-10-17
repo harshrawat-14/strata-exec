@@ -1,9 +1,9 @@
 # Phase 3 Step 1 — Tail-risk validation: does RL's CVaR edge survive controlling for its mean edge?
 
-Written 2026-08-13. Answers the four-part evidence bar laid out in `docs/phase3_plan.md`, "The tail
+Written 2026-08-13. Answers the four-part evidence bar laid out in `docs/proposals/research-roadmap.md`, "The tail
 claim — evidence bar and current status," against the previously-unanalyzed CVaR-95 columns in
 `rl/results/phase2r_ablation_honest_lambda.csv`. Follows the reporting conventions of
-`docs/phase2r_standing_issues.md`: every requirement is reported, including the one that fails, with
+`docs/methodology/standing-issues.md`: every requirement is reported, including the one that fails, with
 exact numbers and CIs, not summarized into a single verdict.
 
 ## Bottom line, stated first
@@ -27,7 +27,7 @@ treating them as two different findings.
 
 ## A methodological finding surfaced while building this, stated before the results
 
-**RL16's frozen checkpoint predates Phase 3 Step 0's state-signal repair (`docs/phase3_plan.md`
+**RL16's frozen checkpoint predates Phase 3 Step 0's state-signal repair (`docs/proposals/research-roadmap.md`
 section C/D, commit `0e3356b`) — evaluating it with the current `rl_env.rs` binary silently feeds it
 an out-of-distribution `s10`/`s11`/`s2`/`s13` it never saw in training, and materially changes its
 behavior.** Discovered directly: the first full 25-date eval pass in this session was run against the
@@ -59,8 +59,8 @@ used *that* binary for every result in this document. Verified by exact reproduc
 | 2024-08-05 | tw_mean_IS | −9.073939 | −9.073939 | exact |
 
 Every number in this document is from the pre-Step-0 binary. **Standing implication for later
-sessions, not actioned here (out of this task's scope — only `docs/phase3_tail_validation.md` and the
-`docs/phase3_plan.md` Step 1 line were in scope):** any future eval of the current RL16/RL12
+sessions, not actioned here (out of this task's scope — only `docs/experiments/05-tail-risk-validation.md` and the
+`docs/proposals/research-roadmap.md` Step 1 line were in scope):** any future eval of the current RL16/RL12
 checkpoints must keep using the pre-Step-0 binary until Phase 3 Step 2 retrains on the repaired state;
 `rl/results/PROVENANCE.md` likely deserves a new row/section recording this boundary the same way it
 records the Task 2/3 one, but that edit was left out of scope here to avoid touching a shared file
@@ -103,7 +103,7 @@ outside this task's assigned section.
 
 ## Requirement #1 — severity ↑ → RL mean advantage ↑
 
-Already established (`docs/phase2r_severity_expansion.md`: top 7/17 most-severe days = 7/7 RL wins on
+Already established (`docs/experiments/04-crash-severity-expansion.md`: top 7/17 most-severe days = 7/7 RL wins on
 mean IS). Not re-derived here per the task scope.
 
 ## Requirement #2 — severity ↑ → RL CVaR advantage ↑ — MET
@@ -160,7 +160,7 @@ p<0.0001 with a CI that does not cross zero:
 | 95% | +1.3760 [+1.3479, +1.4590] p=0.0000 | +1.2853 [+1.2609, +1.3648] p=0.0000 | +2.6040 [+2.5019, +2.7442] p=0.0000 |
 | 99% | +1.3479 [+1.3479, +1.4590] p=0.0000 | +1.2609 [+1.2609, +1.3648] p=0.0000 | +2.6038 [+2.4989, +2.7442] p=0.0000 |
 
-The raw CVaR-95 headline in `docs/phase3_plan.md`'s table is not a fragile point estimate — it is
+The raw CVaR-95 headline in `docs/proposals/research-roadmap.md`'s table is not a fragile point estimate — it is
 robust across the 90/95/99 quantile choice and has tight, non-zero-crossing CIs on both flagship
 dates against every baseline. Full 25-date × 3-baseline × 3-quantile table in
 `rl/results/phase3_tail_validation_cvar_bootstrap.csv`.
@@ -226,7 +226,7 @@ not the baseline the "tail risk management" claim is actually about. It does not
 
 ## What this means for the phase headline
 
-The phase's established mean-cost finding (`docs/phase2r_standing_issues.md` issue #0) is unaffected
+The phase's established mean-cost finding (`docs/methodology/standing-issues.md` issue #0) is unaffected
 by anything here — it is a separate, already-robust result. What this document adds and subtracts:
 
 - **Adds:** the same severity-scaling pattern replicates cleanly at the CVaR-95 level (#2), and the

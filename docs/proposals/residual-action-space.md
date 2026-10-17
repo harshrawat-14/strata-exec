@@ -21,10 +21,10 @@ regime-blindness static-AC-at-one-λ has). **The target is adaptive urgency — 
 residual should supply. But the reference schedule this design deviates from cannot be static AC at a
 fixed λ, since that is now shown to be regime-blind by construction; it must itself be
 regime-responsive.** Two live candidates: Adaptive-AC's live within-episode volatility response, or
-item 5's numerically-optimized schedule. Issue #6 (`docs/phase2r_standing_issues.md`) shows
+item 5's numerically-optimized schedule. Issue #6 (`docs/methodology/standing-issues.md`) shows
 Adaptive-AC's live response itself lags in exactly the early window where urgency gets decided — a
 **hard gate** on that candidate specifically, to be checked before it's chosen, not after. See
-`docs/phase2r_objective_bias_finding.md`, "The λ-selection protocol was hindsight," for the full
+`docs/experiments/02-reward-objective-audit.md`, "The λ-selection protocol was hindsight," for the full
 finding and the mechanistic-thesis framing.
 
 **The two no-training checks below (`rl/phase2r_urgency_diagnosis.py`) still bear on the design's
@@ -37,12 +37,12 @@ mechanics regardless of which reference schedule is eventually chosen:**
    costlier chunks. **No single cap is uniformly right — the multiplier bounds/resolution below can't
    just be fine-grained near 1.0, and can't just be wide either; the design needs to let the agent
    choose when to use its range, which is the credit-assignment problem itself, not a precondition
-   solved by a better constant.** See `docs/phase2r_objective_bias_finding.md`, "RL learned execution
+   solved by a better constant.** See `docs/experiments/02-reward-objective-audit.md`, "RL learned execution
    but not urgency," Task A, for the full numbers (both the original and corrected uncapped results).
 2. The discrete regime-indicator state dims (vol_regime, liq_regime) were found to be completely flat
    and uninformative for the first ~100 steps of the episode on every date tested, while the
    continuous vol-ratio dims did carry real, growing signal in that window — now issue #6 in
-   `docs/phase2r_standing_issues.md`. Because any live-adaptive reference schedule for this design
+   `docs/methodology/standing-issues.md`. Because any live-adaptive reference schedule for this design
    shares the *same* rolling-vol estimator RL's own state uses, **the reference schedule would not
    automatically escape this early-window lag — it needs to be checked against whatever reference is
    chosen, not assumed fixed by moving to this action space.** This is now a named, hard requirement
@@ -113,7 +113,7 @@ assignment problem than learning absolute sizing over a full multi-thousand-step
   bug, and now this granularity investigation). Changing the action space doesn't just add a new
   result, it changes the ground every existing result was measured on — the same reasoning already
   used to defer the earlier "uniform vs non-linear vs continuous buckets" idea in
-  `docs/phase2r_standing_issues.md`. **This needs to be its own phase**, not a Task 4 addendum.
+  `docs/methodology/standing-issues.md`. **This needs to be its own phase**, not a Task 4 addendum.
 - **Reference-schedule choice is itself a design decision, not free of the sqrt-vs-linear question.**
   If the reference is AC-Optimal (linear-impact-misspecified per the calibration design note), the
   agent inherits a misspecified prior — better than no prior, but not obviously the *right* prior. If

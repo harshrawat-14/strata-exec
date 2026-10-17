@@ -1,7 +1,7 @@
 # Phase 3 plan — state-signal repair, tail-risk validation, and a readable baseline triangle
 
 Written 2026-08-13. This is the working plan and the reasoning behind it, recorded so it survives
-between sessions. Supersedes nothing; it sits downstream of `docs/phase2r_standing_issues.md`.
+between sessions. Supersedes nothing; it sits downstream of `docs/methodology/standing-issues.md`.
 
 ---
 
@@ -50,7 +50,7 @@ mean subject to a stated risk constraint.
 
 ### C. `sigma_ref` is a hardcoded constant — and the regime buckets can never fire
 
-**This corrects `docs/phase2r_standing_issues.md` issue #6, whose stated mechanism is wrong.**
+**This corrects `docs/methodology/standing-issues.md` issue #6, whose stated mechanism is wrong.**
 Issue #6 attributes the dead s10/s11 dims to a whole-day-calibrated `sigma_ref` plus a 5-sample
 warmup. The code says otherwise:
 
@@ -79,7 +79,7 @@ crash and a calm day.
 Two compounding causes:
 
 1. **`sigma_ref` hardcoded at 0.20** — instance **#4** of the project's canonical-value bug class
-   (see the meta-lesson in `phase2r_standing_issues.md`). `realized_volatility` already exists in
+   (see the meta-lesson in `../methodology/standing-issues.md`). `realized_volatility` already exists in
    `src/calibration/impact_fit.rs` and is never wired to it.
 2. **Annualization is wrong by ~19x** — `realised_vol()` multiplies per-step sd by
    `sqrt(total_steps)` = sqrt(2880) ~ 53.7. A year is ~2880 steps x 365 days, so the factor should
@@ -266,7 +266,7 @@ event that mean-reverts fast** — not a regime the way volatility is one. Swapp
 (half_spread → raw depth) would not have passed an s10-style first-100-step regression test either
 (verified directly, not assumed), so implementing it would have been exactly the cosmetic fix this
 phase was warned against forcing. **Treated as a genuine null result, same rigor bar as the VPIN
-finding (`docs/phase2r_standing_issues.md` issue #4): s11/liq_regime is not a usable early-decision
+finding (`docs/methodology/standing-issues.md` issue #4): s11/liq_regime is not a usable early-decision
 signal at this data's resolution, for the two crash dates this project has ground truth for — left
 unfixed, not patched to look better. Do not build anything (residual-action-space reference,
 Adaptive-AC diagnosis) that depends on s11 being informative early in an episode.** A same-step
@@ -276,11 +276,11 @@ swapping in as a coincident (not early-warning) liquidity reading in a future ph
 motivated to do so — but that is a different, weaker claim than "regime detection," and is not
 implemented here since it does not fix the diagnosed problem.
 
-Corrected in `docs/phase2r_standing_issues.md` issue #6 (append-only correction, original wrong
+Corrected in `docs/methodology/standing-issues.md` issue #6 (append-only correction, original wrong
 mechanism kept visible) and logged as meta-lesson bug-class instance #4.
 
 ### Step 1 — Tail validation (gates IQN) — independent of Step 0 — DONE 2026-08-13, mixed result
-Full writeup: `docs/phase3_tail_validation.md`. Per-episode dumping added
+Full writeup: `docs/experiments/05-tail-risk-validation.md`. Per-episode dumping added
 (`rl/phase3_tail_validation_eval.py`, all 25 V2 dates, not just 17). Requirement #2 (severity → CVaR
 advantage) and #4 (bootstrap robustness, CVaR-90/95/99) **MET** — top-7-severity CVaR clean sweep,
 same pattern as the mean result; raw CVaR deltas significant at p<0.0001 across all quantiles on both
@@ -407,7 +407,7 @@ without it, "RL loses" cannot be distinguished from "AC's linear assumption cost
 are far from optimal"; (b) the only principled route out of the uncalibratable-η problem; and
 (c) the only clean imitation expert.
 
-**Result (`docs/phase3_step3_result.md`): AC was not a strawman.**
+**Result (`docs/experiments/08-sqrt-impact-baseline.md`): AC was not a strawman.**
 `SqrtImpactOptimalPolicy` (Beta-CDF schedule family, fit against the real simulator, not a
 closed-form guess) beats AC-Optimal on all four dates tested, but only by 0.05-0.38pp — RL still
 beats it by +0.73pp/+1.16pp on the two held-out crash dates, nearly identical to RL's margin over
@@ -425,7 +425,7 @@ fitting or calibration in this codebase, not just this baseline.
 ### Step 4 — Audit finding 6 (underfit policy): fixed, doesn't change the story — DONE 2026-08-24
 Retrained with `--timesteps 1500000 --ent-coef 0.01` (vs Step 2b's 500k/0.05) per the audit's
 "cheapest next experiments." Entropy genuinely sharpened (entropy_loss -2.85 → -1.27, ~95% → ~42% of
-max). **Result (`docs/phase3_step4_result.md`): the regime-conditional pattern survives, but shifts
+max). **Result (`docs/experiments/09-policy-capacity-and-entropy.md`): the regime-conditional pattern survives, but shifts
 in a mixed direction** — crash-date edge over AC-Optimal shrank (+1.10/+1.21pp → +0.92/+0.92pp),
 calm-date loss shrank (-1.42pp → -0.80pp), normal-date loss grew (-0.20pp → -0.46pp). **Pacing got
 MORE wrong-direction, not less**: responsiveness -0.0216 → -0.0892 (>4×) — a sharper, 3×-longer-trained
@@ -434,9 +434,9 @@ as an explanation for Step 2b's pacing dissociation. Audit finding 6 is closed. 
 and ent_coef were changed together, not isolated (both were the audit's joint recommendation).
 
 ### Doc fixes (cheap, do alongside)
-- ~~Correct issue #6's mechanism in `phase2r_standing_issues.md`~~ — done alongside Step 0.
+- ~~Correct issue #6's mechanism in `../methodology/standing-issues.md`~~ — done alongside Step 0.
 - Restate the λ framing as preference-not-physics, with the 0/7-severe composition explicit. Not
-  yet done — still owed in `phase2r_standing_issues.md`/`phase2r_objective_bias_finding.md`.
+  yet done — still owed in `../methodology/standing-issues.md`/`../experiments/02-reward-objective-audit.md`.
 - Soften "provably wrong problem" to the wording in E. Not yet done.
 
 ### Explicitly not now

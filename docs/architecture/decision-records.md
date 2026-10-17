@@ -163,7 +163,7 @@ broken code path while keeping the throughput-dominant MLP layers on MPS.
 **Consequences:** Every model saved after MPS training has shifted state
 dict key names for the wrapped LSTM submodules (`lstm_actor.lstm.*` instead
 of `lstm_actor.*`), which `rl/evaluate.py`'s `load_model()` must detect and
-remap before loading on a machine without the wrapper (see LLD.md). This
+remap before loading on a machine without the wrapper (see low-level-design.md). This
 workaround should be removed (or simply left in place, since it is
 harmless overhead) once the project's pinned PyTorch version is upgraded to
 ≥ 2.3, where the underlying MPS LSTM kernel was rewritten.
@@ -176,7 +176,7 @@ harmless overhead) once the project's pinned PyTorch version is upgraded to
 
 **Context — this partially revises ADR-001.** ADR-001 accepted JSON-over-stdio on the
 grounds that "serialization overhead is negligible relative to policy inference time."
-Phase S's baseline measurement (`docs/system_design/phase_s_baseline.md`) both confirms
+Phase S's baseline measurement (`docs/performance/baseline-profiling.md`) both confirms
 and complicates that claim: `step()`'s JSON marginal cost is indeed small in absolute
 terms (16 allocations/call, ~12,000 steps/sec on a single instance) — but `reset()`
 dominates total episode wall time (~103% of it), because it re-parses the entire

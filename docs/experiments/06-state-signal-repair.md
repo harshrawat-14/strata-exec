@@ -11,7 +11,7 @@ headline. Reported as a negative result, not softened.**
 
 Counterfactual, 16 V2 training dates, CPU, 500k timesteps, `phase3_step2_16dim_v2`.
 Best-model selection used **training dates only** (4 crash-regime) — the selection leak present in
-the RL16 run was fixed first (see `docs/phase3_plan.md`). Policy did **not** collapse: 4–8 distinct
+the RL16 run was fixed first (see `docs/proposals/research-roadmap.md`). Policy did **not** collapse: 4–8 distinct
 actions per episode, varied over the horizon.
 
 ## Result 1 — pace is still regime-blind (the question Step 2 exists to answer)
@@ -68,7 +68,7 @@ on one calm date.
 **Cross-binary comparability confirmed empirically, not just by argument:** AC-Optimal and TWAP
 return *bit-identical* values on both binaries (−2.388206109043805 and −4.171769065913786). Nothing
 in the counterfactual fill/impact/price path depends on the Step 0 changes, exactly as the
-code-classification in `phase3_plan.md` predicted.
+code-classification in `../proposals/research-roadmap.md` predicted.
 
 ## Why this cannot be attributed — four simultaneous changes
 

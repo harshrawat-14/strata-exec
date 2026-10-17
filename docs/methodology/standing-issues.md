@@ -2,7 +2,7 @@
 
 Living record of findings that belong in the final writeup's honest-limitations section, or that
 are deferred by explicit decision rather than resolved. Kept here so they don't evaporate between
-sessions. Cross-referenced from `docs/phase2r_objective_bias_finding.md`.
+sessions. Cross-referenced from `docs/experiments/02-reward-objective-audit.md`.
 
 ---
 
@@ -78,7 +78,7 @@ Do not carry forward language like "needs more work" or "unresolved pending a re
   extended the grid to all 11 dates and down to 1e-9 (greenlit item 1, `rl/results/
   phase2r_lambda_grid_full.csv`): **AC/Adaptive-AC at their own best λ beat RL-16dim on 10 of the
   11 dates this phase has ever evaluated on** — RL only wins on 2024-03-05, the milder of the two
-  held-out crash dates. See `docs/phase2r_objective_bias_finding.md`, "Task 4 close-out gate —
+  held-out crash dates. See `docs/experiments/02-reward-objective-audit.md`, "Task 4 close-out gate —
   Gate B" and the "full 11-date λ-grid" follow-up section for the complete per-date table.
   **SUPERSEDED — see the next bullet before citing "10/11" anywhere.**
 - **The per-date λ selection above was itself hindsight — corrected, and it reverses the crash-date
@@ -114,7 +114,7 @@ Do not carry forward language like "needs more work" or "unresolved pending a re
   AC-Optimal's schedule shape is a pure function of (λ, σ, η, T), independent of the date except
   through λ — a single honestly-chosen λ (patient, fit to mostly-calm training conditions) produces a
   patient schedule that gets caught by a real crash exactly as RL does; only *hindsight* per-date λ
-  looked regime-adaptive. See `docs/phase2r_objective_bias_finding.md`, "The λ-selection protocol was
+  looked regime-adaptive. See `docs/experiments/02-reward-objective-audit.md`, "The λ-selection protocol was
   hindsight — corrected, and it changes the headline," for the full tables and the mechanistic-thesis
   framing (why this result is credible now, having survived the same adversarial process that killed
   its two predecessors, with the n=2-per-regime-on-crash caveat stated explicitly rather than implied).
@@ -145,7 +145,7 @@ Do not carry forward language like "needs more work" or "unresolved pending a re
   re-estimation-interval parameter and sweeping it is well-scoped future work, same cost order as
   the λ-grid.
 - **σ is straightforward to calibrate; η is not — see the dedicated design note.** Audited (greenlit
-  item 2, `docs/phase2r_ac_calibration_design_note.md`): σ has a clean per-date calibrated value
+  item 2, `docs/experiments/03-ac-baseline-calibration.md`): σ has a clean per-date calibrated value
   already computed in Rust (`realized_volatility`), no modeling ambiguity, cheap to wire in whenever
   approved. η has no principled calibration at all, because the simulator's impact law is
   square-root and AC's η assumes linear — any single "calibrated" η would silently encode an
@@ -163,7 +163,7 @@ Do not carry forward language like "needs more work" or "unresolved pending a re
   pace (~33–36% of the horizon) regardless of regime, while tuned-AC's pace adapts sharply by regime**
   (near-full-horizon patience on calm days, hard front-loading on the severe crash). RL's fixed pace
   happens to suit the one date it wins (the milder crash) and is mismatched everywhere else — too
-  fast on calm days, too slow on the severe crash. See `docs/phase2r_objective_bias_finding.md`,
+  fast on calm days, too slow on the severe crash. See `docs/experiments/02-reward-objective-audit.md`,
   "Gate A follow-up," for the full trajectory data, plots (`rl/results/plots/granularity_*.png`), and
   the crash-date IS decomposition (RL's 2024-08-05 loss is ~85% a drift/"adverse-holding" cost from
   under-urgent pacing, not poor per-trade execution — RL's execution-quality component is actually
@@ -182,7 +182,7 @@ Do not carry forward language like "needs more work" or "unresolved pending a re
   schedule's recommendation (multiplier≡1.0 reproduces AC exactly) so the agent inherits
   regime-appropriate pacing and only has to learn deviations, rather than rediscovering an entire
   2880-step schedule shape per regime from a mostly-terminal reward. Full sketch, including costs and
-  risks, in `docs/phase2r_residual_action_space_design_sketch.md`. **Explicitly invalidates the 16-dim
+  risks, in `docs/proposals/residual-action-space.md`. **Explicitly invalidates the 16-dim
   ablation and needs its own phase** — not scoped into Task 4 or this close-out gate.
 - **Headline sharpened and validated with two no-training checks before any item 5/6 decision:**
   "RL learned execution but not urgency" (`execution_pct` -1.19 beats both AC's -1.67 and a trivial
@@ -224,7 +224,7 @@ Do not carry forward language like "needs more work" or "unresolved pending a re
     Issue #6's regime-dim lag is a **hard gate** on whichever reference is chosen, not a nice-to-check
     — verify the chosen reference's own regime-responsiveness in the first ~100 steps before building
     anything on top of it. Full detail and the corrected design note in
-    `docs/phase2r_residual_action_space_design_sketch.md`.
+    `docs/proposals/residual-action-space.md`.
 - **Net effect — this IS the phase's headline finding, stated as such, not as a retraction:** the
   phase found and corrected two layers of the same strawman-baseline failure mode in sequence
   (hardcoded params, then hindsight-selected params) and, after removing both, recovered the original
@@ -241,7 +241,7 @@ Do not carry forward language like "needs more work" or "unresolved pending a re
   hand-copied `ACTION_FRACTIONS` mirrors, and this hardcoded-baseline-parameter issue. Every one was
   a value duplicated, assumed, or left at a default rather than sourced from its canonical origin or
   properly fitted, and every one biased the comparison toward the project's own method. See the
-  "Methodological finding" section in `docs/phase2r_objective_bias_finding.md` for the full
+  "Methodological finding" section in `docs/experiments/02-reward-objective-audit.md` for the full
   writeup-ready version of this lesson.
 
 ### 1. Hindsight trend-following in single-path historical backtesting (IS-metric only)
@@ -301,7 +301,7 @@ own regime-responsiveness in the first ~100 steps before crediting the design wi
 pacing.** Not fixed here — diagnosis only, per explicit scope.
 
 **CORRECTION (Phase 3, 2026-08-13) — the mechanism above is wrong; the dims were fixed, see
-`docs/phase3_plan.md` sections C/D.** The stated mechanism ("`sigma_ref` calibrated at the whole-day
+`docs/proposals/research-roadmap.md` sections C/D.** The stated mechanism ("`sigma_ref` calibrated at the whole-day
 level" — i.e. a lookahead leak) does not match the code: `sigma_ref` was a **hardcoded constant,
 0.20**, unrelated to any date's data (`DEFAULT_SIGMA` in `rl_env.rs`) — there was never a lookahead
 leak. The real, purely arithmetic cause: `sigma_ref` fixed at 0.20 while `current_sigma`'s
@@ -352,7 +352,7 @@ signal. **Treated as a genuine null result at the same rigor bar as the VPIN fin
 below): s11/liq_regime is not a usable early-decision signal at this data's resolution for the two
 crash dates this project has ground truth for.** Not patched — swapping in raw depth would not have
 passed an s10-style first-100-step regression test either (checked, not assumed), so doing so would
-have been a cosmetic fix. Full derivation and numbers in `docs/phase3_plan.md`'s Step 0 section (the
+have been a cosmetic fix. Full derivation and numbers in `docs/proposals/research-roadmap.md`'s Step 0 section (the
 "s11 diagnosed further" paragraph).
 
 ## Meta-lesson: hand-maintained mirrors of canonical values (FIFTH occurrence — and #5 was self-inflicted)

@@ -2,7 +2,7 @@
 
 Measured before any Phase S implementation change, on the pre-Phase-S JSON-over-stdio
 `rl-env` binary (commit `a7fe081`, macOS/Darwin, M-series). All numbers below are
-reproducible via `docs/system_design/phase_s_bench_baseline.py` and the `dhat-heap`
+reproducible via `docs/performance/baseline_benchmark.py` and the `dhat-heap`
 Cargo feature added for this report.
 
 ## 1. Steady-state throughput (Python `StrataExecEnv` → `rl-env` subprocess)
@@ -146,7 +146,7 @@ discrepancy immaterial to the actual question being asked.
 
 ```bash
 # Throughput
-rl/.venv/bin/python docs/system_design/phase_s_bench_baseline.py
+rl/.venv/bin/python docs/performance/baseline_benchmark.py
 
 # Allocation profile (writes dhat-heap.json to CWD; view at https://nnethercote.github.io/dh_view/dh_view.html)
 cargo build --release --bin rl-env --features dhat-heap

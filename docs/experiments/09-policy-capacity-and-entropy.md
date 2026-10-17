@@ -1,6 +1,6 @@
 # Phase 3 Step 4 — audit finding 6 (underfit policy): fixed, but doesn't change the story
 
-Written 2026-08-24. Addresses `docs/phase3_platform_audit.md` finding 6: across Step 2b's 500k-step
+Written 2026-08-24. Addresses `docs/methodology/platform-audit.md` finding 6: across Step 2b's 500k-step
 run, `train/entropy_loss` moved from -2.99 to -2.92 against a max of -ln(20) = -2.996 for a 20-action
 space — the policy sat at ~98% of uniform-random for the entire run. The audit's "cheapest next
 experiments": raise timesteps to 1.5-2M (matching the historical v6r run that only began sharpening

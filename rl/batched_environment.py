@@ -4,8 +4,8 @@ Python client for rl-env's batched mode (Phase S, ADR-006).
 Speaks Arrow RecordBatch IPC over a Unix domain socket to a single rl-env
 process running N environment instances (--batch-size N --socket-path PATH),
 instead of N separate JSON-over-stdio subprocesses. See
-docs/system_design/ADR.md#adr-006 for the transport decision and
-docs/system_design/phase_s_baseline.md for the measurement that motivated it.
+docs/architecture/decision-records.md#adr-006 for the transport decision and
+docs/performance/baseline-profiling.md for the measurement that motivated it.
 
 This is additive: StrataExecEnv (environment.py) and its JSON-over-stdio
 protocol are unchanged and still used by every existing single-episode call

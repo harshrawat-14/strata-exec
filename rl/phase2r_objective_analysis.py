@@ -1,6 +1,6 @@
 """
 Phase 2R objective-bias analysis: the reproduction script behind
-docs/phase2r_objective_bias_finding.md.
+docs/experiments/02-reward-objective-audit.md.
 
 Produces the three tables in that report:
   1. trained-policy action distribution / forced-liq / IS per date

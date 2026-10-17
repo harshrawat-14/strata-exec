@@ -567,7 +567,7 @@ neither baseline depends on the RL model — the check fired on every date). Roo
 queries the real table from the Rust binary (`--print-action-fractions`) instead of copying it, with
 a cross-language test asserting identity. This is the second instance in this project of a
 hand-maintained mirror of a canonical value causing a silent bug (cf. the CVaR sign inversion) —
-logged as a meta-lesson in `docs/phase2r_standing_issues.md`. **RL-vs-RL numbers were never affected**
+logged as a meta-lesson in `docs/methodology/standing-issues.md`. **RL-vs-RL numbers were never affected**
 (RL picks raw action indices from a trained policy, never routed through these tables) — only the
 classical-baseline comparisons needed redoing.
 
@@ -1080,7 +1080,7 @@ Read `AdaptiveACPolicy` in full (`rl/evaluate.py:426-483`). Findings:
 
 ### Item 2 (greenlit, audit only): mapping calibrated impact onto AC's (σ, η) — design note, no code
 
-Full design note: `docs/phase2r_ac_calibration_design_note.md`. Summary:
+Full design note: `docs/experiments/03-ac-baseline-calibration.md`. Summary:
 - **σ: no modeling ambiguity.** The simulator already computes properly-annualized realized
   volatility per date (`realized_volatility` in `impact_fit.rs`, same units as the hardcoded
   `sigma=0.20`). Exposing and using it is a straightforward, low-risk fix whenever plumbing work is
@@ -1156,7 +1156,7 @@ earlier objective-bias retraction elsewhere in this document, for the same under
   space, never routed through AC or λ at any point, and the numbers stand exactly as reported
   (16-dim beats 12-dim substantially on both held-out crash dates). This is the one surviving,
   supportable claim from Task 4.
-- Two open items carried into `docs/phase2r_standing_issues.md`: (1) AC/Adaptive-AC's hardcoded
+- Two open items carried into `docs/methodology/standing-issues.md`: (1) AC/Adaptive-AC's hardcoded
   `sigma=0.20`/`eta=0.10` never calibrated per date, and (2) the AC λ-grid's tested edge (1e-6) was
   still the best point on 3/4 dates, meaning even the "corrected" λ numbers in Gate B likely
   understate how strong a properly-tuned AC is.
@@ -1228,8 +1228,8 @@ been checked for an equivalent bias against AC's *own* claimed baseline optimali
   chosen λ (patient, fit to mostly-calm training conditions) gets caught by a real crash exactly as
   RL does. See "The λ-selection protocol was hindsight — corrected, and it changes the headline."
   Two no-training follow-ups (Task A hybrid re-run without the RL-derived speed cap; Task B state-dim
-  discriminability check) also reported — see `docs/phase2r_objective_bias_finding.md` and
-  `docs/phase2r_standing_issues.md` open issue #0 for the full, current picture. **The 16-dim vs
+  discriminability check) also reported — see `docs/experiments/02-reward-objective-audit.md` and
+  `docs/methodology/standing-issues.md` open issue #0 for the full, current picture. **The 16-dim vs
   12-dim RL ablation remains the only claim in this phase unaffected by any of this** — it never
   routed through AC or λ. **The honest current state: whether a fairly-evaluated classical baseline
   beats RL is no longer a settled 10/11 result — it depends on the λ-selection protocol, and the

@@ -17,8 +17,8 @@ diverged from the real environment's table, badly for `n_state_dims=12`). This d
 invalidate anything — these numbers were already dead from the pre-correction-simulator issue
 above — but it means even a hypothetical re-run against the corrected simulator using the OLD
 evaluate.py code would still have been wrong for a second, independent reason. Do not re-open these
-files to "fix" them; they stay retired. See `docs/phase2r_objective_bias_finding.md` and
-`docs/phase2r_standing_issues.md`.
+files to "fix" them; they stay retired. See `docs/experiments/02-reward-objective-audit.md` and
+`docs/methodology/standing-issues.md`.
 
 | file | simulator | mode | status |
 |---|---|---|---|
@@ -28,11 +28,11 @@ files to "fix" them; they stay retired. See `docs/phase2r_objective_bias_finding
 | `failure_analysis.csv` | **pre-correction** | historical | superseded baseline, kept for record |
 | `counterfactual_eval.csv` | **pre-correction** | counterfactual | superseded baseline, kept for record |
 | `test_dates_eval.csv` | **pre-correction** | historical | superseded baseline, kept for record |
-| `phase2_ablation.csv` | **pre-correction**, and separately invalid on its own terms (v6r's collapsed policy, see `docs/phase2r_objective_bias_finding.md`) | historical | **do not use** |
+| `phase2_ablation.csv` | **pre-correction**, and separately invalid on its own terms (v6r's collapsed policy, see `docs/experiments/02-reward-objective-audit.md`) | historical | **do not use** |
 
 **Post-Phase-2R results** (the Task 4 16-dim vs 12-dim ablation, once run) will be produced
 entirely in **counterfactual mode** against the **corrected** simulator (calibrated impact,
-restored drift, fixed `spread_ref`) — see `docs/phase2r_objective_bias_finding.md` for why
+restored drift, fixed `spread_ref`) — see `docs/experiments/02-reward-objective-audit.md` for why
 historical mode was rejected for that ablation (dims 8/9 would be dead in one arm and not the
 other, testing the 16-dim representation with two of its own distinguishing features disabled).
 Any future CSV produced under the corrected simulator should be named/tagged clearly as
@@ -40,7 +40,7 @@ post-correction and listed in this table.
 
 ## Second boundary: Phase 3 Step 0's state-signal repair (2026-08-13) — a per-checkpoint hazard, not a per-file one
 
-**Phase 3 Step 0** (`docs/phase3_plan.md`, commit `0e3356b`) fixed `sigma_ref` (was hardcoded at
+**Phase 3 Step 0** (`docs/proposals/research-roadmap.md`, commit `0e3356b`) fixed `sigma_ref` (was hardcoded at
 0.20, unrelated to any date's data) and the volatility annualization (~19x error) in
 `src/bin/rl_env.rs`, and replaced state dims s10/s11's 3-way hard buckets with a continuous
 signal. This changes what state dims **s2, s10, s11, s13** contain on every date — a real input
@@ -52,7 +52,7 @@ and `RL12`/the 12-dim ablation checkpoint — check training date against the co
 trained on the OLD, broken s2/s10/s11/s13 distribution. Evaluating that checkpoint against the
 CURRENT (post-`0e3356b`) `rl_env.rs` binary silently feeds it out-of-distribution state — the model
 was never shown these input values during training. This is **not cosmetic**: confirmed directly
-(`docs/phase3_tail_validation.md`'s opening section) that it materially changes the checkpoint's
+(`docs/experiments/05-tail-risk-validation.md`'s opening section) that it materially changes the checkpoint's
 behavior — e.g. 2024-08-05 RL16 mean IS moved from the published −6.48% to −4.49% under the
 post-Step-0 binary, no error or warning, a large silent divergence.
 
@@ -63,7 +63,7 @@ post-Step-0 binary, no error or warning, a large silent divergence.
 until Phase 3 Step 2 retrains RL16/RL12 on the repaired state, at which point a NEW checkpoint
 supersedes the old one and should be evaluated against the current (post-Step-0) binary instead.
 
-Verification method for reproducing exactly (from `docs/phase3_tail_validation.md`): AC-Optimal and
+Verification method for reproducing exactly (from `docs/experiments/05-tail-risk-validation.md`): AC-Optimal and
 TWAP only read `obs[0]`/`obs[1]` (inventory/time fraction), so they reproduce identically regardless
 of binary version — use them as a canary. If AC-Optimal/TWAP numbers match a known-good CSV exactly
 but RL16/Adaptive-AC (which read `obs[2]`, the recalibrated volatility ratio) don't, you're on the

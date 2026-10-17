@@ -9,7 +9,7 @@ number, not an assurance."
 ## Method
 
 Built `rl-env` at two commits and ran the actual Phase 0 unified comparison harness
-(`evaluate_all_strategies_on_date`, driven via `docs/system_design/phase_s_regression_check.py`)
+(`evaluate_all_strategies_on_date`, driven via `docs/performance/regression_check.py`)
 against each binary in turn, same Python code both times (only the compiled Rust binary
 changed):
 

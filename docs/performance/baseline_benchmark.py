@@ -2,7 +2,7 @@
 Phase S baseline throughput benchmark for the JSON-over-stdio rl-env
 transport, BEFORE any transport changes. Run from repo root:
 
-    rl/.venv/bin/python docs/system_design/phase_s_bench_baseline.py
+    rl/.venv/bin/python docs/performance/baseline_benchmark.py
 
 Measures steps/sec and episodes/sec driving StrataExecEnv exactly the way
 rl/evaluate.py's _run_episode does (TWAPPolicy, deterministic, real

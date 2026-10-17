@@ -436,7 +436,7 @@ def train(
     # make_env/env_kwargs at all -- meaning every prior "counterfactual"
     # training run silently trained on a 12-dim slice of whatever the Rust
     # subprocess actually emitted (16-dim by default), discarding the time
-    # features entirely. See docs/system_design/ADR.md and the Phase 2 report
+    # features entirely. See docs/architecture/decision-records.md and the Phase 2 report
     # for detail.
     if mode == "counterfactual":
         n_state_dims = 12 if no_time_features else 16

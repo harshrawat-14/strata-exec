@@ -2,7 +2,7 @@
 Phase 3 Step 1: tail-validation analysis on top of the per-episode dump
 produced by rl/phase3_tail_validation_eval.py.
 
-Tests the four-part evidence bar from docs/phase3_plan.md, "The tail claim
+Tests the four-part evidence bar from docs/proposals/research-roadmap.md, "The tail claim
 -- evidence bar and current status":
   #2 severity up -> RL CVaR advantage up
   #3 mean-controlled tail advantage (the crux) -- residualize each date's
@@ -199,7 +199,7 @@ def main():
     print(f"Saved: {OUTPUT_DIR}phase3_tail_validation_cvar_bootstrap.csv ({len(raw_df)} rows)\n")
 
     # Flagship dates at q=0.95, printed for direct comparison against the
-    # phase3_plan.md table this task is validating.
+    # docs/proposals/research-roadmap.md table this task is validating.
     for date in FLAGSHIP_CRASH_DATES:
         sub = raw_df[(raw_df["date"] == date) & (raw_df["q"] == 0.95)]
         print(f"  {date}:")
@@ -214,7 +214,7 @@ def main():
 
     q95 = raw_df[raw_df["q"] == 0.95].copy()
     # One row per date per baseline; use AC-Optimal as the primary baseline
-    # (same choice the mean-severity result in phase2r_severity_expansion.md
+    # (same choice the mean-severity result in docs/experiments/04-crash-severity-expansion.md
     # used implicitly via ac_mean_is as the severity metric).
     ac_rows = q95[q95["baseline"] == "ac_optimal"].copy()
     ac_rows["severity_rank"] = ac_rows["ac_mean_is"].rank(method="first")  # 1 = most severe (most negative)

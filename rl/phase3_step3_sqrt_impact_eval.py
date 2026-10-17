@@ -1,6 +1,6 @@
 """
 Phase 3 Step 3: numerically-optimized sqrt-impact baseline vs the existing
-comparison table (docs/phase3_plan.md Step 3, promoted to critical path
+comparison table (docs/proposals/research-roadmap.md Step 3, promoted to critical path
 after Step 2b).
 
 Step 2b showed RL beats AC-Optimal on both held-out crash dates while pacing
@@ -44,7 +44,7 @@ HONEST_LAMBDA = 1e-6
 BTC_TARGET = 50_000.0
 N_STATE_DIMS = 16
 
-# The four dates docs/phase3_step2b_result.md reports (2 held-out crash,
+# The four dates docs/experiments/07-full-date-coverage-retrain.md reports (2 held-out crash,
 # 1 held-out calm, 1 held-out normal) -- reusing exactly these keeps this
 # table directly comparable to the Step 2b numbers already on record.
 DATES = {

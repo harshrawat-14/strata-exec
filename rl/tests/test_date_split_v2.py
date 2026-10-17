@@ -1,5 +1,5 @@
 """
-Executable guard for the Phase 3 V2 date split (docs/phase3_plan.md,
+Executable guard for the Phase 3 V2 date split (docs/proposals/research-roadmap.md,
 "V2 date split").
 
 V1's TRAINING_DATES has zero severe-crash days by construction -- both

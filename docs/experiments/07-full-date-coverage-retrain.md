@@ -1,7 +1,7 @@
 # Phase 3 Step 2b — retrain with full date coverage
 
 Written 2026-08-16. Rerun of Step 2 after the audit found that the original run trained on 3 of 16
-dates and **zero crash dates** (`docs/phase3_platform_audit.md` §1). This run covers all 16 V2
+dates and **zero crash dates** (`docs/methodology/platform-audit.md` §1). This run covers all 16 V2
 training dates, regime mix {calm 6, normal 6, crash 4}, with clean best-model selection.
 
 **Two questions, two different answers. The performance regression was the data bug. The urgency

@@ -6,10 +6,10 @@ against all 5 strategies on one date, so it can be diffed before/after the Phase
 rewrite to confirm the transport/caching/allocation changes did not change simulation
 semantics -- only performance. Run from repo root:
 
-    rl/.venv/bin/python docs/system_design/phase_s_regression_check.py
+    rl/.venv/bin/python docs/performance/regression_check.py
 
 To reproduce the actual before/after comparison documented in
-phase_s_regression_report.md: build target/release/rl-env at the last pre-Phase-S
+docs/performance/regression-verification.md: build target/release/rl-env at the last pre-Phase-S
 commit (a7fe081) into a separate path, run this script against each binary in turn
 (copying it to target/release/rl-env before each run, since environment.py hardcodes
 that relative path), and diff the two outputs.

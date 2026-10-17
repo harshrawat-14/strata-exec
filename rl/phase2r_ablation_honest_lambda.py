@@ -3,7 +3,7 @@ Phase 2R close-out gate: re-run the Task 4 ablation deliverable (RL-12dim vs
 RL-16dim vs AC-Optimal vs Adaptive-AC vs TWAP, all 11 clean dates, with paired
 bootstrap significance) using the HONEST lambda (1e-6, selected from the 7
 TRAINING_DATES' aggregate outcome only -- see rl/phase2r_lambda_grid_full.csv
-and docs/phase2r_objective_bias_finding.md, "The lambda-selection protocol was
+and docs/experiments/02-reward-objective-audit.md, "The lambda-selection protocol was
 hindsight") instead of AC_DEFAULT_LAMBDA=0.001 (the original strawman) or any
 per-date hindsight-selected lambda.
 

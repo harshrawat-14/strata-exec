@@ -3,7 +3,7 @@ Phase 2R VWAP-benchmark analytic gate.
 
 Question: does replacing the static arrival-price benchmark with a DRIFT-NEUTRAL
 interval benchmark remove the directional-speculation incentive that makes
-blanket-wait beat blanket-execute (docs/phase2r_objective_bias_finding.md, Table 3)?
+blanket-wait beat blanket-execute (docs/experiments/02-reward-objective-audit.md, Table 3)?
 
 Method (cheap analytic gate, no training):
   - benchmark = interval TWAP of the UNDISTURBED market mid over the execution

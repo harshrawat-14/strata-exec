@@ -1,7 +1,7 @@
 # Phase 2R severity-expansion: event-window data pull, counting rules, LUNA/FTX scoping
 
 Tracks the data-expansion work that follows the honest-λ headline (see
-`docs/phase2r_objective_bias_finding.md`, "The λ-selection protocol was hindsight") — raising n on
+`docs/experiments/02-reward-objective-audit.md`, "The λ-selection protocol was hindsight") — raising n on
 the severe-stress side honestly, before any claim about whether the 2-crash-date pattern generalizes.
 
 ## Status: data pulled AND evaluated (`rl/phase2r_severity_expansion_eval.py`,

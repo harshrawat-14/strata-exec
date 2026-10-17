@@ -89,9 +89,9 @@ assert not (set(TRAINING_DATES) & set(HELD_OUT_CRASH_DATES)), (
 # silently. This is a new, additive split for any NEW work (retraining,
 # eval) going forward, kept alongside V1 the same way Phase 2R kept the
 # Task 2/3 simulator provenance boundary explicit rather than overwriting
-# history. See docs/phase3_plan.md, "V2 date split" for the full writeup.
+# history. See docs/proposals/research-roadmap.md, "V2 date split" for the full writeup.
 #
-# Motivation (Phase 3 Step 0 finding, docs/phase3_plan.md section A): V1's
+# Motivation (Phase 3 Step 0 finding, docs/proposals/research-roadmap.md section A): V1's
 # TRAINING_DATES contains ZERO severe-crash days (0/7) -- both severe
 # crashes are the holdout, by construction. That's a real, honestly-earned
 # result for the λ-calibration question V1 was built to answer (a real desk
@@ -102,7 +102,7 @@ assert not (set(TRAINING_DATES) & set(HELD_OUT_CRASH_DATES)), (
 #
 # Data: the TradeData pool grew from 11 to 25 dates (14 new dates pulled by
 # the Phase 2R severity expansion, in three named-event windows -- see
-# docs/phase2r_severity_expansion.md). All 25 are classified below.
+# docs/experiments/04-crash-severity-expansion.md). All 25 are classified below.
 #
 # Severity metric: AC's own honest-λ realized cost (ac_mean_IS) on each
 # date -- the same outcome-independent severity proxy the severity-
@@ -581,7 +581,7 @@ class AdaptiveACPolicy:
     table in this project. Its numbers are not invalidated by construction --
     it was a consistently-parameterized policy, just not the one described --
     but no Adaptive-AC result should be cited as "AC with live volatility
-    re-estimation" until re-measured. See docs/phase3_plan.md.
+    re-estimation" until re-measured. See docs/proposals/research-roadmap.md.
     """
 
     def __init__(self, n_state_dims: int = 12,
@@ -698,7 +698,7 @@ def query_calibration(date: str, agg_date: str = None, btc_target: float = 50_00
     actually uses for `date` -- via `rl-env --print-calibration`, i.e. the
     same `CounterfactualLobConfig::calibrated` call reset_counterfactual()
     makes, not a second hand-copied estimate (see "canonical values" rule,
-    docs/phase3_plan.md). Used to record what SqrtImpactOptimalPolicy was
+    docs/proposals/research-roadmap.md). Used to record what SqrtImpactOptimalPolicy was
     actually fit against, for reporting -- not required for the fit itself,
     which runs the real environment end-to-end and never needs these numbers
     directly in Python.
@@ -730,7 +730,7 @@ class SqrtImpactOptimalPolicy:
     exponential (OW-style), and fills walk a real, per-date order book --
     reimplementing that mechanism analytically in Python would be exactly
     this project's recurring "hand-copied canonical value" bug class (see
-    "Standing rules", docs/phase3_plan.md), with no way to catch a silent
+    "Standing rules", docs/proposals/research-roadmap.md), with no way to catch a silent
     mismatch against the simulator RL is actually scored in.
 
     So this fits directly against the real simulator instead: it searches a
@@ -740,7 +740,7 @@ class SqrtImpactOptimalPolicy:
     and minimizing realized mean IS with Nelder-Mead, then freezes the
     resulting schedule exactly like `ACOptimalPolicy` freezes its closed-form
     one. This is the item-5 "numerically-optimized sqrt-impact baseline"
-    from docs/phase3_plan.md Step 3.
+    from docs/proposals/research-roadmap.md Step 3.
 
     FIT-SEED PLACEMENT IS LOAD-BEARING -- found empirically while building
     this (2026-08-21/22), not a theoretical concern. `reset_counterfactual`
@@ -753,7 +753,7 @@ class SqrtImpactOptimalPolicy:
     table's convention) on the SAME date with the SAME schedule. This is a
     much sharper, quantified version of the audit's finding 5 ("eval
     episodes are near-duplicates, crash-date statistics are not credible",
-    docs/phase3_platform_audit.md) -- the seed=0..n_episodes-1 convention
+    docs/methodology/platform-audit.md) -- the seed=0..n_episodes-1 convention
     every strategy in this file's comparison table is scored against
     already samples one arbitrary, narrow, near-duplicate slice of a day
     whose true outcome distribution is far wider. A DISTANT fit-seed range
@@ -1181,7 +1181,7 @@ def evaluate_all_strategies_on_date(
     no cf_lob, so state dims 8/9 (own-impact fractions) are structurally
     dead there, which would test the 16-dim arm with two of its own
     distinguishing features disabled -- not a fair test of the
-    representation. See docs/phase2r_objective_bias_finding.md Gate 3 and
+    representation. See docs/experiments/02-reward-objective-audit.md Gate 3 and
     rl/results/PROVENANCE.md for why this default stays "historical" (all
     pre-Phase-2R results/comparability are historical-mode) while Task 4
     explicitly opts into "counterfactual".
@@ -1200,7 +1200,7 @@ def evaluate_all_strategies_on_date(
     point estimate.
 
     include_sqrt_impact_optimal: adds Step 3's numerically-optimized
-    sqrt-impact baseline (SqrtImpactOptimalPolicy, docs/phase3_plan.md).
+    sqrt-impact baseline (SqrtImpactOptimalPolicy, docs/proposals/research-roadmap.md).
     Defaults False -- fitting it runs real episodes through this exact env
     before evaluation even starts, which is real wall-clock cost every
     existing caller of this function would otherwise pay silently.

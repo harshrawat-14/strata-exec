@@ -175,7 +175,7 @@ vs. `action`) rather than a separate message-type field.
 `BatchedRlEnv` shares one `MarketDataCache` (`Rc<RefCell<_>>`) across its N `RlEnv`
 instances, so a date replayed by multiple instances in the batch is parsed from disk
 once between them, not N times (see `MarketDataCache`'s doc comment in `rl_env.rs` and
-[phase_s_baseline.md](phase_s_baseline.md) for the measurement this design responds to).
+[../performance/baseline-profiling.md](../performance/baseline-profiling.md) for the measurement this design responds to).
 
 ## State Vector (12-dim v5 / 16-dim v6)
 
@@ -303,5 +303,5 @@ directly comparable step-for-step.
 
 ## Related Documents
 
-- [HLD.md](HLD.md) — component diagram, data flow, scalability
-- [ADR.md](ADR.md) — the 6 architecture decisions with alternatives and consequences
+- [high-level-design.md](high-level-design.md) — component diagram, data flow, scalability
+- [decision-records.md](decision-records.md) — the 6 architecture decisions with alternatives and consequences

@@ -169,7 +169,7 @@ call — so it is recorded rather than unilaterally changed.
 
 ## 6. Policy is underfit at 500k timesteps — entropy never leaves uniform (FIXED 2026-08-24)
 
-**Update:** fixed and closed by Phase 3 Step 4 (`docs/phase3_step4_result.md`) — retrained with
+**Update:** fixed and closed by Phase 3 Step 4 (`docs/experiments/09-policy-capacity-and-entropy.md`) — retrained with
 `--timesteps 1500000 --ent-coef 0.01`, entropy_loss moved from -2.85 to -1.27 (~95% → ~42% of max),
 a genuine sharpening. The regime-conditional IS pattern survived but shifted in a mixed direction
 (smaller crash-date edge, smaller calm-date loss, larger normal-date loss); pacing responsiveness

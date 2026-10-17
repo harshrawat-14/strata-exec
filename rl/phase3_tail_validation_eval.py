@@ -1,6 +1,6 @@
 """
 Phase 3 Step 1: tail-risk validation -- per-episode outcome dumping + CVaR
-analysis, for the four-part evidence bar in docs/phase3_plan.md ("The tail
+analysis, for the four-part evidence bar in docs/proposals/research-roadmap.md ("The tail
 claim -- evidence bar and current status").
 
 This does NOT reimplement evaluate_all_strategies_on_date's simulation
@@ -20,7 +20,7 @@ project's own codebase already uses.
 Model: RL-16dim only (rl/models/ppo_ablation_16dim_cf_best/best_model), the
 same honest lambda=1e-6 baseline as every other Phase 2R/3 result. RL-12dim
 is not evaluated here -- not needed for the tail-mechanism question (see
-docs/phase3_plan.md's four-part bar, all stated in terms of RL16 vs
+docs/proposals/research-roadmap.md's four-part bar, all stated in terms of RL16 vs
 AC/Adaptive-AC/TWAP).
 
 Coverage: all 25 dates in evaluate.SEVERITY_RANK_V2 (which is a superset of

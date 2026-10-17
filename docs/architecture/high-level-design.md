@@ -81,18 +81,18 @@ demo mode for zero-compute production deployment.
    deployment of the two halves. At the state-vector sizes and step
    frequencies involved (2,880 steps/episode, 12-16 floats/step), JSON IPC
    overhead is negligible relative to model inference time. See
-   [ADR-001](ADR.md#adr-001-json-over-stdinstdout-for-ipc).
+   [ADR-001](decision-records.md#adr-001-json-over-stdinstdout-for-ipc).
 
 2. **Counterfactual LOB instead of historical replay.**
    Pure historical replay has no causal feedback — the agent's own fills
    don't affect future snapshots, so an agent can dump its entire position
    with zero simulated consequence. The counterfactual LOB combines real
    Binance L2 snapshots with an accumulated transient-impact model (see
-   LLD.md's naming note), so a fill at step *t* measurably depletes the book
+   low-level-design.md's naming note), so a fill at step *t* measurably depletes the book
    the agent sees at step
    *t+1*. This is what makes patient execution mechanically more profitable
    than instant liquidation. See
-   [ADR-002](ADR.md#adr-002-counterfactual-lob-over-historical-replay).
+   [ADR-002](decision-records.md#adr-002-counterfactual-lob-over-historical-replay).
 
 3. **Pre-computed demo mode instead of live compute on Render's free tier.**
    Training and even single evaluation runs take seconds to hours depending
@@ -102,7 +102,7 @@ demo mode for zero-compute production deployment.
    `/api/simulate` and `/api/evaluate` and serves pre-computed JSON from
    `demo_results/`, so the public demo is instant and free to run, while
    `DEMO_MODE=false` still exercises the full live pipeline locally. See
-   [ADR-003](ADR.md#adr-003-pre-computed-demo-mode).
+   [ADR-003](decision-records.md#adr-003-pre-computed-demo-mode).
 
 4. **RecurrentPPO (LSTM) instead of DQN or SAC.**
    Optimal execution is fundamentally sequential — the correct action at
@@ -113,7 +113,7 @@ demo mode for zero-compute production deployment.
    feedforward policy on this state vector cannot infer "I sold 200K units
    in the last 10 steps, the book is thinning, I should slow down." An LSTM
    hidden state carries that history across steps within an episode. See
-   [ADR-004](ADR.md#adr-004-recurrentppo-over-dqnsac).
+   [ADR-004](decision-records.md#adr-004-recurrentppo-over-dqnsac).
 
 ## Data Flow — Simulation Request (`research-sim` / classical strategies)
 
@@ -143,8 +143,8 @@ Client → POST /api/evaluate {dates: [...]}
 
 ## Phase S — Systems Rework: Caching, Allocations, Batched Transport
 
-Measured, not asserted (see [ADR-006](ADR.md#adr-006-arrow-ipc-over-a-unix-domain-socket-for-the-batched-hot-loop-transport-plus-per-date-data-caching),
-[phase_s_baseline.md](phase_s_baseline.md), [phase_s_regression_report.md](phase_s_regression_report.md)).
+Measured, not asserted (see [ADR-006](decision-records.md#adr-006-arrow-ipc-over-a-unix-domain-socket-for-the-batched-hot-loop-transport-plus-per-date-data-caching),
+[../performance/baseline-profiling.md](../performance/baseline-profiling.md), [../performance/regression-verification.md](../performance/regression-verification.md)).
 Scoped to this offline research platform, not live-trading infra (see Phase S's explicit
 scope boundary in the project plan) — no live-clock abstraction, no lock-free live
 dispatch, no distributed training added here.
@@ -214,7 +214,7 @@ different times (exercising the auto-reset-on-done path), all matched the single
 JSON path exactly. This closed a real gap found in review — building the adapter
 surfaced that `BatchedRlEnv` had no way to reset a single instance independently
 (`reset_indices`, added specifically for this). Full detail in
-[phase_s_regression_report.md](phase_s_regression_report.md).
+[../performance/regression-verification.md](../performance/regression-verification.md).
 
 **Allocation-time follow-up**: the `step()` allocation reduction (20.01 → 15.01
 allocs/step) was a count reduction, not elimination, against Phase S's literal
@@ -222,7 +222,7 @@ allocs/step) was a count reduction, not elimination, against Phase S's literal
 inferred from the count): allocation is 147 ns/step out of 1,556 ns/step of Rust-side
 compute (9.5%), and ~0.7% of the full ~21,600+ ns/step round trip a Python training loop
 observes end-to-end. Treated as acceptable and not pursued further — full reasoning in
-[phase_s_baseline.md](phase_s_baseline.md) section 6.
+[../performance/baseline-profiling.md](../performance/baseline-profiling.md) section 6.
 
 ## Scalability Notes
 
@@ -249,7 +249,7 @@ observes end-to-end. Treated as acceptable and not pursued further — full reas
 
 ## Related Documents
 
-- [LLD.md](LLD.md) — struct layouts, wire protocol, state vector, action space
-- [ADR.md](ADR.md) — the 6 architecture decisions with alternatives and consequences
-- [phase_s_baseline.md](phase_s_baseline.md) — Phase S's before-measurement
-- [phase_s_regression_report.md](phase_s_regression_report.md) — Phase S's regression-verify against Phase 0
+- [low-level-design.md](low-level-design.md) — struct layouts, wire protocol, state vector, action space
+- [decision-records.md](decision-records.md) — the 6 architecture decisions with alternatives and consequences
+- [../performance/baseline-profiling.md](../performance/baseline-profiling.md) — Phase S's before-measurement
+- [../performance/regression-verification.md](../performance/regression-verification.md) — Phase S's regression-verify against Phase 0

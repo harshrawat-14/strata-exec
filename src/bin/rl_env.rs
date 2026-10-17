@@ -18,7 +18,7 @@ static ALLOC: dhat::Alloc = dhat::Alloc;
 /// deltas summed into atomics, so a step-loop benchmark can report what
 /// fraction of its own wall time is actually spent allocating -- the
 /// follow-up measurement to the dhat-heap allocation-COUNT numbers in
-/// docs/system_design/phase_s_baseline.md. `Instant::now()` itself has
+/// docs/performance/baseline-profiling.md. `Instant::now()` itself has
 /// measurable overhead (~20-40ns on macOS via mach_absolute_time), which is
 /// a source of over-counting on very cheap allocations -- treat this as an
 /// order-of-magnitude answer, documented as such wherever it's reported.
@@ -171,7 +171,7 @@ const DEFAULT_SIGMA: f64 = 0.20;
 /// Calibrated `sigma_ref` for historical/counterfactual mode, replacing the
 /// synthetic-mode 0.20 default that Phase 3 found silently pinned s10
 /// (vol_regime) at LOW on every real date, calm or crash (see
-/// docs/phase3_plan.md, section C — bug-class instance #4).
+/// docs/proposals/research-roadmap.md, section C — bug-class instance #4).
 ///
 /// Derivation: annualised realised volatility (log-returns, 30s bars, from
 /// `TradeData/AggTrades`), computed with the SAME annualisation this file
@@ -1437,7 +1437,7 @@ impl RlEnv {
         // the pushes below never trigger a grow-reallocation -- exactly one
         // allocation per call instead of the 1-2 extra reallocations `vec![...]`
         // followed by growing pushes used to incur (measured via dhat-heap,
-        // docs/system_design/phase_s_baseline.md).
+        // docs/performance/baseline-profiling.md).
         let mut state = Vec::with_capacity(16);
         state.push(s0);
         state.push(s1);
@@ -1498,7 +1498,7 @@ impl RlEnv {
 
     /// Continuous regime signals used as state dims [10] and [11].
     ///
-    /// Phase 3 fix (docs/phase3_plan.md, sections C/D) replacing the prior
+    /// Phase 3 fix (docs/proposals/research-roadmap.md, sections C/D) replacing the prior
     /// 3-way hard-bucketed version. That version was measured to be pinned
     /// at LOW/"normal" on every real date this project has data for, calm
     /// or crash alike — not because of a lookahead leak (there is none:
@@ -1916,7 +1916,7 @@ fn write_msg(out: &mut impl Write, msg: &OutMsg) -> io::Result<()> {
     // Write straight to the output stream instead of materialising an
     // intermediate String via serde_json::to_string -- one fewer allocation
     // per step on the hot path (measured via dhat-heap,
-    // docs/system_design/phase_s_baseline.md).
+    // docs/performance/baseline-profiling.md).
     serde_json::to_writer(&mut *out, msg)
         .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
     out.write_all(b"\n")?;
@@ -2092,7 +2092,7 @@ fn main() {
     // indices wrong for one of the two mirrors), so those policies were
     // picking action indices under an assumption the environment never
     // honored. Fixed by having Python query this exact array instead of
-    // maintaining its own copy. See docs/phase2r_objective_bias_finding.md.
+    // maintaining its own copy. See docs/experiments/02-reward-objective-audit.md.
     if std::env::args().any(|a| a == "--print-action-fractions") {
         println!("{}", json!(ACTION_FRACTIONS));
         return;
@@ -2130,7 +2130,7 @@ fn main() {
     // now, only ever printed to stderr as a diagnostic -- no caller could read
     // them back. A numerically-optimized baseline needs these exact fitted
     // values (not a second, hand-copied estimate -- see "Standing rules" in
-    // docs/phase3_plan.md on canonical values). Reuses reset_counterfactual
+    // docs/proposals/research-roadmap.md on canonical values). Reuses reset_counterfactual
     // unmodified, so there is exactly one place that computes calibration.
     if std::env::args().any(|a| a == "--print-calibration") {
         let mut env = RlEnv::new(cfg);
@@ -2171,7 +2171,7 @@ fn main() {
     // Reused across iterations (cleared, not reallocated) instead of
     // BufRead::lines(), which allocates a fresh String per line -- one fewer
     // allocation per step on the input side of the hot path (measured via
-    // dhat-heap, docs/system_design/phase_s_baseline.md).
+    // dhat-heap, docs/performance/baseline-profiling.md).
     let mut line_buf = String::with_capacity(256);
     loop {
         line_buf.clear();
@@ -2295,7 +2295,7 @@ mod tests {
     #[ignore = "manual benchmark; run with --features alloc-timing -- --ignored --nocapture"]
     fn step_allocation_time_share_of_wall_time() {
         // Follow-up to the dhat-heap allocation-COUNT measurement in
-        // docs/system_design/phase_s_baseline.md: 15.01 allocs/step is a count,
+        // docs/performance/baseline-profiling.md: 15.01 allocs/step is a count,
         // not a cost. This measures what fraction of a step iteration's actual
         // wall time is spent inside the allocator, now that reset()'s ~239ms
         // no longer dominates -- run with:
@@ -2345,7 +2345,7 @@ mod tests {
             // (serde_json::from_str::<InMsg>, same as main()'s hot loop -- an
             // earlier version of this benchmark skipped this and undercounted
             // allocations relative to the dhat-heap measurement in
-            // phase_s_baseline.md, which does include the input side) ->
+            // docs/performance/baseline-profiling.md, which does include the input side) ->
             // step() (includes build_state) -> step_result_to_msg -> write_msg.
             // io::sink() discards bytes without buffering/allocating, isolating
             // step()+serialization cost from actual socket/pipe I/O syscall
@@ -2715,7 +2715,7 @@ mod tests {
 
     #[test]
     fn regime_dims_separate_crash_from_calm_in_first_100_steps() {
-        // Phase 3 fix regression guard (docs/phase3_plan.md, sections C/D):
+        // Phase 3 fix regression guard (docs/proposals/research-roadmap.md, sections C/D):
         // before this fix, s10 (vol_regime) was measured to be pinned at
         // LOW/"normal" on every real date, calm or crash, for the entire
         // episode -- because sigma_ref was hardcoded at 0.20 while
