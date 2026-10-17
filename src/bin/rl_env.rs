@@ -1077,18 +1077,7 @@ impl RlEnv {
         }
 
         if done {
-            // Total implementation shortfall at end of episode.
-            let ideal = self.arrival_price * self.cfg.total_inventory;
-            let received = self.total_notional_received;
-            let is_dollar = ideal - received;
-            let is_pct = if ideal.abs() > 1e-12 { is_dollar / ideal * 100.0 } else { 0.0 };
-            if let Some(obj) = info.as_object_mut() {
-                obj.insert("total_IS_pct".to_string(), json!(is_pct));
-                obj.insert("total_is_dollar".to_string(), json!(is_dollar));
-                if let Some(liq) = &forced {
-                    obj.insert("forced_liquidation_qty".to_string(), json!(liq.qty));
-                }
-            }
+            self.insert_episode_summary(&mut info, forced.as_ref());
         }
 
         let state = self.build_state();
@@ -1211,23 +1200,7 @@ impl RlEnv {
         });
 
         if done {
-            let ideal = self.arrival_price * self.cfg.total_inventory;
-            let received = self.total_notional_received;
-            let is_pct = if ideal.abs() > 1e-12 {
-                (ideal - received) / ideal * 100.0
-            } else {
-                0.0
-            };
-            if let Some(obj) = info.as_object_mut() {
-                obj.insert("total_IS_pct".to_string(), json!(is_pct));
-                if let Some(liq) = &forced {
-                    obj.insert("forced_liquidation_qty".to_string(), json!(liq.qty));
-                    obj.insert("forced_liq_filled_qty".to_string(), json!(liq.filled_qty));
-                    obj.insert("forced_liq_residual_qty".to_string(), json!(liq.residual_qty));
-                    obj.insert("forced_liq_filled_notional".to_string(), json!(liq.filled_notional));
-                    obj.insert("forced_liq_punitive_notional".to_string(), json!(liq.punitive_notional));
-                }
-            }
+            self.insert_episode_summary(&mut info, forced.as_ref());
         }
 
         let state = self.build_state();
@@ -1236,6 +1209,27 @@ impl RlEnv {
             reward: reward + total_reward_adj,
             done,
             info,
+        }
+    }
+
+    /// Add end-of-episode fields to `info`: total implementation shortfall
+    /// and, if the episode ended in a forced liquidation, how it was priced
+    /// (real depth vs the punitive residual).
+    fn insert_episode_summary(&self, info: &mut Value, forced: Option<&ForcedLiquidation>) {
+        let ideal = self.arrival_price * self.cfg.total_inventory;
+        let is_dollar = ideal - self.total_notional_received;
+        let is_pct = if ideal.abs() > 1e-12 { is_dollar / ideal * 100.0 } else { 0.0 };
+        let Some(obj) = info.as_object_mut() else {
+            return;
+        };
+        obj.insert("total_IS_pct".to_string(), json!(is_pct));
+        obj.insert("total_is_dollar".to_string(), json!(is_dollar));
+        if let Some(liq) = forced {
+            obj.insert("forced_liquidation_qty".to_string(), json!(liq.qty));
+            obj.insert("forced_liq_filled_qty".to_string(), json!(liq.filled_qty));
+            obj.insert("forced_liq_residual_qty".to_string(), json!(liq.residual_qty));
+            obj.insert("forced_liq_filled_notional".to_string(), json!(liq.filled_notional));
+            obj.insert("forced_liq_punitive_notional".to_string(), json!(liq.punitive_notional));
         }
     }
 

@@ -30,10 +30,11 @@
      "remaining": 0.0,
      "sigma_ref": 0.4999,
      "step": 67,
-     "total_IS_pct": 1.861003382849142
+     "total_IS_pct": 1.861003382849142,
+     "total_is_dollar": 1861003.382849142
     },
     "n_steps": 67,
-    "sha256": "1e4f205263ff72d22445b5f88a22708c78125e67e7d6f6f4284d599a96cb4713",
+    "sha256": "99085d1d652b30b1fb90e618628a355372f7e46c7c05a824e9bea21bab4a82ea",
     "total_reward": -0.0238586567132225
    },
    "all_max/seed17": {
@@ -53,10 +54,11 @@
      "remaining": 0.0,
      "sigma_ref": 0.4999,
      "step": 70,
-     "total_IS_pct": 1.9420174734850377
+     "total_IS_pct": 1.9420174734850377,
+     "total_is_dollar": 1942017.4734850377
     },
     "n_steps": 70,
-    "sha256": "1f84e4aa811694e3714fa714f5309995952d77d6fcdc190d795d6db62f1c1cae",
+    "sha256": "61bd56d53863539c2372f8e1a25a7a18822e06725357b7b223ed44eaa7ca2a09",
     "total_reward": -0.02464326395003293
    },
    "all_wait/seed0": {
@@ -81,10 +83,11 @@
      "remaining": 0.0,
      "sigma_ref": 0.4999,
      "step": 2880,
-     "total_IS_pct": 0.25829258183838427
+     "total_IS_pct": 0.25829258183838427,
+     "total_is_dollar": 258292.58183838427
     },
     "n_steps": 2880,
-    "sha256": "0ae29d5a043e9fc031bec51c21437c2aa9e38a29053d16b4790fb4e5702833ba",
+    "sha256": "c74c9127b19c6075de1353bf0d6f282a19cb93417378f2c51d25af5149ed7dc6",
     "total_reward": -0.029089174599439403
    },
    "all_wait/seed17": {
@@ -109,10 +112,11 @@
      "remaining": 0.0,
      "sigma_ref": 0.4999,
      "step": 2863,
-     "total_IS_pct": 0.8613396571519226
+     "total_IS_pct": 0.8613396571519226,
+     "total_is_dollar": 861339.6571519226
     },
     "n_steps": 2863,
-    "sha256": "83ae11f6f953d1cfc1f37ee85a7d2a109035bf655019e7288f9177c79b37bd54",
+    "sha256": "b379d9ed67cb25ab7ccb7d3666de6c93a789a9c2b78c62050bf4a564f1249a4e",
     "total_reward": -0.03190025876552122
    },
    "random/seed0": {
@@ -132,10 +136,11 @@
      "remaining": 762.369880130881,
      "sigma_ref": 0.4999,
      "step": 105,
-     "total_IS_pct": 1.4902941502328066
+     "total_IS_pct": 1.4902941502328066,
+     "total_is_dollar": 1490294.1502328068
     },
     "n_steps": 105,
-    "sha256": "c93e014e148d444fbd61055d513f0cda747078cd1341a6ea82c33a4a43a3599e",
+    "sha256": "a32b6250fa4ea7ebbe503cead6f23781a094448668a7024eb68d768f6bee587d",
     "total_reward": -0.021135522531625706
    },
    "random/seed17": {
@@ -155,10 +160,11 @@
      "remaining": 0.0,
      "sigma_ref": 0.4999,
      "step": 100,
-     "total_IS_pct": 1.6608943256141693
+     "total_IS_pct": 1.6608943256141693,
+     "total_is_dollar": 1660894.3256141692
     },
     "n_steps": 100,
-    "sha256": "4d397fae8fb3109bca53149fbcf785e55ac89ae3aa9d03b3e98c324a94c8af00",
+    "sha256": "374563cff541aec76965b1158cbab6b2a33251ffdbb405fc6d734c602f39ab82",
     "total_reward": -0.022353389424251344
    }
   },
@@ -180,10 +186,11 @@
      "remaining": 0.0,
      "sigma_ref": 0.4999,
      "step": 80,
-     "total_IS_pct": 2.4113520531556123
+     "total_IS_pct": 2.4113520531556123,
+     "total_is_dollar": 1919711.5285324305
     },
     "n_steps": 80,
-    "sha256": "47ea57f63e6b8d48a9adc3ea4fd1e7476c6571ad6a82c9b0c38a656fcb567c50",
+    "sha256": "e30640ee15e3779c64fb0ebf8c02fa722f122ea99e00cee775e8529375ed106d",
     "total_reward": -0.02410663728744123
    },
    "all_max/seed17": {
@@ -203,10 +210,11 @@
      "remaining": 0.0,
      "sigma_ref": 0.4999,
      "step": 81,
-     "total_IS_pct": 2.4368636140534283
+     "total_IS_pct": 2.4368636140534283,
+     "total_is_dollar": 2141400.749888569
     },
     "n_steps": 81,
-    "sha256": "e5f63b100df68e1b6169943166b34edace8765aee4a61712b164ba80cb04f72e",
+    "sha256": "fe126cb0337e013f87db3ffd0a9c9bdfd7c71ca07b6ccaab99076fb519279d4c",
     "total_reward": -0.02404514782198269
    },
    "all_wait/seed0": {
@@ -231,10 +239,11 @@
      "remaining": 0.0,
      "sigma_ref": 0.4999,
      "step": 1107,
-     "total_IS_pct": 9.481587045577319
+     "total_IS_pct": 9.481587045577319,
+     "total_is_dollar": 7548425.762367889
     },
     "n_steps": 1107,
-    "sha256": "da98682160a4a7999700bab92311d07928d3dae05ae9401eaae570764462fcb5",
+    "sha256": "f7a5cb2c9f75b1620cd88e3714ebb66f95ad65424ef82b790c079d26943fe3e9",
     "total_reward": -0.056739206753208184
    },
    "all_wait/seed17": {
@@ -259,10 +268,11 @@
      "remaining": 0.0,
      "sigma_ref": 0.4999,
      "step": 521,
-     "total_IS_pct": 9.187059069302151
+     "total_IS_pct": 9.187059069302151,
+     "total_is_dollar": 8073153.978260711
     },
     "n_steps": 521,
-    "sha256": "c8dbe24187c8bb128a9f6687f8304aa10d149ac4a7b0a12b1e46038c9bee6faa",
+    "sha256": "0cd54a1c1e592b4cf078c8be1c713636ec5d727e33f65baa83e1fa9fe609d572",
     "total_reward": -0.052498424755755425
    },
    "random/seed0": {
@@ -282,10 +292,11 @@
      "remaining": 647.5466418008816,
      "sigma_ref": 0.4999,
      "step": 146,
-     "total_IS_pct": 2.117010670851381
+     "total_IS_pct": 2.117010670851381,
+     "total_is_dollar": 1685382.1844641715
     },
     "n_steps": 146,
-    "sha256": "8059e991565a3e2e74449c7518f408980a1d9bc1625c9362a2fa4be0f71fa854",
+    "sha256": "ee48e7a3fcef57e83548180cf198a67f954f0615c55ae5d8b5b57983b0f54507",
     "total_reward": -0.021594989944890126
    },
    "random/seed17": {
@@ -305,10 +316,11 @@
      "remaining": 0.0,
      "sigma_ref": 0.4999,
      "step": 141,
-     "total_IS_pct": 2.1108830494347757
+     "total_IS_pct": 2.1108830494347757,
+     "total_is_dollar": 1854944.4125302583
     },
     "n_steps": 141,
-    "sha256": "6338532c95af6fb083746de15fffa125c2a2ed8de65ccab53d57d7b89aa07cea",
+    "sha256": "0364e9b3395a79693c86de28f309385ca5900693a55ca6d46735c27edd8f6cb9",
     "total_reward": -0.021887054075319958
    }
   },
@@ -330,10 +342,11 @@
      "remaining": 0.0,
      "sigma_ref": 0.4999,
      "step": 80,
-     "total_IS_pct": 2.411352053155676
+     "total_IS_pct": 2.411352053155676,
+     "total_is_dollar": 2411352.0531556755
     },
     "n_steps": 80,
-    "sha256": "3c85c534c5785f015aa3426ea843e7140bbbf43f26ea4f3521c135b3a7058697",
+    "sha256": "3183cfd3a063a9af4e6c3c0e1a73cec2ce7f81b8c61ce273df1c357529a90fe0",
     "total_reward": -0.024106637287441213
    },
    "all_max/seed17": {
@@ -353,10 +366,11 @@
      "remaining": 0.0,
      "sigma_ref": 0.4999,
      "step": 81,
-     "total_IS_pct": 2.4368636140535473
+     "total_IS_pct": 2.4368636140535473,
+     "total_is_dollar": 2436863.6140535474
     },
     "n_steps": 81,
-    "sha256": "43b2acc88bb05efea0362c54e74324e058d86c843414f102c444219cdf413dc6",
+    "sha256": "0efcdcedf577e5be4093189c05316953cbb6fd95841a1d79f4e247eb75ce3065",
     "total_reward": -0.02404514782198262
    },
    "all_wait/seed0": {
@@ -381,10 +395,11 @@
      "remaining": 0.0,
      "sigma_ref": 0.4999,
      "step": 2854,
-     "total_IS_pct": 3.226482748573706
+     "total_IS_pct": 3.226482748573706,
+     "total_is_dollar": 3226482.7485737056
     },
     "n_steps": 2854,
-    "sha256": "787fb4a31a2584d6a520b4b388eb794e127957277988d650b65b6e8643bc3a9a",
+    "sha256": "d2588e143a34aad5c972aa632dd634df808f4ce6e487cce0815a8861fc32a1e4",
     "total_reward": -0.03958345587665391
    },
    "all_wait/seed17": {
@@ -409,10 +424,11 @@
      "remaining": 0.0,
      "sigma_ref": 0.4999,
      "step": 2837,
-     "total_IS_pct": 2.880122487672731
+     "total_IS_pct": 2.880122487672731,
+     "total_is_dollar": 2880122.4876727313
     },
     "n_steps": 2837,
-    "sha256": "45e8f07a751f3620a0e45fe3026a0fed26d64f6f2fa46cd13141b25d60dd5ab4",
+    "sha256": "8236d9636d24bdb95e9859e56dee392ab7a427fd57009db38028de08eb7273fc",
     "total_reward": -0.035159330248862745
    },
    "random/seed0": {
@@ -432,10 +448,11 @@
      "remaining": 813.3841470516321,
      "sigma_ref": 0.4999,
      "step": 146,
-     "total_IS_pct": 2.1170106708515135
+     "total_IS_pct": 2.1170106708515135,
+     "total_is_dollar": 2117010.6708515137
     },
     "n_steps": 146,
-    "sha256": "754d326d82d7338332d56a2ede64b5f758a2d30cfc25fe3f532071930a2b867c",
+    "sha256": "cb34b84450353f7fa17be0100b6cefd03b972ec6d63f48b8395bcc9a1e2d057f",
     "total_reward": -0.021594989944890113
    },
    "random/seed17": {
@@ -455,10 +472,11 @@
      "remaining": 0.0,
      "sigma_ref": 0.4999,
      "step": 141,
-     "total_IS_pct": 2.1108830494348108
+     "total_IS_pct": 2.1108830494348108,
+     "total_is_dollar": 2110883.049434811
     },
     "n_steps": 141,
-    "sha256": "c7d07fc2782cdaa8bc300c504f07edd46e92b081763ed7d9da2562d6566d2cde",
+    "sha256": "6db45709b4a93b28fae29d3f7af8eb654f62ea77ec83aae87d656d8d73060e14",
     "total_reward": -0.021887054075319944
    }
   },
@@ -480,10 +498,11 @@
      "remaining": 0.0,
      "sigma_ref": 0.4999,
      "step": 80,
-     "total_IS_pct": 2.411352053155676
+     "total_IS_pct": 2.411352053155676,
+     "total_is_dollar": 2411352.0531556755
     },
     "n_steps": 80,
-    "sha256": "3c85c534c5785f015aa3426ea843e7140bbbf43f26ea4f3521c135b3a7058697",
+    "sha256": "3183cfd3a063a9af4e6c3c0e1a73cec2ce7f81b8c61ce273df1c357529a90fe0",
     "total_reward": -0.024106637287441213
    },
    "all_max/seed17": {
@@ -503,10 +522,11 @@
      "remaining": 0.0,
      "sigma_ref": 0.4999,
      "step": 81,
-     "total_IS_pct": 2.4368636140535473
+     "total_IS_pct": 2.4368636140535473,
+     "total_is_dollar": 2436863.6140535474
     },
     "n_steps": 81,
-    "sha256": "43b2acc88bb05efea0362c54e74324e058d86c843414f102c444219cdf413dc6",
+    "sha256": "0efcdcedf577e5be4093189c05316953cbb6fd95841a1d79f4e247eb75ce3065",
     "total_reward": -0.02404514782198262
    },
    "all_wait/seed0": {
@@ -531,10 +551,11 @@
      "remaining": 0.0,
      "sigma_ref": 0.4999,
      "step": 2854,
-     "total_IS_pct": 3.226482748573706
+     "total_IS_pct": 3.226482748573706,
+     "total_is_dollar": 3226482.7485737056
     },
     "n_steps": 2854,
-    "sha256": "787fb4a31a2584d6a520b4b388eb794e127957277988d650b65b6e8643bc3a9a",
+    "sha256": "d2588e143a34aad5c972aa632dd634df808f4ce6e487cce0815a8861fc32a1e4",
     "total_reward": -0.03958345587665391
    },
    "all_wait/seed17": {
@@ -559,10 +580,11 @@
      "remaining": 0.0,
      "sigma_ref": 0.4999,
      "step": 2837,
-     "total_IS_pct": 2.880122487672731
+     "total_IS_pct": 2.880122487672731,
+     "total_is_dollar": 2880122.4876727313
     },
     "n_steps": 2837,
-    "sha256": "45e8f07a751f3620a0e45fe3026a0fed26d64f6f2fa46cd13141b25d60dd5ab4",
+    "sha256": "8236d9636d24bdb95e9859e56dee392ab7a427fd57009db38028de08eb7273fc",
     "total_reward": -0.035159330248862745
    },
    "random/seed0": {
@@ -582,10 +604,11 @@
      "remaining": 813.3841470516321,
      "sigma_ref": 0.4999,
      "step": 146,
-     "total_IS_pct": 2.1170106708515135
+     "total_IS_pct": 2.1170106708515135,
+     "total_is_dollar": 2117010.6708515137
     },
     "n_steps": 146,
-    "sha256": "754d326d82d7338332d56a2ede64b5f758a2d30cfc25fe3f532071930a2b867c",
+    "sha256": "cb34b84450353f7fa17be0100b6cefd03b972ec6d63f48b8395bcc9a1e2d057f",
     "total_reward": -0.021594989944890113
    },
    "random/seed17": {
@@ -605,10 +628,11 @@
      "remaining": 0.0,
      "sigma_ref": 0.4999,
      "step": 141,
-     "total_IS_pct": 2.1108830494348108
+     "total_IS_pct": 2.1108830494348108,
+     "total_is_dollar": 2110883.049434811
     },
     "n_steps": 141,
-    "sha256": "c7d07fc2782cdaa8bc300c504f07edd46e92b081763ed7d9da2562d6566d2cde",
+    "sha256": "6db45709b4a93b28fae29d3f7af8eb654f62ea77ec83aae87d656d8d73060e14",
     "total_reward": -0.021887054075319944
    }
   },
@@ -657,6 +681,10 @@
      "current_sigma": 0.3634374590377607,
      "fill_price": 101.90413807845877,
      "fill_qty": 0.0,
+     "forced_liq_filled_notional": 21383770.89244674,
+     "forced_liq_filled_qty": 215304.01999999996,
+     "forced_liq_punitive_notional": 76238336.33522163,
+     "forced_liq_residual_qty": 784695.9800000001,
      "forced_liquidation_qty": 1000000.0,
      "interval_volume": 0.0,
      "is_contribution": -0.0,
@@ -668,7 +696,7 @@
      "total_is_dollar": 2377892.772331625
     },
     "n_steps": 2880,
-    "sha256": "ba07b99f9aee51b58878fd7bec6353ea9a3103bac96749327309bbecf2c273d0",
+    "sha256": "87d778b566cebbdebe0f4543e1711cabbab89f4b89066402d9d9a31fbd407e4e",
     "total_reward": -0.05028565173282324
    },
    "all_wait/seed17": {
@@ -677,6 +705,10 @@
      "current_sigma": 0.3634374590377607,
      "fill_price": 101.58425783955987,
      "fill_qty": 0.0,
+     "forced_liq_filled_notional": 21316646.574724052,
+     "forced_liq_filled_qty": 215304.01999999996,
+     "forced_liq_punitive_notional": 75771495.49640198,
+     "forced_liq_residual_qty": 784695.9800000001,
      "forced_liquidation_qty": 1000000.0,
      "interval_volume": 0.0,
      "is_contribution": -0.0,
@@ -688,7 +720,7 @@
      "total_is_dollar": 2911857.928873971
     },
     "n_steps": 2880,
-    "sha256": "0dcd9a5884c3462ec5d4ff0293e166ab63fc37ee368f4f36629a800d41c8fbac",
+    "sha256": "7c041db8662382bb44af16417c7bbadc5557a5a57d81c6f20e04d7cee4a60e4c",
     "total_reward": -0.05241524220652299
    },
    "random/seed0": {
@@ -780,6 +812,10 @@
      "depth_withdrawn_pct": 0.0,
      "fill_price": 103.73442798487743,
      "fill_qty": 0.0,
+     "forced_liq_filled_notional": 103676978.04494992,
+     "forced_liq_filled_qty": 1000000.0,
+     "forced_liq_punitive_notional": 0.0,
+     "forced_liq_residual_qty": 0.0,
      "forced_liquidation_qty": 1000000.0,
      "front_runner_qty": 0.0,
      "interval_volume": 0.0,
@@ -792,7 +828,7 @@
      "total_is_dollar": -3676978.044949919
     },
     "n_steps": 2880,
-    "sha256": "84a5f56d596d693960a2e9b77967e12f48590b7f6d9c564b94f75ccc49fdc61e",
+    "sha256": "00d37a3aaa3803498433653b789792963227c9c3be6a6e9939f31f36db4239c1",
     "total_reward": -0.00563225209016212
    },
    "all_wait/seed17": {
@@ -802,6 +838,10 @@
      "depth_withdrawn_pct": 0.0,
      "fill_price": 106.76002631961006,
      "fill_qty": 0.0,
+     "forced_liq_filled_notional": 106707998.88912609,
+     "forced_liq_filled_qty": 1000000.0,
+     "forced_liq_punitive_notional": 0.0,
+     "forced_liq_residual_qty": 0.0,
      "forced_liquidation_qty": 1000000.0,
      "front_runner_qty": 0.0,
      "interval_volume": 0.0,
@@ -814,7 +854,7 @@
      "total_is_dollar": -6707998.889126092
     },
     "n_steps": 2880,
-    "sha256": "b83012e12405e30d8a16600893165a952c2e0a7c368ebfa7a97ca152cdc6f0df",
+    "sha256": "3841bc629ea7dec00bb8d0651212f6fe7c430c403dd16398dbda044354f38007",
     "total_reward": -0.005518994974663552
    },
    "random/seed0": {
@@ -905,6 +945,10 @@
      "current_sigma": 0.013899645041949156,
      "fill_price": 103.73442798487743,
      "fill_qty": 0.0,
+     "forced_liq_filled_notional": 103676978.04494992,
+     "forced_liq_filled_qty": 1000000.0,
+     "forced_liq_punitive_notional": 0.0,
+     "forced_liq_residual_qty": 0.0,
      "forced_liquidation_qty": 1000000.0,
      "interval_volume": 0.0,
      "is_contribution": -0.0,
@@ -916,7 +960,7 @@
      "total_is_dollar": -3676978.044949919
     },
     "n_steps": 2880,
-    "sha256": "998737b640b5a5589efbde93f19eacfbe54f781887e6c88b0e6f40e07ade1247",
+    "sha256": "6c96956af86bd5a7c13be8f6576ca43d958662ebd422b0f42f2198ebfb862f45",
     "total_reward": -0.00563225209016212
    },
    "all_wait/seed17": {
@@ -925,6 +969,10 @@
      "current_sigma": 0.0070860412377982684,
      "fill_price": 106.76002631961006,
      "fill_qty": 0.0,
+     "forced_liq_filled_notional": 106707998.88912609,
+     "forced_liq_filled_qty": 1000000.0,
+     "forced_liq_punitive_notional": 0.0,
+     "forced_liq_residual_qty": 0.0,
      "forced_liquidation_qty": 1000000.0,
      "interval_volume": 0.0,
      "is_contribution": -0.0,
@@ -936,7 +984,7 @@
      "total_is_dollar": -6707998.889126092
     },
     "n_steps": 2880,
-    "sha256": "9c005148bf1e799a0bbfb30c409b84f7f658d6217f17b33a5d72dd7a287ed309",
+    "sha256": "ce835615f20e8601eab0346561c971b397f5e3dcb29176d21a353a329ea5a348",
     "total_reward": -0.005518994974663552
    },
    "random/seed0": {
