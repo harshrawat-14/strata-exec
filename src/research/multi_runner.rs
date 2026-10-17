@@ -208,13 +208,6 @@ impl MultiStrategyRunner {
         }
     }
 
-    /// Helper: send an event if the debug channel is active.
-    fn emit(&self, event: DebugEvent) {
-        if let Some(tx) = &self.event_tx {
-            let _ = tx.send(event);
-        }
-    }
-
     /// Drive every strategy through the simulated price path.
     ///
     /// After the loop completes (or all strategies finish early), a CSV

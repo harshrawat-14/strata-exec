@@ -40,7 +40,6 @@ pub struct CostDecomposition {
 /// across all trades executed during a session.
 pub struct ExecutionMetrics {
     arrival_price: f64,
-    initial_inventory: f64,
     initial_notional: f64,
     total_executed: f64,
     vwap_numerator: f64,
@@ -82,7 +81,6 @@ impl ExecutionMetrics {
     pub fn new(arrival_price: f64, initial_inventory: f64) -> Self {
         Self {
             arrival_price,
-            initial_inventory,
             initial_notional: arrival_price * initial_inventory,
             total_executed: 0.0,
             vwap_numerator: 0.0,

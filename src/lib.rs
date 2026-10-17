@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 pub mod analytics;
 pub mod api;
 pub mod blockchain;

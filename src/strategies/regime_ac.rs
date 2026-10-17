@@ -58,7 +58,6 @@ pub fn effective_lambda(regime: &MarketRegime, params: &RegimeAcParams) -> f64 {
 /// GBM construction parameter.
 pub struct RegimeAcStrategy {
     params: RegimeAcParams,
-    total_inventory: f64,
     remaining: f64,
     horizon: usize,
     steps_taken: usize,
@@ -92,7 +91,6 @@ impl RegimeAcStrategy {
     ) -> Self {
         Self {
             params: RegimeAcParams::default(),
-            total_inventory,
             remaining: total_inventory,
             horizon,
             steps_taken: 0,
