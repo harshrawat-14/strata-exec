@@ -16,7 +16,7 @@ import os
 import numpy as np
 import pytest
 
-import evaluate as evaluate_module
+import evaluation.harness as harness_module
 from evaluate import (
     ACOptimalPolicy,
     AdaptiveACPolicy,
@@ -71,14 +71,14 @@ class TestSharedCostModel:
 
     def test_all_five_strategies_get_identical_env_kwargs(self, monkeypatch):
         _SpyEnv.captured_kwargs = []
-        monkeypatch.setattr(evaluate_module, "StrataExecEnv", _SpyEnv)
+        monkeypatch.setattr(harness_module, "StrataExecEnv", _SpyEnv)
 
         # Bypass real episode execution -- this test is only about how the
         # env is *constructed* for each strategy, not what happens inside it.
         def fake_run_episode(model, env, seed):
             return -0.5, 0.0, False, [0]
 
-        monkeypatch.setattr(evaluate_module, "_run_episode", fake_run_episode)
+        monkeypatch.setattr(harness_module, "_run_episode", fake_run_episode)
 
         dummy_rl_model = TWAPPolicy(n_state_dims=12)  # any .predict()-compatible object
         evaluate_all_strategies_on_date(
