@@ -468,7 +468,7 @@ class TestAdaptiveACVolatilityInversion:
             peak, worst_rel, done = 0.0, 0.0, False
             while not done:
                 action, _ = policy.predict(obs)
-                obs, _r, done, _t, info = env.step(int(action))
+                obs, _r, done, _t, info = env.step(int(np.asarray(action).item()))
                 if "current_sigma" not in info:
                     pytest.skip("binary predates current_sigma in info dict")
                 truth = float(info["current_sigma"])

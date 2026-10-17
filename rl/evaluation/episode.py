@@ -102,8 +102,10 @@ def _run_episode(model, env, seed: int):
         )
         episode_start = np.zeros((1,), dtype=bool)
 
-        actions_taken.append(int(action))
-        obs, reward, done, _, info = env.step(int(action))
+        # predict() returns a 1-element array; int() on it is deprecated.
+        action_idx = int(np.asarray(action).item())
+        actions_taken.append(action_idx)
+        obs, reward, done, _, info = env.step(action_idx)
         ep_reward += reward
 
         if info.get("fill_qty", 0) > 0:
