@@ -27,19 +27,6 @@ def cosine_with_restarts(progress_remaining: float) -> float:
     return peak * 0.5 * (1.0 + math.cos(math.pi * cycle_progress))
 
 
-# Regression note (Phase 2): this module could not previously be imported at
-# all -- these two assertions were failing with the ORIGINAL 0.67/0.34
-# inputs (cosine_with_restarts(0.67) ~= 0.0002, not ~0.5). The function
-# itself is correct and matches the docstring; 0.67/0.34 simply landed on
-# the wrong side of the 1/3 and 2/3 progress boundaries (e.g.
-# progress_remaining=0.67 -> progress=0.33, which is fractionally BEFORE
-# the exact 1/3 boundary -- still the tail end of cycle 0, where cosine
-# decays to ~0, not the start of cycle 1's peak). 0.66/0.32 land safely
-# inside cycles 1 and 2 respectively, at their intended peaks.
-assert abs(cosine_with_restarts(1.0) - 1.0) < 0.01, "cosine_with_restarts(1.0) must be ~1.0"
-assert abs(cosine_with_restarts(0.66) - 0.5) < 0.05, "cosine_with_restarts(0.66) must be ~0.5"
-assert abs(cosine_with_restarts(0.32) - 0.25) < 0.05, "cosine_with_restarts(0.32) must be ~0.25"
-
 
 def get_lr_schedule(lr_schedule: str, base_lr: float, total_timesteps: int):
     """

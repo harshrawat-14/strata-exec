@@ -237,10 +237,8 @@ class TestGetLrSchedule:
 
 
 def test_train_module_level_import_succeeds():
-    # The module-level cosine_with_restarts self-test assertions run at
-    # import time -- this test exists purely so "import train" itself is
-    # covered by the test suite and a future regression fails loudly in CI,
-    # not silently at the next person's first real training run.
+    # Covers "import train" itself, so an import-time regression (train.py
+    # was once unimportable) fails loudly in CI, not at the next real run.
     import importlib
     import train as train_module
     importlib.reload(train_module)
