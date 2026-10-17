@@ -1,8 +1,9 @@
 # 12 — Forced liquidation at data exhaustion: a cheap dump that flattered back-loaded baselines
 
 Written 2026-10-18. Simulator bug found while building the golden regression guard for the
-2026-10 refactor, measured on **TRAINING_DATES_V2 only** (16 dates × eval seeds 0–19),
-then fixed. No held-out date was evaluated.
+2026-10 refactor, measured first on **TRAINING_DATES_V2** (16 dates × eval seeds 0–19), then
+fixed. Step A was then re-run once on the 9 held-out dates to check the published table
+(baselines only, no model selection — see "Held-out re-run").
 
 ## Summary
 
@@ -66,11 +67,29 @@ single-day replay (the separate, still-open hindsight trend-following issue).
 
 ## What this changes
 
-- **docs/experiments/08 (Step 3):** "RL beats the best static schedule on crashes" is
-  *strengthened* — that baseline was flattered. "Sqrt-impact beats AC on all four held-out
-  dates" (margins +0.05 to +0.38 pp) is **now doubtful**: the flattering measured here is
-  larger than those margins. Not re-run, to avoid another look at the held-out dates.
-- **Adaptive-AC numbers in docs 05–11** are optimistic by roughly 0.1–0.5 pp.
+- **docs/experiments/08 (Step 3) stands.** The held-out re-run below shows the sqrt-impact
+  baseline was *not* flattered on held-out dates: it still beats AC on 9/9, and RL still
+  beats it on the 4 crash dates. The back-loading exploit appeared only on training dates
+  with strong rallies (2024-11-06, 2024-07-06, …), which the held-out set does not contain.
+- **Adaptive-AC numbers in docs 05–11** are optimistic by up to ~0.5 pp, on held-out dates
+  as well as training dates.
+
+## Held-out re-run (2026-10-18)
+
+`phase3_stepA_full_holdout_eval.py` re-run exactly as published (Step 4 checkpoint,
+n_episodes=20, sqrt fit 3 seeds × 25 iterations) on the fixed simulator →
+`rl/results/issue1_full_holdout_rerun.csv`, compared with `phase3_stepA_full_holdout.csv`.
+
+| Strategy | largest change on any held-out date |
+|---|---:|
+| AC-Optimal, RL, Heuristic | **0** (bit-identical on all 9 dates) |
+| TWAP | 0.005 pp |
+| Sqrt-impact | 0 on 7 dates; **+0.05 / +0.08 pp better** on 08-03 / 12-10 (refit found a better shape) |
+| Adaptive-AC | up to **−0.46 pp** (e.g. 12-10 −0.84 → −1.30, 07-11 −0.63 → −0.99) |
+
+Sqrt-impact beats AC on 9/9 held-out dates before and after; RL beats sqrt-impact on 4/9
+(the crash dates) before and after. The published headline (RL vs AC: 4/4 crash, 0/5
+calm/normal) is unchanged to the last decimal.
 - **Anything new built on "AC on the same path"** (the planned M1 reward) needs this fix
   in place; it is.
 
@@ -78,4 +97,4 @@ single-day replay (the separate, still-open hindsight trend-following issue).
 
 - Scripts: `rl/experiments/issue1_measure_forced_liq.py`, `rl/experiments/issue1_measure_sqrt.py`
 - Results: `rl/results/issue1_episode_endings_{prefix,fixed}.csv`,
-  `rl/results/issue1_sqrt_impact_{prefix,fixed}.csv`
+  `rl/results/issue1_sqrt_impact_{prefix,fixed}.csv`, `rl/results/issue1_full_holdout_rerun.csv`

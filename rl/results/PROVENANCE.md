@@ -146,7 +146,9 @@ Before the fix in `docs/experiments/12-forced-liquidation-at-data-exhaustion.md`
 fixed-horizon counterfactual episode that ran past the day's last snapshot priced its whole
 remaining inventory by the punitive fallback against an empty book. **AC-Optimal and the RL
 checkpoints are unaffected** (they never reach the end of the data; bit-identical across the
-fix). **Adaptive-AC and Sqrt-Impact-Optimal rows in every counterfactual CSV produced before
-this date are optimistic** (≈0.14 pp and ≈0.53 pp mean IS on training dates; the sqrt-impact
-fit itself exploited the bug). TWAP and Heuristic shift by < 0.005 pp.
+fix). **Adaptive-AC rows in every counterfactual CSV produced before this date are
+optimistic** (≈0.14 pp mean on training dates, up to 0.46 pp on held-out dates).
+Sqrt-Impact-Optimal rows are optimistic on training dates (≈0.53 pp; its fit exploited the
+bug on rally days) but **unchanged or slightly pessimistic on the 9 held-out dates**
+(`issue1_full_holdout_rerun.csv`). TWAP and Heuristic shift by < 0.005 pp.
 `issue1_*_prefix.csv` / `issue1_*_fixed.csv` are the before/after measurements.
