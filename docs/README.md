@@ -13,6 +13,7 @@ numbering to find what you're looking for.
 | Know why a design choice was made | [architecture/decision-records.md](architecture/decision-records.md) |
 | See the current headline research result | [experiments/10-full-holdout-evaluation-result.md](experiments/10-full-holdout-evaluation-result.md) |
 | Know what's still unresolved or contested | [methodology/standing-issues.md](methodology/standing-issues.md) |
+| See what went wrong before, and why | [history/timeline.md](history/timeline.md) · [lessons.md](history/lessons.md) |
 | See what's planned next | [proposals/research-roadmap.md](proposals/research-roadmap.md) |
 
 ## `architecture/` — how the system is built
@@ -51,7 +52,7 @@ findings were retracted and the retractions are preserved deliberately rather th
 | 09 | [policy-capacity-and-entropy.md](experiments/09-policy-capacity-and-entropy.md) | Underfit policy fixed; the pacing dissociation survives, and strengthens |
 | 10 | [full-holdout-evaluation-predictions.md](experiments/10-full-holdout-evaluation-predictions.md) · [result](experiments/10-full-holdout-evaluation-result.md) | **Current headline.** All 9 held-out dates: 4/4 crash-tier wins, 0/5 calm/normal |
 | 11 | [imitation-warm-start-predictions.md](experiments/11-imitation-warm-start-predictions.md) · [result](experiments/11-imitation-warm-start-result.md) | **Negative result.** Cloning AC gives the calm-day floor but destroys the crash-day edge |
-| 12 | [forced-liquidation-at-data-exhaustion.md](experiments/12-forced-liquidation-at-data-exhaustion.md) | Simulator fix. AC/RL unaffected; Adaptive-AC and sqrt-impact baselines were flattered (0.14 / 0.53 pp) |
+| 12 | [forced-liquidation-at-data-exhaustion.md](experiments/12-forced-liquidation-at-data-exhaustion.md) | Simulator fix. AC/RL unaffected; Adaptive-AC flattered (up to 0.46 pp held-out); sqrt-impact flattered on training dates only, Step 3 stands |
 
 Predictions files are **pre-registered** — written and committed before the corresponding experiment
 was run, so the result cannot be retrofitted to the outcome.
@@ -75,6 +76,13 @@ was run, so the result cannot be retrofitted to the outcome.
 | Document | Contents |
 |---|---|
 | [disk-cleanup-2026-09-07.md](maintenance/disk-cleanup-2026-09-07.md) | What was deleted, why, and how to regenerate it |
+
+## `history/` — mistakes, corrections and decisions
+
+| Document | Contents |
+|---|---|
+| [timeline.md](history/timeline.md) | Every bug, retracted claim, methodology error and key decision, in date order |
+| [lessons.md](history/lessons.md) | The ten recurring patterns behind them, and the check that now guards each |
 
 ---
 
