@@ -243,6 +243,15 @@ pub(crate) fn parse_args(args: &[String]) -> Result<EnvConfig, String> {
         i += 1;
     }
 
+    // The adversarial agents act on the historical/synthetic book only; the
+    // counterfactual step has no adversary, so accepting the flag there would
+    // silently run a non-adversarial episode under an adversarial label.
+    if cfg.adversarial && matches!(cfg.mode, RlMode::Counterfactual) {
+        return Err("--adversarial is not supported in counterfactual mode \
+                    (adversarial agents exist only in historical and synthetic modes)"
+            .to_string());
+    }
+
     // Adjust default step count by mode.
     if matches!(cfg.mode, RlMode::Historical | RlMode::Counterfactual)
         && cfg.total_steps == DEFAULT_TOTAL_STEPS

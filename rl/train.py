@@ -430,6 +430,9 @@ if __name__ == "__main__":
                         "Set with --lr-schedule constant to hold a fixed LR (e.g. "
                         "the Phase 2R collapse-region isolation test at 1.9e-4).")
     args = p.parse_args()
+    if args.adversarial and args.mode == "counterfactual":
+        p.error("--adversarial is not supported with --mode counterfactual "
+                "(adversarial agents exist only in historical and synthetic modes)")
 
     multi_dates = None
     if args.multi_date:

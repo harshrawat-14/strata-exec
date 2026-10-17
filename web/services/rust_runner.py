@@ -273,6 +273,11 @@ class RustRunner:
         cmd = [self.rl_env, "--rl-mode", mode]
 
         if adversarial:
+            if mode == "counterfactual":
+                raise ValueError(
+                    "adversarial is not supported in counterfactual mode "
+                    "(adversarial agents exist only in historical and synthetic modes)"
+                )
             cmd.append("--adversarial")
 
         if lob_date and mode in ("historical", "counterfactual"):

@@ -71,11 +71,6 @@ STDIO_CONFIGS = {
         "--agg-trades", _agg(CRASH_DATE), "--btc-target", "50000",
         "--no-time-features",
     ],
-    "counterfactual_crash_adversarial": [
-        "--rl-mode", "counterfactual", "--lob-data", _book(CRASH_DATE),
-        "--agg-trades", _agg(CRASH_DATE), "--btc-target", "50000",
-        "--fixed-steps", "--fixed-size", "--adversarial",
-    ],
 }
 
 POLICIES = ("random", "all_wait", "all_max")

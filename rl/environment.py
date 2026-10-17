@@ -182,6 +182,11 @@ class StrataExecEnv(gym.Env):
             "--rl-mode", mode,
         ]
         if adversarial:
+            if mode == "counterfactual":
+                raise ValueError(
+                    "adversarial=True is not supported in counterfactual mode: "
+                    "the adversarial agents exist only in historical and synthetic modes"
+                )
             self.cmd.append("--adversarial")
         if lob_date and mode != "counterfactual":
             self.cmd.extend([

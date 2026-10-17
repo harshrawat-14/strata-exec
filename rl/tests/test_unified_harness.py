@@ -231,3 +231,10 @@ class TestPolicyInvariance:
         finally:
             env_a.close()
             env_b.close()
+
+
+def test_counterfactual_adversarial_is_rejected():
+    # The counterfactual step has no adversarial agents; the combination must
+    # fail loudly instead of silently running a non-adversarial episode.
+    with pytest.raises(ValueError, match="counterfactual"):
+        StrataExecEnv(mode="counterfactual", adversarial=True, lob_date=None)

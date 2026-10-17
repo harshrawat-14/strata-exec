@@ -1342,7 +1342,6 @@ mod cli {
         let cfg = parse_args(&args(&[
             "--rl-mode",
             "Counterfactual",
-            "--adversarial",
             "--lob-data",
             "b.csv",
             "--agg-trades",
@@ -1367,7 +1366,7 @@ mod cli {
         assert_eq!(cfg.total_steps, 400);
         assert_eq!(cfg.btc_target, 50_000.0);
         assert_eq!(cfg.seed, 7);
-        assert!(cfg.adversarial && cfg.fixed_steps && cfg.fixed_size && cfg.no_time_features);
+        assert!(cfg.fixed_steps && cfg.fixed_size && cfg.no_time_features);
     }
 
     #[test]
@@ -1399,6 +1398,18 @@ mod cli {
     fn rejects_unparseable_number_instead_of_using_default() {
         assert!(parse_args(&args(&["--btc-target", "abc"])).is_err());
         assert!(parse_args(&args(&["--total-steps", "-5"])).is_err());
+    }
+
+    #[test]
+    fn rejects_adversarial_in_counterfactual_mode_only() {
+        let err = parse_args(&args(&["--rl-mode", "counterfactual", "--adversarial"]))
+            .expect_err("must reject");
+        assert!(err.contains("counterfactual"), "{err}");
+        for mode in ["historical", "synthetic"] {
+            let cfg = parse_args(&args(&["--rl-mode", mode, "--adversarial"]))
+                .expect("adversarial is supported here");
+            assert!(cfg.adversarial);
+        }
     }
 
     #[test]

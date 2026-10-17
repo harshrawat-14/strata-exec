@@ -224,8 +224,8 @@ impl RlEnv {
 
     /// Execute one step in counterfactual mode.
     ///
-    /// Adversarial agents are not applied here: fills walk the impact-adjusted
-    /// book directly, so `--adversarial` has no effect in this mode.
+    /// No adversarial agents: fills walk the impact-adjusted book directly.
+    /// `parse_args` rejects `--adversarial` in this mode.
     pub(crate) fn step_counterfactual(&mut self, action: usize) -> StepResult {
         let action = action.min(ACTION_FRACTIONS.len() - 1);
 
