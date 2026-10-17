@@ -32,11 +32,14 @@ jobs:
       - name: Build release binaries
         run: cargo build --release
 
+      # Re-running a plain `cargo build` here would be a cached no-op that
+      # prints no warnings, so the old grep-based check could never fail.
+      # Deny warnings explicitly across every target, including tests.
       - name: Verify zero compiler warnings
-        run: |
-          warning_count=$(cargo build --release 2>&1 | grep -c "^warning" || true)
-          echo "Warning count: $warning_count"
-          test "$warning_count" -eq 0
+        run: RUSTFLAGS="-D warnings" cargo build --release --all-targets
+
+      - name: Verify formatting
+        run: cargo fmt --check
 
       - name: Upload rl-env and research-sim binaries
         uses: actions/upload-artifact@v4
@@ -65,18 +68,31 @@ jobs:
           pip install --index-url https://download.pytorch.org/whl/cpu torch==2.1.0
           pip install -r rl/requirements.txt
 
+      - name: Download rl-env binary
+        uses: actions/download-artifact@v4
+        with:
+          name: rust-binaries
+          path: target/release
+
+      - name: Make binaries executable
+        run: chmod +x target/release/rl-env target/release/research-sim
+
+      # environment.py queries ACTION_FRACTIONS from the binary at import time,
+      # so the smoke test needs the binary built by rust-tests.
       - name: Smoke test — evaluate.py imports and action-space mapping
         working-directory: rl
+        env:
+          STRATAEXEC_RL_ENV_BIN: ${{ github.workspace }}/target/release/rl-env
         run: |
           python -c "
           from evaluate import (
               TWAPPolicy, HeuristicPolicy, ACOptimalPolicy, AdaptiveACPolicy,
-              evaluate_all_strategies_on_date, V6_FRACTIONS, nearest_action,
-              load_model,
+              evaluate_all_strategies_on_date, nearest_action, load_model,
           )
-          assert len(V6_FRACTIONS) == 20
-          assert nearest_action(0.02, V6_FRACTIONS) == 4
-          assert nearest_action(0.03, V6_FRACTIONS) == 6
-          assert nearest_action(0.05, V6_FRACTIONS) == 9
+          from environment import ACTION_FRACTIONS
+          assert len(ACTION_FRACTIONS) == 20
+          assert nearest_action(0.02, ACTION_FRACTIONS) == 7
+          assert nearest_action(0.03, ACTION_FRACTIONS) == 8
+          assert nearest_action(0.05, ACTION_FRACTIONS) == 9
           print('Python smoke test: PASSED')
           "
