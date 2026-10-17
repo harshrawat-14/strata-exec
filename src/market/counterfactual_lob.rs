@@ -20,7 +20,7 @@
 //     there is a CalibrationEngine (calibration/impact_fit.rs) that fits this
 //     exact functional form (impact = Y * sigma * sqrt(Q/V)) to real trade
 //     data, but it is not wired into this struct -- the sigma term is also
-//     absent here. See docs/phase2r_objective_bias_finding.md Task 2.
+//     absent here. See docs/experiments/02-reward-objective-audit.md Task 2.
 //
 // LobReplay is owned and advanced here; do not advance it externally.
 
@@ -634,7 +634,7 @@ timestamp,b0_p,b0_q,b1_p,b1_q,a0_p,a0_q,a1_p,a1_q
         // price down)." Compare the average fill price of an IDENTICAL sell on
         // a fresh book vs. one that already has accumulated impact -- the
         // impacted fill must be at or below the unimpacted one, never above.
-        let mut fresh = make_cf_lob();
+        let fresh = make_cf_lob();
         let unimpacted_fill = fresh.current_adjusted_book().fill_market_sell(500.0).avg_fill_price;
 
         let mut impacted = make_cf_lob();
@@ -765,7 +765,7 @@ timestamp,b0_p,b0_q,b1_p,b1_q,a0_p,a0_q,a1_p,a1_q
 
         // Capture the un-impacted reference fill price BEFORE reset so the test
         // is independent of fixture-snapshot ordering quirks.
-        let mut fresh = make_cf_lob();
+        let fresh = make_cf_lob();
         let baseline_fill = fresh.current_adjusted_book().fill_market_sell(100.0).avg_fill_price;
 
         // Reset and re-verify the canonical preconditions hold.

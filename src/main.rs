@@ -3,6 +3,7 @@
 mod analytics;
 mod api;
 mod blockchain;
+mod calibration;
 mod config;
 mod engine;
 mod error;
