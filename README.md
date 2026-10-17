@@ -659,8 +659,10 @@ python rl/train.py \
 # Synthetic mode (no data files needed)
 python rl/train.py --mode synthetic --timesteps 500000
 
-# Adversarial mode (FrontRunner + LiquidityWithdrawer active)
-python rl/train.py --mode counterfactual --adversarial --timesteps 500000
+# Adversarial mode (FrontRunner + LiquidityWithdrawer active). Historical
+# mode only: in counterfactual mode --adversarial is accepted but has no effect.
+python rl/train.py --mode historical --lob-date 2024-01-15 --agg-date 2024-01-15 \
+  --adversarial --timesteps 500000
 ```
 
 ### Evaluate
