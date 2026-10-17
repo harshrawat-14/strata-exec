@@ -8,7 +8,10 @@ pub fn scratch_results_dir() -> String {
     static NEXT: AtomicUsize = AtomicUsize::new(0);
     let n = NEXT.fetch_add(1, Ordering::Relaxed);
     std::env::temp_dir()
-        .join(format!("strataexec-test-results-{}-{n}", std::process::id()))
+        .join(format!(
+            "strataexec-test-results-{}-{n}",
+            std::process::id()
+        ))
         .to_string_lossy()
         .into_owned()
 }

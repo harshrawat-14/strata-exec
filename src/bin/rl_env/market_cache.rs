@@ -3,7 +3,6 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-
 use strata_exec::market::agg_trades::AggTradesDay;
 use strata_exec::market::lob_replay::{LobReplay, LobSnapshot};
 

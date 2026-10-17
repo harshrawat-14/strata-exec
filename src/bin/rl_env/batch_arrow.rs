@@ -130,7 +130,9 @@ pub(crate) fn decode_reset_indices_request(batch: &RecordBatch) -> (Vec<usize>, 
         .as_any()
         .downcast_ref::<UInt64Array>()
         .expect("'seed' column must be UInt64");
-    let indices = (0..idx_col.len()).map(|i| idx_col.value(i) as usize).collect();
+    let indices = (0..idx_col.len())
+        .map(|i| idx_col.value(i) as usize)
+        .collect();
     let seeds = (0..seed_col.len()).map(|i| seed_col.value(i)).collect();
     (indices, seeds)
 }

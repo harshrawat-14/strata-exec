@@ -26,7 +26,9 @@ fn investigation_1() {
     let liquidity_ref = 500.0_f64;
 
     println!("=== 1.3 Hardcoded reference values ===");
-    println!("  sigma_ref     = {sigma_ref}  (set in research_sim SimParams / SweepConfig::default)");
+    println!(
+        "  sigma_ref     = {sigma_ref}  (set in research_sim SimParams / SweepConfig::default)"
+    );
     println!("  liquidity_ref = {liquidity_ref}  (same source)");
     println!("  base_chunk    = {base_chunk}");
     println!("  These values are FIXED at construction. They are NEVER updated during a run.");
@@ -43,7 +45,11 @@ fn investigation_1() {
 
     let dt = 1.0 / 500.0_f64; // same as research_sim 500 steps
     let mut garch = GarchSimulator::new(
-        100.0, 0.05, 0.000002, 0.08, 0.90,
+        100.0,
+        0.05,
+        0.000002,
+        0.08,
+        0.90,
         sigma_ref * sigma_ref, // sigma2_init = sigma_ref^2
         dt,
         42,
@@ -90,7 +96,11 @@ fn investigation_1() {
         let chunk = adaptive.min(remaining);
 
         // Count clamp activations
-        if liq_factor_raw < 0.25 || liq_factor_raw > 2.0 || vol_factor_raw < 0.25 || vol_factor_raw > 2.0 {
+        if liq_factor_raw < 0.25
+            || liq_factor_raw > 2.0
+            || vol_factor_raw < 0.25
+            || vol_factor_raw > 2.0
+        {
             clamp_count += 1;
         }
 
@@ -247,7 +257,10 @@ fn investigation_2() {
     let exec = price * (1.0 - total_imp);
     println!("    traded         = {traded:.0}");
     println!("    vol            = {vol}");
-    println!("    base_impact    = {base_imp:.6}  ({:.4} bps)", base_imp * 10000.0);
+    println!(
+        "    base_impact    = {base_imp:.6}  ({:.4} bps)",
+        base_imp * 10000.0
+    );
     println!("    transient(t=0) = {trans_imp_before:.6}  (no prior trades)");
     println!("    total_impact   = {total_imp:.6}");
     println!("    exec_price     = {exec:.6}  (from {price})");
@@ -295,7 +308,10 @@ fn investigation_3() {
     println!("  GarchSimulator::volatility() → self.sigma2.sqrt()");
     println!("    self.sigma2 = current conditional VARIANCE (σ²)");
     println!("    Returns √σ² = σ (annualised standard deviation, same scale as GBM)");
-    println!("    Initial: sigma2_init = {sigma2_init}  →  vol = {:.4}", sigma2_init.sqrt());
+    println!(
+        "    Initial: sigma2_init = {sigma2_init}  →  vol = {:.4}",
+        sigma2_init.sqrt()
+    );
     println!("  VERDICT: both simulators return σ (std dev), NOT σ². Scale is consistent.");
 
     println!();
@@ -309,8 +325,11 @@ fn investigation_3() {
     println!();
     println!("=== 3.3 GARCH path trace: σ², σ, actual return (20 steps) ===");
     println!("  dt = {dt:.6}  (1/500 year ≈ 0.5 trading days)");
-    println!("  Expected |return| ≈ σ·√dt = {:.6}  ({:.4} bps per step at init vol)",
-        sigma_ref * dt.sqrt(), sigma_ref * dt.sqrt() * 10000.0);
+    println!(
+        "  Expected |return| ≈ σ·√dt = {:.6}  ({:.4} bps per step at init vol)",
+        sigma_ref * dt.sqrt(),
+        sigma_ref * dt.sqrt() * 10000.0
+    );
     println!();
     println!(
         "{:>4}  {:>12}  {:>12}  {:>14}  {:>12}",
@@ -318,8 +337,14 @@ fn investigation_3() {
     );
 
     let mut garch = GarchSimulator::new(
-        initial_price, 0.05, 0.000002, 0.08, 0.90,
-        sigma2_init, dt, seed,
+        initial_price,
+        0.05,
+        0.000002,
+        0.08,
+        0.90,
+        sigma2_init,
+        dt,
+        seed,
     );
 
     let mut prev_price = initial_price;
@@ -351,8 +376,14 @@ fn investigation_3() {
     println!();
     println!("=== 3.4 dt value and time interpretation ===");
     println!("  dt = 1.0 / max_steps = 1.0 / 500 = {dt:.6}");
-    println!("  T = 1 year  →  one step ≈ 1/500 year ≈ {:.2} trading days", 252.0 / 500.0);
-    println!("  or ≈ {:.1} hours (252-day year, 6.5hr session)", 252.0 * 6.5 / 500.0);
+    println!(
+        "  T = 1 year  →  one step ≈ 1/500 year ≈ {:.2} trading days",
+        252.0 / 500.0
+    );
+    println!(
+        "  or ≈ {:.1} hours (252-day year, 6.5hr session)",
+        252.0 * 6.5 / 500.0
+    );
     println!("  Approximately 30-minute intraday bars.");
 
     println!();
@@ -366,14 +397,27 @@ fn investigation_3() {
     println!();
     println!("  Decay: exp(-ρ·Δt) per real-time unit.");
     println!("  Between consecutive steps: Δ_real_time = dt = {dt:.6}");
-    println!("    decay per step = exp(-{rho} * {dt:.6}) = {:.6}", (-rho * dt).exp());
+    println!(
+        "    decay per step = exp(-{rho} * {dt:.6}) = {:.6}",
+        (-rho * dt).exp()
+    );
     println!("  Half-life in steps: ln(2)/ρ/dt = {steps_to_half:.2} steps");
     println!("  Decay to 1% in steps: ln(100)/ρ/dt = {steps_to_1pct:.2} steps");
     println!();
     println!("  Interpretation:");
-    println!("  At rho=50 and dt=0.002, a trade's impact halves every {:.1} steps.", steps_to_half);
-    println!("  With ~30min bars, half-life = {:.1} bars = {:.1} hours.", steps_to_half, steps_to_half * 0.5);
-    println!("  This means impact from a trade lasts roughly {:.1}h — MUCH TOO LONG", steps_to_half * 0.5);
+    println!(
+        "  At rho=50 and dt=0.002, a trade's impact halves every {:.1} steps.",
+        steps_to_half
+    );
+    println!(
+        "  With ~30min bars, half-life = {:.1} bars = {:.1} hours.",
+        steps_to_half,
+        steps_to_half * 0.5
+    );
+    println!(
+        "  This means impact from a trade lasts roughly {:.1}h — MUCH TOO LONG",
+        steps_to_half * 0.5
+    );
     println!("  for typical equity microstructure where transient impact decays in minutes.");
     println!("  However, if the model represents a LESS liquid market (e.g. crypto AMM),");
     println!("  multi-hour decay can be defensible.");
@@ -401,8 +445,14 @@ fn investigation_3() {
 
     let mut gbm = GbmSimulator::new(initial_price, 0.05, 0.20, dt, seed);
     let mut garch2 = GarchSimulator::new(
-        initial_price, 0.05, 0.000002, 0.08, 0.90,
-        sigma2_init, dt, seed,
+        initial_price,
+        0.05,
+        0.000002,
+        0.08,
+        0.90,
+        sigma2_init,
+        dt,
+        seed,
     );
 
     println!(
@@ -460,9 +510,7 @@ fn verdict_table() {
     );
     println!(
         "{:<28}  {:<16}  {}",
-        "AC permanent impact",
-        "MISSING",
-        "HIGH — γ is absent; cost is systematically understated"
+        "AC permanent impact", "MISSING", "HIGH — γ is absent; cost is systematically understated"
     );
     println!(
         "{:<28}  {:<16}  {}",

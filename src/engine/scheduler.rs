@@ -230,7 +230,13 @@ impl Scheduler {
             } else {
                 None
             };
-            let ac = AlmgrenChriss::new(self.total_notional, self.eta, self.lambda, sigma, h_override)?;
+            let ac = AlmgrenChriss::new(
+                self.total_notional,
+                self.eta,
+                self.lambda,
+                sigma,
+                h_override,
+            )?;
             self.execution_schedule = Some(ac.schedule());
             self.current_step = 0;
         }

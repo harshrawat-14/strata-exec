@@ -147,9 +147,8 @@ mod tests {
     fn heuristic_sigma_ema_tracks_volatility_direction() {
         let sigma_ref = 0.02; // 2% initial reference
         let mut strat = HeuristicStrategy::new(
-            100.0,    // base_chunk
-            sigma_ref,
-            500.0,    // liquidity_ref
+            100.0, // base_chunk
+            sigma_ref, 500.0,    // liquidity_ref
             10_000.0, // total_notional
         );
         let liq = make_liquidity(500.0);

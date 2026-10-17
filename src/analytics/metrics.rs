@@ -347,10 +347,7 @@ impl ExecutionMetrics {
     /// Returns `(low_vpin_is_pct, high_vpin_is_pct)` where each is the total
     /// realised cost for trades in that VPIN regime divided by `initial_notional`.
     /// Returns `None` for a bucket if no trades fall into it.
-    pub fn conditional_shortfall_percent(
-        &self,
-        threshold: f64,
-    ) -> (Option<f64>, Option<f64>) {
+    pub fn conditional_shortfall_percent(&self, threshold: f64) -> (Option<f64>, Option<f64>) {
         if self.vpin_at_execution.is_empty() || self.initial_notional.abs() < 1e-15 {
             return (None, None);
         }
@@ -387,7 +384,11 @@ impl ExecutionMetrics {
         if n == 0 {
             return 0.0;
         }
-        let high = self.vpin_at_execution.iter().filter(|&&v| v > threshold).count();
+        let high = self
+            .vpin_at_execution
+            .iter()
+            .filter(|&&v| v > threshold)
+            .count();
         high as f64 / n as f64
     }
 
@@ -426,7 +427,10 @@ impl ExecutionMetrics {
     /// Returns `Vec<(label, mean_is_pct, fill_count)>` sorted by fill_count descending.
     /// Requires `regime_at_execution` and `per_trade_cost` to be co-populated.
     pub fn is_by_regime(&self) -> Vec<(String, f64, usize)> {
-        let n = self.regime_at_execution.len().min(self.per_trade_cost.len());
+        let n = self
+            .regime_at_execution
+            .len()
+            .min(self.per_trade_cost.len());
         if n == 0 || self.initial_notional.abs() < 1e-15 {
             return Vec::new();
         }
@@ -675,7 +679,7 @@ mod tests {
         // gamma=0.01 → each trade of 100/1000 notional adds 0.01*(100/1000)=0.001 depression.
         let arrival = 100.0;
         let inventory = 1000.0;
-        let trade_size = 100.0;  // 10 equal trades of 100
+        let trade_size = 100.0; // 10 equal trades of 100
         let market_price = 100.0;
 
         // gamma=0 baseline: execution at market_price with no impact.
@@ -695,7 +699,15 @@ mod tests {
             price_adjustment += delta;
             let effective_price = market_price * (1.0 - price_adjustment);
             // delta_permanent_fraction = marginal increment this trade; raw_price = market_price.
-            m_with_impact.record_trade(trade_size, effective_price, 0.0, 0.0, delta, market_price, 0.0);
+            m_with_impact.record_trade(
+                trade_size,
+                effective_price,
+                0.0,
+                0.0,
+                delta,
+                market_price,
+                0.0,
+            );
         }
         let is_with_impact = m_with_impact.shortfall_percent().expect("must have IS");
 
@@ -743,8 +755,11 @@ mod tests {
         m.record_trade(30.0, 99.0, -0.5, 0.003, 0.004, 100.0, 0.09);
 
         let d = m.decompose().expect("must have decomposition");
-        let reconstructed = d.spread_cost + d.temporary_impact + d.permanent_impact
-            + d.timing_cost + d.opportunity_cost;
+        let reconstructed = d.spread_cost
+            + d.temporary_impact
+            + d.permanent_impact
+            + d.timing_cost
+            + d.opportunity_cost;
         let tol = (d.total.abs() * 1e-8).max(1e-10);
         assert!(
             (reconstructed - d.total).abs() <= tol,
@@ -756,7 +771,8 @@ mod tests {
         assert!(
             (d.total_as_pct - expected_pct).abs() < 1e-10,
             "total_as_pct mismatch: {:.10e} vs {:.10e}",
-            d.total_as_pct, expected_pct,
+            d.total_as_pct,
+            expected_pct,
         );
     }
 
@@ -822,7 +838,9 @@ mod tests {
             let effective_price = raw_price * (1.0 - price_adj);
             m.record_trade(trade_size, effective_price, 0.0, 0.0, delta, raw_price, 0.0);
 
-            let d = m.decompose().expect("must have decomposition after each trade");
+            let d = m
+                .decompose()
+                .expect("must have decomposition after each trade");
 
             if step > 0 {
                 // Each new trade contributes qty × price_adj × price > 0, so the
@@ -859,10 +877,16 @@ mod tests {
         }
         let dist = m.regime_distribution();
         let total: usize = dist.iter().map(|(_, c, _)| c).sum();
-        assert_eq!(total, 8, "regime distribution must sum to total trade count");
+        assert_eq!(
+            total, 8,
+            "regime distribution must sum to total trade count"
+        );
         // Fractions must sum to 1.0
         let frac_sum: f64 = dist.iter().map(|(_, _, f)| f).sum();
-        assert!((frac_sum - 1.0).abs() < 1e-12, "fractions must sum to 1.0, got {frac_sum}");
+        assert!(
+            (frac_sum - 1.0).abs() < 1e-12,
+            "fractions must sum to 1.0, got {frac_sum}"
+        );
     }
 
     /// IS by regime: trades in high-vol/thin regime with negative slippage must produce
@@ -927,14 +951,19 @@ mod tests {
         let mut m_high = ExecutionMetrics::new(price, qty);
         m_high.record_trade(qty, price, -hs_high, 0.0, 0.0, 0.0, hs_high);
 
-        let d_low  = m_low.decompose().expect("must have decomposition (low vol)");
-        let d_high = m_high.decompose().expect("must have decomposition (high vol)");
+        let d_low = m_low
+            .decompose()
+            .expect("must have decomposition (low vol)");
+        let d_high = m_high
+            .decompose()
+            .expect("must have decomposition (high vol)");
 
         // spread_cost = qty × half_spread; higher vol → larger spread cost (positive value)
         assert!(
             d_high.spread_cost > d_low.spread_cost,
             "spread_cost must be larger under higher volatility: low={} high={}",
-            d_low.spread_cost, d_high.spread_cost,
+            d_low.spread_cost,
+            d_high.spread_cost,
         );
     }
 }

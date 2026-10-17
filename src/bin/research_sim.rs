@@ -2,9 +2,9 @@ use strata_exec::analytics::metrics::ExecutionMetrics;
 use strata_exec::engine::risk::RiskManager;
 use strata_exec::engine::scheduler::{ExecutionMode, Scheduler};
 use strata_exec::events::event::Event as DebugEvent;
+use strata_exec::market::agg_trades::AggTradesDay;
 use strata_exec::market::garch::GarchSimulator;
 use strata_exec::market::gbm::{GbmSimulator, PriceSimulator};
-use strata_exec::market::agg_trades::AggTradesDay;
 use strata_exec::market::lob_replay::LobReplay;
 use strata_exec::market::vpin::calibrate_bucket_size;
 use strata_exec::observability::logger::init_debug_channel;
@@ -234,7 +234,6 @@ fn parse_results_dir_arg() -> String {
     "results".to_string()
 }
 
-
 /// Build the simulator based on the `--model` argument.
 ///
 /// Both GBM and GARCH are initialised with the same annualised volatility
@@ -252,11 +251,11 @@ fn build_simulator(
     match model {
         "garch" => Box::new(GarchSimulator::new(
             initial_price,
-            0.05,            // mu
-            0.000002,        // omega
-            0.08,            // alpha
-            0.90,            // beta
-            sigma * sigma,   // sigma2_init = sigma_ref² → same starting vol as GBM
+            0.05,          // mu
+            0.000002,      // omega
+            0.08,          // alpha
+            0.90,          // beta
+            sigma * sigma, // sigma2_init = sigma_ref² → same starting vol as GBM
             dt,
             seed,
         )),
@@ -427,12 +426,12 @@ fn print_vpin_analysis(metrics: &strata_exec::analytics::metrics::ExecutionMetri
     // Compute distribution statistics and set threshold = P75.
     let mut sorted = vpin_data.clone();
     sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
-    let v_min    = sorted.first().copied().unwrap_or(0.0);
-    let v_p25    = vpin_percentile(&sorted, 0.25);
+    let v_min = sorted.first().copied().unwrap_or(0.0);
+    let v_p25 = vpin_percentile(&sorted, 0.25);
     let v_median = vpin_percentile(&sorted, 0.50);
-    let v_p75    = vpin_percentile(&sorted, 0.75);
-    let v_p90    = vpin_percentile(&sorted, 0.90);
-    let v_max    = sorted.last().copied().unwrap_or(0.0);
+    let v_p75 = vpin_percentile(&sorted, 0.75);
+    let v_p90 = vpin_percentile(&sorted, 0.90);
+    let v_max = sorted.last().copied().unwrap_or(0.0);
 
     println!("\n  ===== VPIN Distribution =====");
     println!("  Min    : {v_min:.4}");
@@ -495,7 +494,10 @@ fn print_regime_analysis(strat: &strata_exec::research::multi_runner::StrategyIn
             rac.warmup_steps,
             rac.sigma_ref * 100.0,
         );
-        println!("  Spread ref (classification anchor): {:.6}", rac.spread_ref);
+        println!(
+            "  Spread ref (classification anchor): {:.6}",
+            rac.spread_ref
+        );
     }
 }
 
@@ -509,18 +511,15 @@ fn print_cost_decomposition(
         if fill_mode == "formula-based" {
             println!("  (* spread uses proxy: 0.5×σ×√dt×price)");
         }
-        println!(
-            "  {:<24} {:>12}  {:>7}",
-            "Component", "Cost ($)", "Share %"
-        );
+        println!("  {:<24} {:>12}  {:>7}", "Component", "Cost ($)", "Share %");
         println!("  {}", "-".repeat(48));
 
         let rows: &[(&str, f64)] = &[
             (spread_label(fill_mode), d.spread_cost),
-            ("Temporary impact",      d.temporary_impact),
-            ("Permanent impact",      d.permanent_impact),
-            ("Timing cost",           d.timing_cost),
-            ("Opportunity cost",      d.opportunity_cost),
+            ("Temporary impact", d.temporary_impact),
+            ("Permanent impact", d.permanent_impact),
+            ("Timing cost", d.timing_cost),
+            ("Opportunity cost", d.opportunity_cost),
         ];
         for (label, val) in rows {
             let share = val / total_abs * 100.0;
@@ -533,8 +532,6 @@ fn print_cost_decomposition(
         );
     }
 }
-
-
 
 // ---------------------------------------------------------------------------
 // Main
@@ -600,7 +597,6 @@ fn main() {
         params.base_chunk = n / 100.0;
     }
 
-
     if let Some(path) = calibrate_path {
         println!("Calibration Mode Enabled -> Analyzing: {}", path);
         match strata_exec::calibration::impact_fit::CalibrationEngine::load_csv(&path) {
@@ -636,9 +632,9 @@ fn main() {
             Ok(mut r) => {
                 let n = r.len();
                 println!("LOB data : {n} snapshots loaded from {p}");
-                params.max_steps = n;   // align simulation horizon to data coverage
-                // Re-scale base_chunk so strategies trade one slice per step across the
-                // full day, giving VPIN enough trades to warm up its bucket window.
+                params.max_steps = n; // align simulation horizon to data coverage
+                                      // Re-scale base_chunk so strategies trade one slice per step across the
+                                      // full day, giving VPIN enough trades to warm up its bucket window.
                 params.base_chunk = params.total_notional / n as f64;
 
                 // Capture first snapshot spread for RegimeAC spread_ref display.
@@ -681,15 +677,16 @@ fn main() {
         (s, label)
     } else {
         let s = calibrate_bucket_size(50_000.0, TARGET_BUCKETS);
-        let label = format!(
-            "{s:.1} BTC (placeholder — pass --agg-trades for real calibration)"
-        );
+        let label = format!("{s:.1} BTC (placeholder — pass --agg-trades for real calibration)");
         (s, label)
     };
 
     // VPIN source label.
     let vpin_source = if agg_trades_day.is_some() && lob_data_path.is_some() {
-        format!("real aggTrades ({:.1} BTC/bucket, {TARGET_BUCKETS} buckets)", effective_bucket_size)
+        format!(
+            "real aggTrades ({:.1} BTC/bucket, {TARGET_BUCKETS} buckets)",
+            effective_bucket_size
+        )
     } else {
         "synthetic (depth-change proxy)".to_string()
     };
@@ -745,7 +742,6 @@ fn main() {
         println!("    • results/sweep_volatility.csv");
         println!("    • results/sweep_impact.csv");
         println!();
-        
     } else {
         // ── Standard Multi-Strategy Simulator ─────────────────────────
         let mut overall_avg_vol = 0.0_f64;
@@ -780,21 +776,26 @@ fn main() {
                 // Reload the replay for each path so every path starts from snapshot 0.
                 match LobReplay::from_csv(path) {
                     Ok(replay) => {
-                        let mut r = MultiStrategyRunner::new(strategies, simulator, params.max_steps)
-                            .with_results_dir(results_dir.clone())
-                            .with_historical_lob(replay)
-                            .with_vpin(effective_bucket_size, TARGET_BUCKETS);
+                        let mut r =
+                            MultiStrategyRunner::new(strategies, simulator, params.max_steps)
+                                .with_results_dir(results_dir.clone())
+                                .with_historical_lob(replay)
+                                .with_vpin(effective_bucket_size, TARGET_BUCKETS);
                         // Wire real aggTrades on the first path; subsequent paths reuse the
                         // pre-computed real_vpin_series (rebuilt from scratch each path anyway).
                         if let Some(ref agg) = agg_trades_day {
                             // Clone is cheap relative to file I/O; trades vec is reused read-only.
                             r = r.with_agg_trades(AggTradesDay {
-                                trades: agg.trades.iter().map(|t| strata_exec::market::agg_trades::AggTrade {
-                                    timestamp_ms: t.timestamp_ms,
-                                    price: t.price,
-                                    quantity_btc: t.quantity_btc,
-                                    is_sell_aggressor: t.is_sell_aggressor,
-                                }).collect(),
+                                trades: agg
+                                    .trades
+                                    .iter()
+                                    .map(|t| strata_exec::market::agg_trades::AggTrade {
+                                        timestamp_ms: t.timestamp_ms,
+                                        price: t.price,
+                                        quantity_btc: t.quantity_btc,
+                                        is_sell_aggressor: t.is_sell_aggressor,
+                                    })
+                                    .collect(),
                                 date: agg.date.clone(),
                                 skipped_rows: agg.skipped_rows,
                             });
@@ -828,20 +829,33 @@ fn main() {
             for strat in runner.strategies() {
                 let name = strat.name.clone();
                 let sf_pct = strat.metrics.shortfall_percent().unwrap_or(0.0);
-                let ac_pct = strat.metrics.ac_objective_percent(params.lambda).unwrap_or(0.0);
+                let ac_pct = strat
+                    .metrics
+                    .ac_objective_percent(params.lambda)
+                    .unwrap_or(0.0);
 
-                strategy_shortfalls.entry(name.clone()).or_insert_with(Vec::new).push(sf_pct);
-                strategy_ac_objectives.entry(name.clone()).or_insert_with(Vec::new).push(ac_pct);
+                strategy_shortfalls
+                    .entry(name.clone())
+                    .or_insert_with(Vec::new)
+                    .push(sf_pct);
+                strategy_ac_objectives
+                    .entry(name.clone())
+                    .or_insert_with(Vec::new)
+                    .push(ac_pct);
 
                 if let Some(decomp) = strat.metrics.decompose() {
                     *strategy_spread_cost.entry(name.clone()).or_insert(0.0) += decomp.spread_cost;
-                    *strategy_temp_impact.entry(name.clone()).or_insert(0.0) += decomp.temporary_impact;
-                    *strategy_perm_impact.entry(name.clone()).or_insert(0.0) += decomp.permanent_impact;
+                    *strategy_temp_impact.entry(name.clone()).or_insert(0.0) +=
+                        decomp.temporary_impact;
+                    *strategy_perm_impact.entry(name.clone()).or_insert(0.0) +=
+                        decomp.permanent_impact;
                     *strategy_timing_cost.entry(name.clone()).or_insert(0.0) += decomp.timing_cost;
-                    *strategy_opp_cost.entry(name.clone()).or_insert(0.0) += decomp.opportunity_cost;
+                    *strategy_opp_cost.entry(name.clone()).or_insert(0.0) +=
+                        decomp.opportunity_cost;
                 }
                 *strategy_path_count.entry(name.clone()).or_insert(0) += 1;
-                *strategy_trade_count.entry(name.clone()).or_insert(0) += strat.metrics.trade_count();
+                *strategy_trade_count.entry(name.clone()).or_insert(0) +=
+                    strat.metrics.trade_count();
                 if let Some(avg_p) = strat.metrics.avg_exec_price() {
                     *strategy_avg_price.entry(name.clone()).or_insert(0.0) += avg_p;
                 }
@@ -868,26 +882,37 @@ fn main() {
 
         if num_paths > 1 {
             let avg_vol = overall_avg_vol / num_paths as f64;
-            println!("\n  Overall Avg Volatility ({num_paths} paths): {:.4}%", avg_vol * 100.0);
+            println!(
+                "\n  Overall Avg Volatility ({num_paths} paths): {:.4}%",
+                avg_vol * 100.0
+            );
         }
 
         // Compute aggregate stats and write results/summary.json
         let mut summary_map = serde_json::Map::new();
 
         for (name, samples) in &strategy_shortfalls {
-            let ac_samples = strategy_ac_objectives.get(name).cloned().unwrap_or_default();
+            let ac_samples = strategy_ac_objectives
+                .get(name)
+                .cloned()
+                .unwrap_or_default();
             let path_count = strategy_path_count.get(name).copied().unwrap_or(0) as f64;
 
-            let sf_stats = strata_exec::analytics::distribution::DistributionStats::from_samples(samples);
-            let ac_stats = strata_exec::analytics::distribution::DistributionStats::from_samples(&ac_samples);
+            let sf_stats =
+                strata_exec::analytics::distribution::DistributionStats::from_samples(samples);
+            let ac_stats =
+                strata_exec::analytics::distribution::DistributionStats::from_samples(&ac_samples);
 
             if let (Some(sf), Some(ac)) = (sf_stats, ac_stats) {
-                let avg_spread = strategy_spread_cost.get(name).copied().unwrap_or(0.0) / path_count;
+                let avg_spread =
+                    strategy_spread_cost.get(name).copied().unwrap_or(0.0) / path_count;
                 let avg_temp = strategy_temp_impact.get(name).copied().unwrap_or(0.0) / path_count;
                 let avg_perm = strategy_perm_impact.get(name).copied().unwrap_or(0.0) / path_count;
-                let avg_timing = strategy_timing_cost.get(name).copied().unwrap_or(0.0) / path_count;
+                let avg_timing =
+                    strategy_timing_cost.get(name).copied().unwrap_or(0.0) / path_count;
                 let avg_opp = strategy_opp_cost.get(name).copied().unwrap_or(0.0) / path_count;
-                let avg_tc = strategy_trade_count.get(name).copied().unwrap_or(0) as f64 / path_count;
+                let avg_tc =
+                    strategy_trade_count.get(name).copied().unwrap_or(0) as f64 / path_count;
                 let avg_ap = strategy_avg_price.get(name).copied().unwrap_or(0.0) / path_count;
 
                 let strat_val = serde_json::json!({
@@ -934,7 +959,13 @@ mod tests {
     #[test]
     fn spread_label_is_proxy_in_formula_mode_and_real_in_lob_mode() {
         assert_eq!(spread_label("formula-based"), "Spread* (proxy)");
-        assert_eq!(spread_label("synthetic LOB depth-consuming"), "Spread  (real LOB)");
-        assert_eq!(spread_label("historical LOB (Binance replay)"), "Spread  (real LOB)");
+        assert_eq!(
+            spread_label("synthetic LOB depth-consuming"),
+            "Spread  (real LOB)"
+        );
+        assert_eq!(
+            spread_label("historical LOB (Binance replay)"),
+            "Spread  (real LOB)"
+        );
     }
 }

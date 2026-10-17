@@ -35,8 +35,8 @@ impl AggTradesDay {
     // -----------------------------------------------------------------------
 
     pub fn from_csv(path: &str) -> Result<Self, String> {
-        let mut reader = csv::Reader::from_path(path)
-            .map_err(|e| format!("cannot open '{}': {e}", path))?;
+        let mut reader =
+            csv::Reader::from_path(path).map_err(|e| format!("cannot open '{}': {e}", path))?;
 
         // Locate required columns by name — robust to column reordering.
         let headers = reader
@@ -51,8 +51,8 @@ impl AggTradesDay {
                 .ok_or_else(|| format!("missing column '{name}'"))
         };
 
-        let ts_col  = col("transact_time")?;
-        let px_col  = col("price")?;
+        let ts_col = col("transact_time")?;
+        let px_col = col("price")?;
         let qty_col = col("quantity")?;
         let ibm_col = col("is_buyer_maker")?;
 
@@ -62,27 +62,47 @@ impl AggTradesDay {
         for result in reader.records() {
             let rec = match result {
                 Ok(r) => r,
-                Err(_) => { skipped += 1; continue; }
+                Err(_) => {
+                    skipped += 1;
+                    continue;
+                }
             };
 
             let timestamp_ms = match rec.get(ts_col).and_then(|v| v.trim().parse::<u64>().ok()) {
                 Some(v) => v,
-                None => { skipped += 1; continue; }
+                None => {
+                    skipped += 1;
+                    continue;
+                }
             };
             let price = match rec.get(px_col).and_then(|v| v.trim().parse::<f64>().ok()) {
                 Some(v) if v > 0.0 => v,
-                _ => { skipped += 1; continue; }
+                _ => {
+                    skipped += 1;
+                    continue;
+                }
             };
             let quantity_btc = match rec.get(qty_col).and_then(|v| v.trim().parse::<f64>().ok()) {
                 Some(v) if v > 0.0 => v,
-                _ => { skipped += 1; continue; }
+                _ => {
+                    skipped += 1;
+                    continue;
+                }
             };
             let is_sell_aggressor = match rec.get(ibm_col) {
                 Some(v) => v.trim().to_lowercase() == "true",
-                None => { skipped += 1; continue; }
+                None => {
+                    skipped += 1;
+                    continue;
+                }
             };
 
-            trades.push(AggTrade { timestamp_ms, price, quantity_btc, is_sell_aggressor });
+            trades.push(AggTrade {
+                timestamp_ms,
+                price,
+                quantity_btc,
+                is_sell_aggressor,
+            });
         }
 
         // Derive date from the first trade's timestamp (unix ms → UTC date).
@@ -91,14 +111,20 @@ impl AggTradesDay {
             // Format: "YYYY-MM-DD" using integer arithmetic (no extra crate needed).
             // chrono is already a dependency from lob_replay.
             use chrono::TimeZone;
-            let dt = chrono::Utc.timestamp_opt(secs, 0).single()
+            let dt = chrono::Utc
+                .timestamp_opt(secs, 0)
+                .single()
                 .unwrap_or_else(chrono::Utc::now);
             dt.format("%Y-%m-%d").to_string()
         } else {
             String::new()
         };
 
-        let day = AggTradesDay { trades, date, skipped_rows: skipped };
+        let day = AggTradesDay {
+            trades,
+            date,
+            skipped_rows: skipped,
+        };
 
         let total_btc = day.total_volume_btc();
         let bucket = day.calibrated_bucket_size(50);
@@ -274,7 +300,11 @@ impl AggTradesDay {
             }
 
             let total = buy + sell;
-            result[k] = if total < 1e-12 { 0.0 } else { (buy - sell) / total };
+            result[k] = if total < 1e-12 {
+                0.0
+            } else {
+                (buy - sell) / total
+            };
         }
 
         result
@@ -295,7 +325,8 @@ impl AggTradesDay {
         for k in 0..n {
             let end_ms = snapshot_timestamps[k];
             let start_ms = if k == 0 {
-                let bar = snapshot_timestamps.get(1)
+                let bar = snapshot_timestamps
+                    .get(1)
                     .map(|t1| t1.saturating_sub(snapshot_timestamps[0]))
                     .unwrap_or(0);
                 end_ms.saturating_sub(bar)
@@ -369,7 +400,11 @@ agg_trade_id,price,quantity,first_trade_id,last_trade_id,transact_time,is_buyer_
         static COUNTER: AtomicU64 = AtomicU64::new(0);
         let id = COUNTER.fetch_add(1, Ordering::Relaxed);
         let path = std::env::temp_dir()
-            .join(format!("agg_trades_fixture_{}_{}.csv", std::process::id(), id))
+            .join(format!(
+                "agg_trades_fixture_{}_{}.csv",
+                std::process::id(),
+                id
+            ))
             .to_str()
             .unwrap()
             .to_string();
@@ -425,7 +460,10 @@ agg_trade_id,price,quantity,first_trade_id,last_trade_id,transact_time,is_buyer_
         // Row 3: buy  0.050
         let (buy, sell) = day.volume_in_window(1_705_276_800_000, 1_705_276_830_000);
         assert!((buy - 0.150).abs() < 1e-9, "buy expected 0.150, got {buy}");
-        assert!((sell - 0.200).abs() < 1e-9, "sell expected 0.200, got {sell}");
+        assert!(
+            (sell - 0.200).abs() < 1e-9,
+            "sell expected 0.200, got {sell}"
+        );
     }
 
     #[test]
@@ -441,7 +479,11 @@ agg_trade_id,price,quantity,first_trade_id,last_trade_id,transact_time,is_buyer_
     fn malformed_rows_are_skipped_not_panicked() {
         let day = load_fixture(MALFORMED_CSV);
         // Row 2 has INVALID quantity → skipped. Rows 1 and 3 must load.
-        assert_eq!(day.trades.len(), 2, "must load 2 valid rows, skip 1 malformed");
+        assert_eq!(
+            day.trades.len(),
+            2,
+            "must load 2 valid rows, skip 1 malformed"
+        );
         assert_eq!(day.skipped_rows, 1, "must count 1 skipped row");
     }
 
@@ -449,7 +491,11 @@ agg_trade_id,price,quantity,first_trade_id,last_trade_id,transact_time,is_buyer_
 
     /// Build a synthetic AggTradesDay from inline data (no CSV I/O).
     fn make_day(trades: Vec<AggTrade>) -> AggTradesDay {
-        AggTradesDay { trades, date: "2024-01-15".to_string(), skipped_rows: 0 }
+        AggTradesDay {
+            trades,
+            date: "2024-01-15".to_string(),
+            skipped_rows: 0,
+        }
     }
 
     /// Generate `n` uniformly-spaced snapshot timestamps starting at `start_ms`
@@ -470,8 +516,16 @@ agg_trade_id,price,quantity,first_trade_id,last_trade_id,transact_time,is_buyer_
         let snaps = vec![1_705_276_810_000, 1_705_276_820_000];
         let series = day.build_volume_series(&snaps);
         assert_eq!(series.len(), 2);
-        assert!((series[0] - 0.100).abs() < 1e-9, "index0 vol expected 0.100, got {}", series[0]);
-        assert!((series[1] - 0.200).abs() < 1e-9, "index1 vol expected 0.200, got {}", series[1]);
+        assert!(
+            (series[0] - 0.100).abs() < 1e-9,
+            "index0 vol expected 0.100, got {}",
+            series[0]
+        );
+        assert!(
+            (series[1] - 0.200).abs() < 1e-9,
+            "index1 vol expected 0.200, got {}",
+            series[1]
+        );
     }
 
     #[test]
@@ -488,7 +542,8 @@ agg_trade_id,price,quantity,first_trade_id,last_trade_id,transact_time,is_buyer_
         let snaps = make_snapshots(1_705_276_800_000, 30_000, 10);
         let series = day.build_vpin_series(&snaps, 0.05, 5);
         assert_eq!(
-            series.len(), 10,
+            series.len(),
+            10,
             "series length must equal snapshot count: expected 10, got {}",
             series.len()
         );
@@ -526,7 +581,10 @@ agg_trade_id,price,quantity,first_trade_id,last_trade_id,transact_time,is_buyer_
         let series = day.build_vpin_series(&snaps, 0.5, 5);
         // At least some values after index 0 must be non-zero (bucket must fill).
         let any_nonzero = series.iter().any(|&v| v > 1e-12);
-        assert!(any_nonzero, "no non-zero VPIN values found; bucket never filled");
+        assert!(
+            any_nonzero,
+            "no non-zero VPIN values found; bucket never filled"
+        );
     }
 
     #[test]
@@ -546,10 +604,25 @@ agg_trade_id,price,quantity,first_trade_id,last_trade_id,transact_time,is_buyer_
         for i in 0u64..n_snaps as u64 {
             let t = 1_705_276_800_000 + i * window_ms;
             // Balanced: 5 BTC buy at t, 5 BTC sell at t+1ms
-            balanced_trades.push(AggTrade { timestamp_ms: t,     price: 41735.0, quantity_btc: 5.0, is_sell_aggressor: false });
-            balanced_trades.push(AggTrade { timestamp_ms: t + 1, price: 41735.0, quantity_btc: 5.0, is_sell_aggressor: true  });
+            balanced_trades.push(AggTrade {
+                timestamp_ms: t,
+                price: 41735.0,
+                quantity_btc: 5.0,
+                is_sell_aggressor: false,
+            });
+            balanced_trades.push(AggTrade {
+                timestamp_ms: t + 1,
+                price: 41735.0,
+                quantity_btc: 5.0,
+                is_sell_aggressor: true,
+            });
             // One-sided: 10 BTC buy only
-            onesided_trades.push(AggTrade { timestamp_ms: t, price: 41735.0, quantity_btc: 10.0, is_sell_aggressor: false });
+            onesided_trades.push(AggTrade {
+                timestamp_ms: t,
+                price: 41735.0,
+                quantity_btc: 10.0,
+                is_sell_aggressor: false,
+            });
         }
 
         let balanced = make_day(balanced_trades);
@@ -563,11 +636,19 @@ agg_trade_id,price,quantity,first_trade_id,last_trade_id,transact_time,is_buyer_
         // Skip early zeros (pre-warmup). Compare means over non-zero entries.
         let b_avg: f64 = {
             let nonzero: Vec<f64> = b_series.iter().copied().filter(|&v| v > 1e-12).collect();
-            if nonzero.is_empty() { 0.0 } else { nonzero.iter().sum::<f64>() / nonzero.len() as f64 }
+            if nonzero.is_empty() {
+                0.0
+            } else {
+                nonzero.iter().sum::<f64>() / nonzero.len() as f64
+            }
         };
         let o_avg: f64 = {
             let nonzero: Vec<f64> = o_series.iter().copied().filter(|&v| v > 1e-12).collect();
-            if nonzero.is_empty() { 0.0 } else { nonzero.iter().sum::<f64>() / nonzero.len() as f64 }
+            if nonzero.is_empty() {
+                0.0
+            } else {
+                nonzero.iter().sum::<f64>() / nonzero.len() as f64
+            }
         };
 
         assert!(
@@ -580,6 +661,9 @@ agg_trade_id,price,quantity,first_trade_id,last_trade_id,transact_time,is_buyer_
     fn vpin_series_empty_snapshots_returns_empty_vec() {
         let day = load_fixture(FIXTURE_CSV);
         let series = day.build_vpin_series(&[], 0.1, 5);
-        assert!(series.is_empty(), "empty snapshot list must return empty series");
+        assert!(
+            series.is_empty(),
+            "empty snapshot list must return empty series"
+        );
     }
 }

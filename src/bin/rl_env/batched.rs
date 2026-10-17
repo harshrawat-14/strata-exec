@@ -4,12 +4,9 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-
-
-
 use crate::config::*;
-use crate::market_cache::MarketDataCache;
 use crate::env::*;
+use crate::market_cache::MarketDataCache;
 
 // ---------------------------------------------------------------------------
 // Batched env (Phase S, ADR-006) — N instances per process, sharing one
@@ -42,21 +39,32 @@ impl BatchedRlEnv {
     pub fn new(cfg_template: EnvConfig, batch_size: usize) -> Self {
         assert!(batch_size > 0, "batch_size must be >= 1");
         let cache = Rc::new(RefCell::new(MarketDataCache::default()));
-        let n_state_dims = if cfg_template.no_time_features { 12 } else { 16 };
+        let n_state_dims = if cfg_template.no_time_features {
+            12
+        } else {
+            16
+        };
         let envs = (0..batch_size)
             .map(|_| RlEnv::new_with_shared_cache(cfg_template.clone(), Rc::clone(&cache)))
             .collect();
         Self { envs, n_state_dims }
     }
 
-
     pub fn reset_batch(&mut self, seeds: &[u64]) -> BatchStepResult {
-        assert_eq!(seeds.len(), self.envs.len(), "seeds.len() must equal batch_size");
+        assert_eq!(
+            seeds.len(),
+            self.envs.len(),
+            "seeds.len() must equal batch_size"
+        );
         self.collect(|env, i| env.reset(Some(seeds[i])))
     }
 
     pub fn step_batch(&mut self, actions: &[usize]) -> BatchStepResult {
-        assert_eq!(actions.len(), self.envs.len(), "actions.len() must equal batch_size");
+        assert_eq!(
+            actions.len(),
+            self.envs.len(),
+            "actions.len() must equal batch_size"
+        );
         self.collect(|env, i| env.step(actions[i]))
     }
 
@@ -72,7 +80,11 @@ impl BatchedRlEnv {
     /// positions itself (see `BatchedStrataExecVecEnv.step_wait` in
     /// rl/batched_vec_env.py).
     pub fn reset_indices(&mut self, indices: &[usize], seeds: &[u64]) -> BatchStepResult {
-        assert_eq!(indices.len(), seeds.len(), "indices.len() must equal seeds.len()");
+        assert_eq!(
+            indices.len(),
+            seeds.len(),
+            "indices.len() must equal seeds.len()"
+        );
         let d = self.n_state_dims;
         let mut states = Vec::with_capacity(indices.len() * d);
         let mut rewards = Vec::with_capacity(indices.len());
@@ -84,10 +96,19 @@ impl BatchedRlEnv {
             rewards.push(r.reward as f32);
             dones.push(r.done);
         }
-        BatchStepResult { states, rewards, dones, n: indices.len(), d }
+        BatchStepResult {
+            states,
+            rewards,
+            dones,
+            n: indices.len(),
+            d,
+        }
     }
 
-    pub(crate) fn collect(&mut self, mut f: impl FnMut(&mut RlEnv, usize) -> StepResult) -> BatchStepResult {
+    pub(crate) fn collect(
+        &mut self,
+        mut f: impl FnMut(&mut RlEnv, usize) -> StepResult,
+    ) -> BatchStepResult {
         let n = self.envs.len();
         let d = self.n_state_dims;
         let mut states = Vec::with_capacity(n * d);
@@ -95,11 +116,22 @@ impl BatchedRlEnv {
         let mut dones = Vec::with_capacity(n);
         for i in 0..n {
             let r = f(&mut self.envs[i], i);
-            debug_assert_eq!(r.state.len(), d, "instance {i} produced a {}-dim state, expected {d}", r.state.len());
+            debug_assert_eq!(
+                r.state.len(),
+                d,
+                "instance {i} produced a {}-dim state, expected {d}",
+                r.state.len()
+            );
             states.extend(r.state.iter().map(|&x| x as f32));
             rewards.push(r.reward as f32);
             dones.push(r.done);
         }
-        BatchStepResult { states, rewards, dones, n, d }
+        BatchStepResult {
+            states,
+            rewards,
+            dones,
+            n,
+            d,
+        }
     }
 }

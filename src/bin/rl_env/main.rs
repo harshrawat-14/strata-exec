@@ -41,7 +41,10 @@ mod alloc_timing {
     // Read only by the allocation-timing benchmark test.
     #[cfg_attr(not(test), allow(dead_code))]
     pub fn snapshot() -> (u64, u64) {
-        (ALLOC_NANOS.load(Ordering::SeqCst), ALLOC_CALLS.load(Ordering::SeqCst))
+        (
+            ALLOC_NANOS.load(Ordering::SeqCst),
+            ALLOC_CALLS.load(Ordering::SeqCst),
+        )
     }
 
     pub struct TimingAlloc;
@@ -86,14 +89,13 @@ mod batched;
 mod config;
 mod env;
 mod market_cache;
-mod transport;
 #[cfg(test)]
 mod tests;
+mod transport;
 
 use std::io::{self, BufRead};
 
 use serde_json::json;
-
 
 use crate::config::*;
 use crate::env::*;

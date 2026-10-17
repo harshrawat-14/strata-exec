@@ -125,8 +125,11 @@ fn vpin_recording_does_not_break_conservation_law() {
             .decompose()
             .expect("metrics must produce a decomposition");
 
-        let reconstructed =
-            d.spread_cost + d.temporary_impact + d.permanent_impact + d.timing_cost + d.opportunity_cost;
+        let reconstructed = d.spread_cost
+            + d.temporary_impact
+            + d.permanent_impact
+            + d.timing_cost
+            + d.opportunity_cost;
         let total = d.total;
         let tol = (total.abs() * 1e-8).max(1e-10);
 

@@ -90,13 +90,17 @@ impl CounterfactualLobConfig {
         daily_volume_btc: f64,
     ) -> Self {
         let sigma = crate::calibration::impact_fit::realized_volatility(
-            snapshot_mids, snapshot_timestamps.len() as f64,
+            snapshot_mids,
+            snapshot_timestamps.len() as f64,
         );
         let trades = crate::calibration::impact_fit::build_calibration_trades(
-            agg, snapshot_timestamps, snapshot_mids,
+            agg,
+            snapshot_timestamps,
+            snapshot_mids,
         );
         let engine = crate::calibration::impact_fit::CalibrationEngine::new(
-            daily_volume_btc, sigma.max(1e-6),
+            daily_volume_btc,
+            sigma.max(1e-6),
         );
         let y = engine.calibrate(&trades);
         CounterfactualLobConfig {
@@ -162,12 +166,14 @@ impl CounterfactualLob {
         let depth_ref = {
             let first = replay.next_snapshot();
             replay.reset();
-            first.map(|b| {
-                let real_mid = b.mid_price().unwrap_or(100.0);
-                let price_factor = 100.0 / real_mid;
-                let qty_factor = 1.0 / config.btc_scale;
-                b.rescale_full(price_factor, qty_factor).total_bid_depth()
-            }).unwrap_or(1_000_000.0)
+            first
+                .map(|b| {
+                    let real_mid = b.mid_price().unwrap_or(100.0);
+                    let price_factor = 100.0 / real_mid;
+                    let qty_factor = 1.0 / config.btc_scale;
+                    b.rescale_full(price_factor, qty_factor).total_bid_depth()
+                })
+                .unwrap_or(1_000_000.0)
         };
 
         // Load first snapshot as current book (cursor now at 1).
@@ -191,7 +197,10 @@ impl CounterfactualLob {
     /// Compute the arrival-anchored price_factor from a book's raw mid. Shared by
     /// new()/reset()/seek() so every episode fixes its own arrival price once.
     fn price_factor_for(book: &Option<OrderBook>, simulation_mid_price: f64) -> f64 {
-        let real_mid = book.as_ref().and_then(|b| b.mid_price()).unwrap_or(simulation_mid_price);
+        let real_mid = book
+            .as_ref()
+            .and_then(|b| b.mid_price())
+            .unwrap_or(simulation_mid_price);
         simulation_mid_price / real_mid.max(1e-9)
     }
 
@@ -225,8 +234,7 @@ impl CounterfactualLob {
         let perm = impact_fraction * self.config.permanent_fraction;
         let temp = impact_fraction * self.config.temporary_fraction;
 
-        self.permanent_depth_reduction =
-            (self.permanent_depth_reduction + perm).min(0.95);
+        self.permanent_depth_reduction = (self.permanent_depth_reduction + perm).min(0.95);
 
         if temp > 1e-8 {
             let t = self.current_step as f64 * self.config.dt;
@@ -237,9 +245,8 @@ impl CounterfactualLob {
         // (1e-3 was too large for realistic ADV values where impact < 0.1%.)
         let now = self.current_step as f64 * self.config.dt;
         let rho = self.config.rho;
-        self.temporary_impacts.retain(|(t, impact)| {
-            impact * (-rho * (now - t)).exp() > 1e-6
-        });
+        self.temporary_impacts
+            .retain(|(t, impact)| impact * (-rho * (now - t)).exp() > 1e-6);
 
         self.current_book = self.replay.next_snapshot();
         self.current_step += 1;
@@ -267,12 +274,15 @@ impl CounterfactualLob {
         // Task 3) so real drift over the episode is preserved relative to its
         // own arrival, not silently flattened every step.
         self.price_factor = Self::price_factor_for(&self.current_book, self.simulation_mid_price);
-        debug_assert_eq!(self.permanent_depth_reduction, 0.0,
-            "reset() must clear permanent_depth_reduction");
-        debug_assert!(self.temporary_impacts.is_empty(),
-            "reset() must clear temporary_impacts");
-        debug_assert_eq!(self.current_step, 0,
-            "reset() must zero current_step");
+        debug_assert_eq!(
+            self.permanent_depth_reduction, 0.0,
+            "reset() must clear permanent_depth_reduction"
+        );
+        debug_assert!(
+            self.temporary_impacts.is_empty(),
+            "reset() must clear temporary_impacts"
+        );
+        debug_assert_eq!(self.current_step, 0, "reset() must zero current_step");
     }
 
     /// Seek to a specific snapshot offset, clearing all accumulated impact.
@@ -286,12 +296,15 @@ impl CounterfactualLob {
         // Re-anchor price_factor to THIS episode's arrival snapshot (Phase 2R
         // Task 3) -- each episode's own start_offset is its own arrival point.
         self.price_factor = Self::price_factor_for(&self.current_book, self.simulation_mid_price);
-        debug_assert_eq!(self.permanent_depth_reduction, 0.0,
-            "seek() must clear permanent_depth_reduction");
-        debug_assert!(self.temporary_impacts.is_empty(),
-            "seek() must clear temporary_impacts");
-        debug_assert_eq!(self.current_step, 0,
-            "seek() must zero current_step");
+        debug_assert_eq!(
+            self.permanent_depth_reduction, 0.0,
+            "seek() must clear permanent_depth_reduction"
+        );
+        debug_assert!(
+            self.temporary_impacts.is_empty(),
+            "seek() must clear temporary_impacts"
+        );
+        debug_assert_eq!(self.current_step, 0, "seek() must zero current_step");
     }
 
     /// Update the sim-units → BTC scale factor used by the impact model.
@@ -442,7 +455,10 @@ timestamp,b0_p,b0_q,b1_p,b1_q,a0_p,a0_q,a1_p,a1_q
         // proportion.
         let mut cf = make_drifting_cf_lob();
         let arrival_mid = cf.current_adjusted_book().mid_price().unwrap();
-        assert!((arrival_mid - 100.0).abs() < 1e-6, "arrival step should rescale to ~100.0");
+        assert!(
+            (arrival_mid - 100.0).abs() < 1e-6,
+            "arrival step should rescale to ~100.0"
+        );
 
         cf.advance_without_trade(); // now on row 2, real mid 101.0 (+1% vs arrival)
         let later_mid = cf.current_adjusted_book().mid_price().unwrap();
@@ -482,11 +498,7 @@ timestamp,b0_p,b0_q,b1_p,b1_q,a0_p,a0_q,a1_p,a1_q
         for _ in 0..10 {
             cf.advance_without_trade();
         }
-        assert_eq!(
-            cf.total_residual_impact(),
-            0.0,
-            "no trades → zero impact"
-        );
+        assert_eq!(cf.total_residual_impact(), 0.0, "no trades → zero impact");
     }
 
     #[test]
@@ -593,7 +605,11 @@ timestamp,b0_p,b0_q,b1_p,b1_q,a0_p,a0_q,a1_p,a1_q
         assert_eq!(base.sigma, 1.0);
 
         let calibrated = CounterfactualLobConfig::calibrated(
-            base, &agg, &snapshot_timestamps, &snapshot_mids, 240_000.0,
+            base,
+            &agg,
+            &snapshot_timestamps,
+            &snapshot_mids,
+            240_000.0,
         );
 
         assert_ne!(
@@ -614,16 +630,30 @@ timestamp,b0_p,b0_q,b1_p,b1_q,a0_p,a0_q,a1_p,a1_q
 
         // No trades at all -> calibrate() returns None -> must fall back to base,
         // not panic or silently zero out the impact model.
-        let agg = AggTradesDay { trades: vec![], date: "2024-01-15".to_string(), skipped_rows: 0 };
+        let agg = AggTradesDay {
+            trades: vec![],
+            date: "2024-01-15".to_string(),
+            skipped_rows: 0,
+        };
         let snapshot_timestamps = vec![1_000u64, 2_000, 3_000];
         let snapshot_mids = vec![100.0, 100.0, 100.0]; // flat -> sigma = 0 too
 
         let base = CounterfactualLobConfig::default();
         let calibrated = CounterfactualLobConfig::calibrated(
-            base, &agg, &snapshot_timestamps, &snapshot_mids, 240_000.0,
+            base,
+            &agg,
+            &snapshot_timestamps,
+            &snapshot_mids,
+            240_000.0,
         );
-        assert_eq!(calibrated.impact_coefficient, 0.1, "must fall back to base Y with no trades");
-        assert_eq!(calibrated.sigma, 1.0, "must fall back to base sigma when realized vol is 0");
+        assert_eq!(
+            calibrated.impact_coefficient, 0.1,
+            "must fall back to base Y with no trades"
+        );
+        assert_eq!(
+            calibrated.sigma, 1.0,
+            "must fall back to base sigma when realized vol is 0"
+        );
     }
 
     // ── Sanity checks requested for the Phase 2R Task 2 audit ──────────────
@@ -635,11 +665,17 @@ timestamp,b0_p,b0_q,b1_p,b1_q,a0_p,a0_q,a1_p,a1_q
         // a fresh book vs. one that already has accumulated impact -- the
         // impacted fill must be at or below the unimpacted one, never above.
         let fresh = make_cf_lob();
-        let unimpacted_fill = fresh.current_adjusted_book().fill_market_sell(500.0).avg_fill_price;
+        let unimpacted_fill = fresh
+            .current_adjusted_book()
+            .fill_market_sell(500.0)
+            .avg_fill_price;
 
         let mut impacted = make_cf_lob();
         impacted.record_trade_and_advance(200_000.0); // large trade -> real impact
-        let impacted_fill = impacted.current_adjusted_book().fill_market_sell(500.0).avg_fill_price;
+        let impacted_fill = impacted
+            .current_adjusted_book()
+            .fill_market_sell(500.0)
+            .avg_fill_price;
 
         assert!(
             impacted_fill <= unimpacted_fill,
@@ -673,7 +709,9 @@ timestamp,b0_p,b0_q,b1_p,b1_q,a0_p,a0_q,a1_p,a1_q
         assert!(
             (samples.last().unwrap() - perm).abs() < 1e-3,
             "after many steps, residual impact must converge to the permanent level: \
-             final={:.6}, permanent={:.6}", samples.last().unwrap(), perm
+             final={:.6}, permanent={:.6}",
+            samples.last().unwrap(),
+            perm
         );
     }
 
@@ -716,7 +754,9 @@ timestamp,b0_p,b0_q,b1_p,b1_q,a0_p,a0_q,a1_p,a1_q
         let probe = |qty: f64| -> f64 {
             let mut cf = make_cf_lob();
             cf.record_trade_and_advance(qty);
-            cf.current_adjusted_book().fill_market_sell(200.0).avg_fill_price
+            cf.current_adjusted_book()
+                .fill_market_sell(200.0)
+                .avg_fill_price
         };
 
         let no_trade = probe(0.0);
@@ -737,10 +777,7 @@ timestamp,b0_p,b0_q,b1_p,b1_q,a0_p,a0_q,a1_p,a1_q
         for _ in 0..20 {
             cf.record_trade_and_advance(1_000_000.0);
             let impact = cf.total_residual_impact();
-            assert!(
-                impact <= 0.95,
-                "impact must not exceed 0.95, got {impact}"
-            );
+            assert!(impact <= 0.95, "impact must not exceed 0.95, got {impact}");
         }
     }
 
@@ -766,7 +803,10 @@ timestamp,b0_p,b0_q,b1_p,b1_q,a0_p,a0_q,a1_p,a1_q
         // Capture the un-impacted reference fill price BEFORE reset so the test
         // is independent of fixture-snapshot ordering quirks.
         let fresh = make_cf_lob();
-        let baseline_fill = fresh.current_adjusted_book().fill_market_sell(100.0).avg_fill_price;
+        let baseline_fill = fresh
+            .current_adjusted_book()
+            .fill_market_sell(100.0)
+            .avg_fill_price;
 
         // Reset and re-verify the canonical preconditions hold.
         cf.reset();
@@ -782,7 +822,10 @@ timestamp,b0_p,b0_q,b1_p,b1_q,a0_p,a0_q,a1_p,a1_q
 
         // A fresh fill on the post-reset book must match the baseline fill from a
         // never-used CounterfactualLob (within 1% of the reference mid).
-        let reset_fill = cf.current_adjusted_book().fill_market_sell(100.0).avg_fill_price;
+        let reset_fill = cf
+            .current_adjusted_book()
+            .fill_market_sell(100.0)
+            .avg_fill_price;
         let ref_mid = cf.current_adjusted_book().mid_price().unwrap_or(100.0);
         let pct_diff = ((reset_fill - baseline_fill).abs() / ref_mid.max(1e-9)) * 100.0;
         assert!(

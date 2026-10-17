@@ -77,9 +77,13 @@ fn permanent_impact_penalises_fast_strategies_more() {
     let runner = run_two_strategies(twap, optimal, steps, 42);
     let strats = runner.strategies();
 
-    let twap_is = strats[0].metrics.shortfall_percent()
+    let twap_is = strats[0]
+        .metrics
+        .shortfall_percent()
         .expect("TWAP must have shortfall_percent");
-    let opt_is = strats[1].metrics.shortfall_percent()
+    let opt_is = strats[1]
+        .metrics
+        .shortfall_percent()
         .expect("Optimal must have shortfall_percent");
 
     // Both strategies must have executed and recorded costs.

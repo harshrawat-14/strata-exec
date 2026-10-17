@@ -116,7 +116,15 @@ fn main() {
             // Half-spread proxy: 0.5 × σ × √dt × price.
             // TODO Phase 2 Track B — replace with real LOB spread.
             let half_spread = 0.5 * vol * dt.sqrt() * twap_eff;
-            twap_metrics.record_trade(twap_traded, twap_eff, slippage, trans_imp, twap_delta_perm, price, half_spread);
+            twap_metrics.record_trade(
+                twap_traded,
+                twap_eff,
+                slippage,
+                trans_imp,
+                twap_delta_perm,
+                price,
+                half_spread,
+            );
             twap_metrics.record_risk_step(twap_before, vol, dt);
             twap_total_traded += twap_traded;
         }
@@ -139,7 +147,15 @@ fn main() {
             // Half-spread proxy: 0.5 × σ × √dt × price.
             // TODO Phase 2 Track B — replace with real LOB spread.
             let half_spread = 0.5 * vol * dt.sqrt() * ac_eff;
-            ac_metrics.record_trade(ac_traded, ac_eff, slippage, trans_imp, ac_delta_perm, price, half_spread);
+            ac_metrics.record_trade(
+                ac_traded,
+                ac_eff,
+                slippage,
+                trans_imp,
+                ac_delta_perm,
+                price,
+                half_spread,
+            );
             ac_metrics.record_risk_step(ac_before, vol, dt);
             ac_total_traded += ac_traded;
         }
@@ -164,7 +180,10 @@ fn main() {
 
     println!();
     println!("=== Quantity traded snapshots ===");
-    println!("{:>4} | {:>16} | {:>17}", "Step", "AC_total_traded", "TWAP_total_traded");
+    println!(
+        "{:>4} | {:>16} | {:>17}",
+        "Step", "AC_total_traded", "TWAP_total_traded"
+    );
     for (step, ac, twap) in &snapshots {
         println!("{:>4} | {:>16.2} | {:>17.2}", step, ac, twap);
     }

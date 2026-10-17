@@ -154,7 +154,8 @@ impl PriceSimulator for GarchSimulator {
         let r_per_period = r / self.dt.sqrt();
 
         // GARCH(1,1) variance update.
-        self.sigma2 = self.omega + self.alpha * r_per_period * r_per_period + self.beta * self.sigma2;
+        self.sigma2 =
+            self.omega + self.alpha * r_per_period * r_per_period + self.beta * self.sigma2;
 
         self.price
     }
@@ -347,12 +348,20 @@ mod tests {
     #[test]
     fn jump_diffusion_produces_discontinuous_moves() {
         let jump = JumpGarchParams {
-            lambda_j: 1.0,    // jump every step
+            lambda_j: 1.0, // jump every step
             mu_j: 0.0,
             sigma_j: 0.05,
         };
         let mut sim = GarchSimulator::new_with_jumps(
-            100.0, 0.0, 0.000_002, 0.08, 0.90, 0.04, 1.0 / 252.0, 7, jump,
+            100.0,
+            0.0,
+            0.000_002,
+            0.08,
+            0.90,
+            0.04,
+            1.0 / 252.0,
+            7,
+            jump,
         );
 
         // Per-period sigma at step 0: sqrt(sigma2 * dt) = sqrt(0.04/252) ≈ 0.0126.
@@ -382,9 +391,8 @@ mod tests {
     ///      breaks reproducibility of historical experiments.
     #[test]
     fn jump_diffusion_disabled_matches_standard_garch() {
-        let mut standard = GarchSimulator::new(
-            100.0, 0.05, 0.000_002, 0.08, 0.90, 0.04, 1.0 / 252.0, 42,
-        );
+        let mut standard =
+            GarchSimulator::new(100.0, 0.05, 0.000_002, 0.08, 0.90, 0.04, 1.0 / 252.0, 42);
         let mut with_zero_jumps = GarchSimulator::new_with_jumps(
             100.0,
             0.05,
@@ -394,7 +402,11 @@ mod tests {
             0.04,
             1.0 / 252.0,
             42,
-            JumpGarchParams { lambda_j: 0.0, mu_j: -0.02, sigma_j: 0.05 },
+            JumpGarchParams {
+                lambda_j: 0.0,
+                mu_j: -0.02,
+                sigma_j: 0.05,
+            },
         );
 
         for k in 0..500 {

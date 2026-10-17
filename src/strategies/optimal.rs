@@ -373,11 +373,11 @@ mod tests {
         let horizon = 10; // fixed horizon for an apples-to-apples comparison
 
         // lambda=0.001 → low risk aversion (near-TWAP)
-        let ac_low = AlmgrenChriss::new(1000.0, eta, 0.001, sigma, Some(horizon))
-            .expect("valid params");
+        let ac_low =
+            AlmgrenChriss::new(1000.0, eta, 0.001, sigma, Some(horizon)).expect("valid params");
         // lambda=1.0 → high risk aversion (aggressive front-loading)
-        let ac_high = AlmgrenChriss::new(1000.0, eta, 1.0, sigma, Some(horizon))
-            .expect("valid params");
+        let ac_high =
+            AlmgrenChriss::new(1000.0, eta, 1.0, sigma, Some(horizon)).expect("valid params");
 
         let first_low = ac_low.schedule()[0];
         let first_high = ac_high.schedule()[0];
@@ -415,8 +415,7 @@ mod tests {
         let lambdas = [0.0, 0.001, 0.01, 0.1, 1.0];
 
         for lambda in lambdas {
-            let ac = AlmgrenChriss::new(total, 0.05, lambda, 0.03, Some(20))
-                .expect("valid params");
+            let ac = AlmgrenChriss::new(total, 0.05, lambda, 0.03, Some(20)).expect("valid params");
             let sched = ac.schedule();
             let sum: f64 = sched.iter().sum();
             assert!(
@@ -433,7 +432,7 @@ mod tests {
     ///      IS calculation will be wrong.
     #[test]
     fn ac_permanent_impact_accumulates_across_steps() {
-        let gamma = 0.1;        // 10% of full inventory causes 10% permanent depression
+        let gamma = 0.1; // 10% of full inventory causes 10% permanent depression
         let total_notional = 1000.0;
         let trade_size = 200.0; // sell 200 per step (5 steps exhaust inventory)
         let raw_price = 100.0;

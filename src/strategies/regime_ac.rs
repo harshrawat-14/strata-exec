@@ -19,10 +19,10 @@ pub struct RegimeAcParams {
 impl Default for RegimeAcParams {
     fn default() -> Self {
         Self {
-            lambda_low_vol_deep:  1e-4,
-            lambda_normal:        1e-4,
-            lambda_high_vol:      1e-2,
-            lambda_thin_liq:      1e-2,
+            lambda_low_vol_deep: 1e-4,
+            lambda_normal: 1e-4,
+            lambda_high_vol: 1e-2,
+            lambda_thin_liq: 1e-2,
             lambda_high_vol_thin: 5e-2,
         }
     }
@@ -34,11 +34,11 @@ impl Default for RegimeAcParams {
 /// then single-axis elevations, then the default.
 pub fn effective_lambda(regime: &MarketRegime, params: &RegimeAcParams) -> f64 {
     match (&regime.vol, &regime.liq) {
-        (VolRegime::Low,  LiqRegime::Deep) => params.lambda_low_vol_deep,
+        (VolRegime::Low, LiqRegime::Deep) => params.lambda_low_vol_deep,
         (VolRegime::High, LiqRegime::Thin) => params.lambda_high_vol_thin,
-        (VolRegime::High, _)               => params.lambda_high_vol,
-        (_,               LiqRegime::Thin) => params.lambda_thin_liq,
-        _                                  => params.lambda_normal,
+        (VolRegime::High, _) => params.lambda_high_vol,
+        (_, LiqRegime::Thin) => params.lambda_thin_liq,
+        _ => params.lambda_normal,
     }
 }
 
@@ -140,11 +140,11 @@ impl RegimeAcStrategy {
                 self.spread_warmup.push(half_spread);
             }
             if self.sigma_warmup.len() >= self.warmup_steps {
-                self.sigma_ref = self.sigma_warmup.iter().sum::<f64>()
-                    / self.sigma_warmup.len() as f64;
+                self.sigma_ref =
+                    self.sigma_warmup.iter().sum::<f64>() / self.sigma_warmup.len() as f64;
                 if !self.spread_warmup.is_empty() {
-                    self.spread_ref = self.spread_warmup.iter().sum::<f64>()
-                        / self.spread_warmup.len() as f64;
+                    self.spread_ref =
+                        self.spread_warmup.iter().sum::<f64>() / self.spread_warmup.len() as f64;
                 }
                 self.warmed_up = true;
             }
@@ -248,10 +248,9 @@ mod tests {
     fn make_strategy(horizon: usize) -> RegimeAcStrategy {
         RegimeAcStrategy::new(
             1_000.0, // total_inventory
-            horizon,
-            0.001,   // eta
-            0.20,    // sigma_ref
-            1.0,     // spread_ref
+            horizon, 0.001, // eta
+            0.20,  // sigma_ref
+            1.0,   // spread_ref
         )
     }
 
@@ -362,10 +361,7 @@ mod tests {
         for _ in 0..50 {
             strat.on_block(sigma, hs);
         }
-        assert!(
-            strat.warmed_up,
-            "strategy must be warmed up after 50 steps"
-        );
+        assert!(strat.warmed_up, "strategy must be warmed up after 50 steps");
         assert!(
             (strat.sigma_ref - 0.01).abs() < 1e-10,
             "sigma_ref should converge to 0.01 after warm-up, got {}",
@@ -387,7 +383,10 @@ mod tests {
             strat.on_block(0.35, 1.5);
         }
         // Warm-up not yet complete after 49 steps.
-        assert!(!strat.warmed_up, "should still be in warm-up after 49 steps");
+        assert!(
+            !strat.warmed_up,
+            "should still be in warm-up after 49 steps"
+        );
         for label in &strat.regime_history {
             assert_eq!(
                 label, "warmup",

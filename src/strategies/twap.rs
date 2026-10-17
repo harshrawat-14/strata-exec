@@ -111,14 +111,18 @@ mod tests {
         );
         let mut strat_high_vol = TwapStrategy::new(1000.0, 10);
 
-        let market_low = make_market(0.02);   // 2% daily vol
-        let market_high = make_market(0.20);  // 20% daily vol — 10× spike
+        let market_low = make_market(0.02); // 2% daily vol
+        let market_high = make_market(0.20); // 20% daily vol — 10× spike
 
         let orders_low = strat_low_vol.on_event(&SimEvent::TimeTick { step: 0 }, &market_low);
         let orders_high = strat_high_vol.on_event(&SimEvent::TimeTick { step: 0 }, &market_high);
 
         assert_eq!(orders_low.len(), 1, "expected one order from low-vol TWAP");
-        assert_eq!(orders_high.len(), 1, "expected one order from high-vol TWAP");
+        assert_eq!(
+            orders_high.len(),
+            1,
+            "expected one order from high-vol TWAP"
+        );
         assert!(
             (orders_low[0].quantity - orders_high[0].quantity).abs() < 1e-10,
             "TWAP chunk must be identical across vol regimes: low={}, high={}",
@@ -134,7 +138,7 @@ mod tests {
     #[test]
     fn twap_exhausts_full_inventory_by_horizon() {
         let total = 1000.0; // arbitrary total quantity
-        let horizon = 10;   // exactly 10 steps → 100.0 per step
+        let horizon = 10; // exactly 10 steps → 100.0 per step
         let mut strat = TwapStrategy::new(total, horizon);
         let market = make_market(0.02);
         let mut total_filled = 0.0;
@@ -234,7 +238,10 @@ mod tests {
             crate::market::liquidity::LiquiditySnapshot::new(500.0, 500.0),
         );
         let orders = strat.on_event(
-            &SimEvent::PriceUpdate { price: 105.0, volatility: 0.03 },
+            &SimEvent::PriceUpdate {
+                price: 105.0,
+                volatility: 0.03,
+            },
             &market,
         );
         assert!(orders.is_empty());
@@ -253,7 +260,12 @@ mod tests {
         assert_eq!(orders.len(), 1);
         // Simulate the fill arriving back.
         strat.on_event(
-            &SimEvent::OrderFilled { order_id: orders[0].id, qty: 100.0, price: 99.9, impact: 0.001 },
+            &SimEvent::OrderFilled {
+                order_id: orders[0].id,
+                qty: 100.0,
+                price: 99.9,
+                impact: 0.001,
+            },
             &market,
         );
         assert!(strat.is_complete());

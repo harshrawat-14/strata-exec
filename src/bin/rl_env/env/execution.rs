@@ -1,10 +1,8 @@
 //! One environment step: fills, reward, forced liquidation, episode summary.
 
-
 use serde_json::{json, Value};
 
 use strata_exec::market::order_book::{FillResult, OrderBook};
-
 
 use crate::config::*;
 use crate::env::*;
@@ -19,7 +17,11 @@ pub(crate) struct Fill {
 
 impl Fill {
     pub(crate) fn none(book_mid: f64) -> Self {
-        Self { qty: 0.0, price: book_mid, slippage: 0.0 }
+        Self {
+            qty: 0.0,
+            price: book_mid,
+            slippage: 0.0,
+        }
     }
 
     pub(crate) fn from_result(fr: &FillResult, book_mid: f64) -> Self {
@@ -69,7 +71,11 @@ impl ForcedLiquidation {
         // Depth exhausted before absorbing the full size: price the residual
         // worse than the worst level actually consumed, never at mid.
         let punitive_notional = if fr.residual_qty > 1e-9 {
-            let worst_price = if fr.filled_qty > 1e-12 { fr.avg_fill_price } else { mid };
+            let worst_price = if fr.filled_qty > 1e-12 {
+                fr.avg_fill_price
+            } else {
+                mid
+            };
             let punitive_price = (worst_price - spread_ref.max(1e-6) * 5.0).max(1e-6);
             fr.residual_qty * punitive_price
         } else {
@@ -88,7 +94,6 @@ impl ForcedLiquidation {
         self.filled_notional + self.punitive_notional
     }
 }
-
 
 impl RlEnv {
     /// Execute one action and advance the environment by one step.
@@ -121,7 +126,8 @@ impl RlEnv {
                     let pre_our_depth = book.total_bid_depth();
                     let fr_result = book.fill_market_sell(intended);
                     step_withdrawn =
-                        adv.withdrawer.post_fill(book, fr_result.filled_qty, pre_our_depth);
+                        adv.withdrawer
+                            .post_fill(book, fr_result.filled_qty, pre_our_depth);
                     adv.withdrawer.recover_step(book);
                     adv.front_runner.update_volume(fr_result.filled_qty);
 
@@ -158,8 +164,12 @@ impl RlEnv {
                 .as_ref()
                 .and_then(|b| b.mid_price())
                 .unwrap_or(self.arrival_price);
-            let liq =
-                ForcedLiquidation::price(self.current_book.as_mut(), self.remaining, mid, self.spread_ref);
+            let liq = ForcedLiquidation::price(
+                self.current_book.as_mut(),
+                self.remaining,
+                mid,
+                self.spread_ref,
+            );
             total_reward_adj -= self.settle_forced_liquidation(&liq, mid);
             forced = Some(liq);
             done = true;
@@ -226,7 +236,11 @@ impl RlEnv {
             .cf_lob
             .as_ref()
             .map(|cf| cf.current_adjusted_book())
-            .unwrap_or_else(|| self.current_book.clone().unwrap_or(OrderBook::new(vec![], vec![])));
+            .unwrap_or_else(|| {
+                self.current_book
+                    .clone()
+                    .unwrap_or(OrderBook::new(vec![], vec![]))
+            });
 
         let book_mid = adjusted_book.mid_price().unwrap_or(self.current_mid);
         let real_depth = self
@@ -273,7 +287,11 @@ impl RlEnv {
         // Termination.
         let inv_done = self.remaining <= 0.001 * self.cfg.total_inventory;
         let time_done = self.step_idx >= self.cfg.total_steps;
-        let cf_exhausted = self.cf_lob.as_ref().map(|cf| cf.is_exhausted()).unwrap_or(false);
+        let cf_exhausted = self
+            .cf_lob
+            .as_ref()
+            .map(|cf| cf.is_exhausted())
+            .unwrap_or(false);
         let mut done = inv_done || time_done || cf_exhausted;
         let mut forced: Option<ForcedLiquidation> = None;
         let mut total_reward_adj = 0.0;
@@ -338,10 +356,18 @@ impl RlEnv {
     /// Add end-of-episode fields to `info`: total implementation shortfall
     /// and, if the episode ended in a forced liquidation, how it was priced
     /// (real depth vs the punitive residual).
-    pub(crate) fn insert_episode_summary(&self, info: &mut Value, forced: Option<&ForcedLiquidation>) {
+    pub(crate) fn insert_episode_summary(
+        &self,
+        info: &mut Value,
+        forced: Option<&ForcedLiquidation>,
+    ) {
         let ideal = self.arrival_price * self.cfg.total_inventory;
         let is_dollar = ideal - self.total_notional_received;
-        let is_pct = if ideal.abs() > 1e-12 { is_dollar / ideal * 100.0 } else { 0.0 };
+        let is_pct = if ideal.abs() > 1e-12 {
+            is_dollar / ideal * 100.0
+        } else {
+            0.0
+        };
         let Some(obj) = info.as_object_mut() else {
             return;
         };
@@ -350,9 +376,18 @@ impl RlEnv {
         if let Some(liq) = forced {
             obj.insert("forced_liquidation_qty".to_string(), json!(liq.qty));
             obj.insert("forced_liq_filled_qty".to_string(), json!(liq.filled_qty));
-            obj.insert("forced_liq_residual_qty".to_string(), json!(liq.residual_qty));
-            obj.insert("forced_liq_filled_notional".to_string(), json!(liq.filled_notional));
-            obj.insert("forced_liq_punitive_notional".to_string(), json!(liq.punitive_notional));
+            obj.insert(
+                "forced_liq_residual_qty".to_string(),
+                json!(liq.residual_qty),
+            );
+            obj.insert(
+                "forced_liq_filled_notional".to_string(),
+                json!(liq.filled_notional),
+            );
+            obj.insert(
+                "forced_liq_punitive_notional".to_string(),
+                json!(liq.punitive_notional),
+            );
         }
     }
 
@@ -398,7 +433,11 @@ impl RlEnv {
     pub(crate) fn settle_forced_liquidation(&mut self, liq: &ForcedLiquidation, mid: f64) -> f64 {
         let total = self.cfg.total_inventory.max(1.0);
         let notional = liq.notional();
-        let liquidated_at = if liq.qty > 1e-12 { notional / liq.qty } else { mid };
+        let liquidated_at = if liq.qty > 1e-12 {
+            notional / liq.qty
+        } else {
+            mid
+        };
 
         self.total_filled += liq.qty;
         self.total_notional_received += notional;

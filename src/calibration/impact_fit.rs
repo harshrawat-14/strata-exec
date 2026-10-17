@@ -17,7 +17,7 @@ pub struct HistoricalTrade {
 /// A calibration engine to determine the empirical square-root market impact coefficient (Y).
 ///
 /// Under the model: Impact Fraction = Y * sigma * sqrt(Q / V)
-/// 
+///
 /// We solve for Y:
 /// Y = ( (price_after - price_before).abs() / price_before ) / ( sigma * sqrt(Q / V) )
 pub struct CalibrationEngine {
@@ -54,10 +54,10 @@ impl CalibrationEngine {
             let impact_fraction = diff / trade.price_before;
 
             // Compute theoretical unscaled impact base -> sigma * sqrt(Q / V)
-            let unscaled_impact_base = self.annualized_volatility
-                * (trade.trade_size / self.daily_volume_estimate).sqrt();
+            let unscaled_impact_base =
+                self.annualized_volatility * (trade.trade_size / self.daily_volume_estimate).sqrt();
 
-            // Guard against division by zero 
+            // Guard against division by zero
             if unscaled_impact_base > 1e-12 {
                 let empirical_y = impact_fraction / unscaled_impact_base;
                 y_sum += empirical_y;
@@ -243,7 +243,11 @@ mod tests {
     use crate::market::agg_trades::AggTrade;
 
     fn make_agg(trades: Vec<AggTrade>) -> AggTradesDay {
-        AggTradesDay { trades, date: "2024-01-15".to_string(), skipped_rows: 0 }
+        AggTradesDay {
+            trades,
+            date: "2024-01-15".to_string(),
+            skipped_rows: 0,
+        }
     }
 
     #[test]
@@ -259,35 +263,60 @@ mod tests {
 
         let out = build_calibration_trades(&agg, &snapshot_timestamps, &snapshot_mids);
         assert_eq!(out.len(), 1);
-        assert_eq!(out[0].price_before, 100.0, "must bracket with the snapshot at/before the trade");
-        assert_eq!(out[0].price_after, 100.2, "must bracket with the snapshot at/after the trade");
+        assert_eq!(
+            out[0].price_before, 100.0,
+            "must bracket with the snapshot at/before the trade"
+        );
+        assert_eq!(
+            out[0].price_after, 100.2,
+            "must bracket with the snapshot at/after the trade"
+        );
         assert_eq!(out[0].trade_size, 5.0);
     }
 
     #[test]
     fn build_calibration_trades_skips_trades_outside_snapshot_window() {
         let agg = make_agg(vec![
-            AggTrade { timestamp_ms: 500, price: 99.0, quantity_btc: 1.0, is_sell_aggressor: false }, // before first
-            AggTrade { timestamp_ms: 3_500, price: 101.0, quantity_btc: 1.0, is_sell_aggressor: false }, // after last
+            AggTrade {
+                timestamp_ms: 500,
+                price: 99.0,
+                quantity_btc: 1.0,
+                is_sell_aggressor: false,
+            }, // before first
+            AggTrade {
+                timestamp_ms: 3_500,
+                price: 101.0,
+                quantity_btc: 1.0,
+                is_sell_aggressor: false,
+            }, // after last
         ]);
         let snapshot_timestamps = vec![1_000, 2_000, 3_000];
         let snapshot_mids = vec![100.0, 100.2, 100.4];
 
         let out = build_calibration_trades(&agg, &snapshot_timestamps, &snapshot_mids);
-        assert!(out.is_empty(), "trades outside the snapshot window must be skipped, not bracketed with garbage");
+        assert!(
+            out.is_empty(),
+            "trades outside the snapshot window must be skipped, not bracketed with garbage"
+        );
     }
 
     #[test]
     fn realized_volatility_is_zero_for_flat_price() {
         let mids = vec![100.0; 20];
         let vol = realized_volatility(&mids, 2880.0);
-        assert_eq!(vol, 0.0, "a perfectly flat price series must have zero realized volatility");
+        assert_eq!(
+            vol, 0.0,
+            "a perfectly flat price series must have zero realized volatility"
+        );
     }
 
     #[test]
     fn realized_volatility_is_positive_for_moving_price() {
         let mids: Vec<f64> = (0..20).map(|i| 100.0 + (i as f64 * 0.3).sin()).collect();
         let vol = realized_volatility(&mids, 2880.0);
-        assert!(vol > 0.0, "a moving price series must have positive realized volatility, got {vol}");
+        assert!(
+            vol > 0.0,
+            "a moving price series must have positive realized volatility, got {vol}"
+        );
     }
 }

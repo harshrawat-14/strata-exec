@@ -30,8 +30,7 @@ fn write_synthetic_trades_csv(target_y: f64, daily_volume: f64, sigma: f64) -> S
         .to_string();
 
     let mut file = std::fs::File::create(&path).expect("create temp CSV");
-    writeln!(file, "timestamp_sec,price_before,price_after,trade_size")
-        .expect("write CSV header");
+    writeln!(file, "timestamp_sec,price_before,price_after,trade_size").expect("write CSV header");
 
     // Generate 5 synthetic trades at different sizes, all implying Y = target_y.
     // impact_fraction = target_y * sigma * sqrt(Q/V)
@@ -111,9 +110,10 @@ fn calibrated_gamma_changes_shortfall() {
     // Write synthetic trades and calibrate.
     let csv_path = write_synthetic_trades_csv(target_y, daily_volume, sigma);
     let engine = CalibrationEngine::new(daily_volume, sigma);
-    let trades = CalibrationEngine::load_csv(&csv_path)
-        .expect("must load synthetic CSV");
-    let fitted_y = engine.calibrate(&trades).expect("calibration must return a coefficient");
+    let trades = CalibrationEngine::load_csv(&csv_path).expect("must load synthetic CSV");
+    let fitted_y = engine
+        .calibrate(&trades)
+        .expect("calibration must return a coefficient");
 
     // Clean up temp file.
     let _ = std::fs::remove_file(&csv_path);

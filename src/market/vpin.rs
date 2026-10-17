@@ -269,7 +269,11 @@ mod tests {
         // Alternate buy/sell trades of varying sizes.
         let mut prev_price = 100.0_f64;
         for i in 0..200usize {
-            let price = if i % 3 == 0 { prev_price + 1.0 } else { prev_price - 0.5 };
+            let price = if i % 3 == 0 {
+                prev_price + 1.0
+            } else {
+                prev_price - 0.5
+            };
             let volume = (i % 50 + 1) as f64 * 5.0;
             calc.add_trade(price, volume, prev_price);
             if let Some(v) = calc.current_vpin() {

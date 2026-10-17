@@ -1,6 +1,5 @@
 //! Episode reset for the synthetic, historical and counterfactual modes.
 
-
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 use serde_json::json;
@@ -8,7 +7,6 @@ use serde_json::json;
 use strata_exec::market::counterfactual_lob::{CounterfactualLob, CounterfactualLobConfig};
 use strata_exec::market::garch::GarchSimulator;
 use strata_exec::market::order_book::OrderBook;
-
 
 use crate::config::*;
 use crate::env::*;
@@ -29,14 +27,12 @@ impl RlEnv {
         if matches!(self.cfg.mode, RlMode::Historical | RlMode::Counterfactual) {
             let mut rng = StdRng::seed_from_u64(seed);
             if !self.cfg.fixed_steps {
-                self.cfg.total_steps =
-                    rng.gen_range(RANDOM_HORIZON_MIN..=RANDOM_HORIZON_MAX);
+                self.cfg.total_steps = rng.gen_range(RANDOM_HORIZON_MIN..=RANDOM_HORIZON_MAX);
             }
             if !self.cfg.fixed_size {
                 let size_fraction: f64 = rng.gen_range(RANDOM_SIZE_MIN..=RANDOM_SIZE_MAX);
                 self.episode_size_fraction = size_fraction;
-                self.cfg.total_inventory =
-                    (self.base_total_inventory * size_fraction).max(1.0);
+                self.cfg.total_inventory = (self.base_total_inventory * size_fraction).max(1.0);
             }
         }
 
@@ -94,14 +90,23 @@ impl RlEnv {
         });
         if let Some(cf) = &self.cf_lob {
             let btc_scale = self.cfg.btc_target / self.cfg.total_inventory.max(1.0);
-            let adv_btc = if self.cfg.adv_btc > 0.0 { self.cfg.adv_btc } else { 240_000.0 };
+            let adv_btc = if self.cfg.adv_btc > 0.0 {
+                self.cfg.adv_btc
+            } else {
+                240_000.0
+            };
             if let Some(obj) = info.as_object_mut() {
                 obj.insert("btc_scale".to_string(), json!(btc_scale));
                 obj.insert("adv_btc".to_string(), json!(adv_btc));
                 obj.insert("depth_ref".to_string(), json!(cf.depth_ref));
             }
         }
-        StepResult { state, reward: 0.0, done: false, info }
+        StepResult {
+            state,
+            reward: 0.0,
+            done: false,
+            info,
+        }
     }
 
     pub(crate) fn reset_synthetic(&mut self, seed: u64) {
@@ -349,7 +354,10 @@ impl RlEnv {
         let spread_price_factor = 100.0 / real_mid_for_spread.max(1e-9);
         let spread_qty_factor = 1.0 / btc_scale;
         let scaled_first_for_spread = first.rescale_full(spread_price_factor, spread_qty_factor);
-        self.spread_ref = scaled_first_for_spread.half_spread().unwrap_or(0.01).max(1e-9);
+        self.spread_ref = scaled_first_for_spread
+            .half_spread()
+            .unwrap_or(0.01)
+            .max(1e-9);
         self.current_book = Some(first);
         // FIX A: cf_lob rescales all BTC prices to simulation scale (~100).
         // Both arrival_price and current_mid must match that scale, otherwise the IS
@@ -406,7 +414,11 @@ impl RlEnv {
                     .collect();
                 let daily_volume_btc = adv_btc; // same denominator the sim will use
                 let calibrated = CounterfactualLobConfig::calibrated(
-                    cf_config, agg, &all_timestamps, &all_mids, daily_volume_btc,
+                    cf_config,
+                    agg,
+                    &all_timestamps,
+                    &all_mids,
+                    daily_volume_btc,
                 );
                 eprintln!(
                     "  Calibrated impact: Y={:.4} (default 0.1), sigma={:.4} (default 1.0)",

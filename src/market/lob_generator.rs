@@ -109,7 +109,10 @@ mod tests {
 
     #[test]
     fn generated_book_has_correct_number_of_levels() {
-        let params = LobGeneratorParams { num_levels: 5, ..default_params() };
+        let params = LobGeneratorParams {
+            num_levels: 5,
+            ..default_params()
+        };
         let book = generate_lob(100.0, 0.20, &params);
         // Verify via depth queries: ask at price of 5th level should include all 5 levels.
         // We can check indirectly via ask_depth_up_to a very high price capturing all.

@@ -57,15 +57,15 @@ impl MarketRegime {
     /// Human-readable label for this regime (9 distinct strings).
     pub fn label(&self) -> &'static str {
         match (&self.vol, &self.liq) {
-            (VolRegime::Low,    LiqRegime::Deep)   => "low-vol/deep",
-            (VolRegime::Low,    LiqRegime::Normal) => "low-vol/normal",
-            (VolRegime::Low,    LiqRegime::Thin)   => "low-vol/thin",
-            (VolRegime::Normal, LiqRegime::Deep)   => "normal/deep",
+            (VolRegime::Low, LiqRegime::Deep) => "low-vol/deep",
+            (VolRegime::Low, LiqRegime::Normal) => "low-vol/normal",
+            (VolRegime::Low, LiqRegime::Thin) => "low-vol/thin",
+            (VolRegime::Normal, LiqRegime::Deep) => "normal/deep",
             (VolRegime::Normal, LiqRegime::Normal) => "normal/normal",
-            (VolRegime::Normal, LiqRegime::Thin)   => "normal/thin",
-            (VolRegime::High,   LiqRegime::Deep)   => "high-vol/deep",
-            (VolRegime::High,   LiqRegime::Normal) => "high-vol/normal",
-            (VolRegime::High,   LiqRegime::Thin)   => "high-vol/thin",
+            (VolRegime::Normal, LiqRegime::Thin) => "normal/thin",
+            (VolRegime::High, LiqRegime::Deep) => "high-vol/deep",
+            (VolRegime::High, LiqRegime::Normal) => "high-vol/normal",
+            (VolRegime::High, LiqRegime::Thin) => "high-vol/thin",
         }
     }
 }
@@ -115,13 +115,13 @@ mod tests {
     fn all_nine_combinations_produce_distinct_labels() {
         let sigmas = [
             (0.10_f64, 0.20_f64), // Low
-            (0.20, 0.20),          // Normal
-            (0.30, 0.20),          // High
+            (0.20, 0.20),         // Normal
+            (0.30, 0.20),         // High
         ];
         let spreads = [
             (0.6_f64, 1.0_f64), // Deep
-            (1.0, 1.0),          // Normal
-            (1.4, 1.0),          // Thin (> 1.3)
+            (1.0, 1.0),         // Normal
+            (1.4, 1.0),         // Thin (> 1.3)
         ];
 
         let mut labels = std::collections::HashSet::new();
@@ -131,6 +131,10 @@ mod tests {
                 labels.insert(r.label());
             }
         }
-        assert_eq!(labels.len(), 9, "expected 9 distinct labels, got {labels:?}");
+        assert_eq!(
+            labels.len(),
+            9,
+            "expected 9 distinct labels, got {labels:?}"
+        );
     }
 }

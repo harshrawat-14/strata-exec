@@ -6,12 +6,10 @@ use std::io::{self, Write};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-
-
+use crate::batch_arrow;
+use crate::batched::*;
 use crate::config::*;
 use crate::env::*;
-use crate::batched::*;
-use crate::batch_arrow;
 
 // ---------------------------------------------------------------------------
 // JSON wire types
@@ -44,14 +42,18 @@ pub(crate) fn write_msg(out: &mut impl Write, msg: &OutMsg) -> io::Result<()> {
     // intermediate String via serde_json::to_string -- one fewer allocation
     // per step on the hot path (measured via dhat-heap,
     // docs/performance/baseline-profiling.md).
-    serde_json::to_writer(&mut *out, msg)
-        .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+    serde_json::to_writer(&mut *out, msg).map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
     out.write_all(b"\n")?;
     out.flush()
 }
 
 pub(crate) fn step_result_to_msg(r: StepResult) -> OutMsg {
-    OutMsg { state: r.state, reward: r.reward, done: r.done, info: r.info }
+    OutMsg {
+        state: r.state,
+        reward: r.reward,
+        done: r.done,
+        info: r.info,
+    }
 }
 
 /// Scans argv for `--batch-size N --socket-path PATH`, the two batch-mode

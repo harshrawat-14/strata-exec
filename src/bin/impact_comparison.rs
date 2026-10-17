@@ -99,9 +99,7 @@ fn run_sweep(gamma: f64, num_paths: usize) -> Vec<RunResult> {
             // CVaR-95 for shortfall (we want worst 5% = most negative = left tail)
             let cutoff = (0.05 * n).ceil() as usize;
             let cvar95 = if cutoff > 0 {
-                sorted[..cutoff.min(sorted.len())]
-                    .iter()
-                    .sum::<f64>()
+                sorted[..cutoff.min(sorted.len())].iter().sum::<f64>()
                     / cutoff.min(sorted.len()) as f64
             } else {
                 sorted[0]

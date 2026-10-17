@@ -149,10 +149,10 @@ fn evaluate_config(
             let sigma2_init = params.sigma_ref * params.sigma_ref;
             Box::new(GarchSimulator::new(
                 params.arrival_price,
-                0.05,      // mu
-                0.000002,  // omega
-                0.08,      // alpha
-                0.90,      // beta
+                0.05,     // mu
+                0.000002, // omega
+                0.08,     // alpha
+                0.90,     // beta
                 sigma2_init,
                 dt,
                 seed,
@@ -178,7 +178,10 @@ fn evaluate_config(
 
         for (i, strat) in runner.strategies().iter().enumerate() {
             let sf_pct = strat.metrics.shortfall_percent().unwrap_or(0.0);
-            let ac_pct = strat.metrics.ac_objective_percent(params.lambda).unwrap_or(0.0);
+            let ac_pct = strat
+                .metrics
+                .ac_objective_percent(params.lambda)
+                .unwrap_or(0.0);
 
             shortfall_accumulators[i].push(sf_pct);
             ac_accumulators[i].push(ac_pct);
@@ -398,7 +401,10 @@ mod tests {
         assert!(cfg.sigma_ref > 0.0, "sigma_ref must be positive");
         assert!(cfg.arrival_price > 0.0, "arrival_price must be positive");
         assert!(cfg.daily_volume > 0.0, "daily_volume must be positive");
-        assert!(cfg.impact_coefficient > 0.0, "impact_coefficient must be positive");
+        assert!(
+            cfg.impact_coefficient > 0.0,
+            "impact_coefficient must be positive"
+        );
         assert!(cfg.horizon_days > 0.0, "horizon_days must be positive");
         // Verify default produces ~100 slices
         let slices = (cfg.total_notional / cfg.base_chunk).round() as usize;
@@ -429,8 +435,8 @@ mod tests {
     #[test]
     fn evaluate_config_returns_all_strategies() {
         let params = SweepConfig::default();
-        let stats = evaluate_config(&params, 2, 0, 2, None)
-            .expect("evaluate_config should succeed");
+        let stats =
+            evaluate_config(&params, 2, 0, 2, None).expect("evaluate_config should succeed");
         assert_eq!(
             stats.len(),
             STRATEGIES.len(),
@@ -455,22 +461,24 @@ mod tests {
     #[test]
     fn evaluate_config_deterministic_across_runs() {
         let params = SweepConfig::default();
-        let stats_a = evaluate_config(&params, 3, 0, 3, None)
-            .expect("run A should succeed");
-        let stats_b = evaluate_config(&params, 3, 0, 3, None)
-            .expect("run B should succeed");
+        let stats_a = evaluate_config(&params, 3, 0, 3, None).expect("run A should succeed");
+        let stats_b = evaluate_config(&params, 3, 0, 3, None).expect("run B should succeed");
 
         for (a, b) in stats_a.iter().zip(stats_b.iter()) {
             assert_eq!(a.strategy, b.strategy);
             assert!(
                 (a.shortfall.mean - b.shortfall.mean).abs() < 1e-12,
                 "deterministic shortfall mean mismatch for {}: {} vs {}",
-                a.strategy, a.shortfall.mean, b.shortfall.mean
+                a.strategy,
+                a.shortfall.mean,
+                b.shortfall.mean
             );
             assert!(
                 (a.ac_objective.mean - b.ac_objective.mean).abs() < 1e-12,
                 "deterministic AC objective mean mismatch for {}: {} vs {}",
-                a.strategy, a.ac_objective.mean, b.ac_objective.mean
+                a.strategy,
+                a.ac_objective.mean,
+                b.ac_objective.mean
             );
         }
     }
@@ -482,14 +490,17 @@ mod tests {
         let mut params_long = SweepConfig::default();
         params_long.horizon_days = 2.0;
 
-        let stats_short = evaluate_config(&params_short, 3, 0, 3, None)
-            .expect("short horizon should succeed");
-        let stats_long = evaluate_config(&params_long, 3, 0, 3, None)
-            .expect("long horizon should succeed");
+        let stats_short =
+            evaluate_config(&params_short, 3, 0, 3, None).expect("short horizon should succeed");
+        let stats_long =
+            evaluate_config(&params_long, 3, 0, 3, None).expect("long horizon should succeed");
 
         // At minimum, running with different horizons should produce different results
         // for the Optimal strategy (which is horizon-aware)
-        let opt_short = stats_short.iter().find(|s| s.strategy == "Optimal").unwrap();
+        let opt_short = stats_short
+            .iter()
+            .find(|s| s.strategy == "Optimal")
+            .unwrap();
         let opt_long = stats_long.iter().find(|s| s.strategy == "Optimal").unwrap();
         assert!(
             (opt_short.shortfall.mean - opt_long.shortfall.mean).abs() > 1e-15,
@@ -504,18 +515,25 @@ mod tests {
         let mut params_high = SweepConfig::default();
         params_high.sigma_ref = 0.40;
 
-        let stats_low = evaluate_config(&params_low, 3, 0, 3, None)
-            .expect("low vol should succeed");
-        let stats_high = evaluate_config(&params_high, 3, 0, 3, None)
-            .expect("high vol should succeed");
+        let stats_low =
+            evaluate_config(&params_low, 3, 0, 3, None).expect("low vol should succeed");
+        let stats_high =
+            evaluate_config(&params_high, 3, 0, 3, None).expect("high vol should succeed");
 
         // Higher volatility should generally produce higher shortfall variance
-        let heur_low = stats_low.iter().find(|s| s.strategy == "Heuristic").unwrap();
-        let heur_high = stats_high.iter().find(|s| s.strategy == "Heuristic").unwrap();
+        let heur_low = stats_low
+            .iter()
+            .find(|s| s.strategy == "Heuristic")
+            .unwrap();
+        let heur_high = stats_high
+            .iter()
+            .find(|s| s.strategy == "Heuristic")
+            .unwrap();
         assert!(
             heur_high.shortfall.std_dev > heur_low.shortfall.std_dev,
             "higher volatility should produce higher shortfall std_dev: {} vs {}",
-            heur_high.shortfall.std_dev, heur_low.shortfall.std_dev
+            heur_high.shortfall.std_dev,
+            heur_low.shortfall.std_dev
         );
     }
 

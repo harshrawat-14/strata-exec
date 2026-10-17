@@ -1,15 +1,12 @@
 //! rl-env unit tests.
 
-
-
-
-use crate::config::*;
-use crate::env::*;
-use crate::batched::*;
-use crate::batch_arrow;
-use crate::transport::*;
 #[cfg(feature = "alloc-timing")]
 use crate::alloc_timing;
+use crate::batch_arrow;
+use crate::batched::*;
+use crate::config::*;
+use crate::env::*;
+use crate::transport::*;
 
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
@@ -24,7 +21,10 @@ fn action_fractions_starts_zero_ends_one_strictly_increasing() {
     assert_eq!(ACTION_FRACTIONS[0], 0.0);
     assert_eq!(ACTION_FRACTIONS[ACTION_FRACTIONS.len() - 1], 1.0);
     for w in ACTION_FRACTIONS.windows(2) {
-        assert!(w[0] < w[1], "action fractions must be strictly increasing: {w:?}");
+        assert!(
+            w[0] < w[1],
+            "action fractions must be strictly increasing: {w:?}"
+        );
     }
 }
 
@@ -160,13 +160,24 @@ fn step_allocation_time_share_of_wall_time() {
     let pct = 100.0 * alloc_nanos as f64 / wall_ns as f64;
 
     println!("N={N} steps");
-    println!("total wall time:      {:.3} ms ({:.1} ns/step)", wall_elapsed.as_secs_f64() * 1000.0, wall_ns as f64 / N as f64);
-    println!("time inside allocator: {:.3} ms ({:.1} ns/step, {} calls, {:.2} calls/step)",
-        alloc_nanos as f64 / 1e6, alloc_nanos as f64 / N as f64, alloc_calls, alloc_calls as f64 / N as f64);
+    println!(
+        "total wall time:      {:.3} ms ({:.1} ns/step)",
+        wall_elapsed.as_secs_f64() * 1000.0,
+        wall_ns as f64 / N as f64
+    );
+    println!(
+        "time inside allocator: {:.3} ms ({:.1} ns/step, {} calls, {:.2} calls/step)",
+        alloc_nanos as f64 / 1e6,
+        alloc_nanos as f64 / N as f64,
+        alloc_calls,
+        alloc_calls as f64 / N as f64
+    );
     println!("allocator share of step wall time: {pct:.1}%");
-    println!("NOTE: Instant::now() has ~20-40ns overhead on macOS, called twice per \
+    println!(
+        "NOTE: Instant::now() has ~20-40ns overhead on macOS, called twice per \
                allocation call here -- this is an order-of-magnitude measurement, not \
-               a precise one.");
+               a precise one."
+    );
 }
 
 #[test]
@@ -225,7 +236,10 @@ fn synthetic_episode_hash_differs_across_seeds() {
     let mut env_b = make_env();
     let hash_a = run_episode_and_hash(&mut env_a, 1);
     let hash_b = run_episode_and_hash(&mut env_b, 2);
-    assert_ne!(hash_a, hash_b, "different seeds must produce different trajectories");
+    assert_ne!(
+        hash_a, hash_b,
+        "different seeds must produce different trajectories"
+    );
 }
 
 fn make_env() -> RlEnv {
@@ -286,7 +300,10 @@ fn reset_on_missing_lob_file_terminates_episode_gracefully_instead_of_panicking(
     let mut env = RlEnv::new(cfg);
     let r = env.reset(Some(1));
 
-    assert!(r.done, "episode must be marked done, not left half-initialised");
+    assert!(
+        r.done,
+        "episode must be marked done, not left half-initialised"
+    );
     assert_eq!(
         r.reward, DATA_INGESTION_FAILURE_PENALTY,
         "must apply the defined ingestion-failure penalty, not a normal step reward"
@@ -298,7 +315,11 @@ fn reset_on_missing_lob_file_terminates_episode_gracefully_instead_of_panicking(
          choke on a malformed observation"
     );
     let err = r.info.get("error").and_then(|v| v.as_str());
-    assert!(err.is_some(), "info must explain what went wrong: {:?}", r.info);
+    assert!(
+        err.is_some(),
+        "info must explain what went wrong: {:?}",
+        r.info
+    );
     assert_eq!(
         r.info.get("terminated_reason").and_then(|v| v.as_str()),
         Some("data_ingestion_failure")
@@ -316,8 +337,11 @@ fn reset_on_lob_file_with_zero_valid_snapshots_terminates_gracefully() {
         "rl_env_zero_snapshot_fixture_{}.csv",
         std::process::id()
     ));
-    std::fs::write(&path, "timestamp,percentage,depth,notional\nnot-a-timestamp,-1,1.0,1.0\n")
-        .expect("failed to write test fixture");
+    std::fs::write(
+        &path,
+        "timestamp,percentage,depth,notional\nnot-a-timestamp,-1,1.0,1.0\n",
+    )
+    .expect("failed to write test fixture");
 
     let cfg = EnvConfig {
         mode: RlMode::Historical,
@@ -359,7 +383,10 @@ fn rl_env_action_zero_does_not_change_inventory() {
         "action=0 must not change inventory: before={before} after={}",
         env.remaining
     );
-    assert!(r.reward < 0.0, "wait action still incurs inventory pressure");
+    assert!(
+        r.reward < 0.0,
+        "wait action still incurs inventory pressure"
+    );
 }
 
 #[test]
@@ -438,8 +465,15 @@ fn rl_env_reward_negative_for_adverse_fill() {
         r.reward
     );
     // is_contribution should also be ≤ 0 (sum of fill_cost + perm_cost, negated).
-    let isc = r.info.get("is_contribution").and_then(|v| v.as_f64()).unwrap_or(0.0);
-    assert!(isc <= 0.0, "is_contribution must be ≤ 0 for a sell, got {isc}");
+    let isc = r
+        .info
+        .get("is_contribution")
+        .and_then(|v| v.as_f64())
+        .unwrap_or(0.0);
+    assert!(
+        isc <= 0.0,
+        "is_contribution must be ≤ 0 for a sell, got {isc}"
+    );
 }
 
 #[test]
@@ -517,8 +551,7 @@ fn regime_dims_separate_crash_from_calm_in_first_100_steps() {
     // issue #6.
     let crash_path = "TradeData/BookDepth/BTCUSDT-bookDepth-2024-08-05.csv";
     let calm_path = "TradeData/BookDepth/BTCUSDT-bookDepth-2024-07-10.csv";
-    if !std::path::Path::new(crash_path).exists() || !std::path::Path::new(calm_path).exists()
-    {
+    if !std::path::Path::new(crash_path).exists() || !std::path::Path::new(calm_path).exists() {
         eprintln!("skipping: TradeData not present in this checkout");
         return;
     }
@@ -616,7 +649,11 @@ fn training_horizon_episode_fits_within_day_no_stale_tail() {
     let mut total = 0usize;
     loop {
         let r = env.step(0); // wait -> market advances each step
-        let mid = r.info.get("book_mid").and_then(|v| v.as_f64()).unwrap_or(f64::NAN);
+        let mid = r
+            .info
+            .get("book_mid")
+            .and_then(|v| v.as_f64())
+            .unwrap_or(f64::NAN);
         if (mid - last_mid).abs() < 1e-12 {
             stale += 1;
         }
@@ -649,7 +686,11 @@ fn reward_higher_for_sell_fill_closer_to_mid() {
         let mut env = make_env();
         env.reset(Some(42));
         let r = env.step(action);
-        let fq = r.info.get("fill_qty").and_then(|v| v.as_f64()).unwrap_or(0.0);
+        let fq = r
+            .info
+            .get("fill_qty")
+            .and_then(|v| v.as_f64())
+            .unwrap_or(0.0);
         assert!(fq > 1e-9, "action {action} must produce a fill");
         r.reward / fq
     };
@@ -673,14 +714,24 @@ fn rl_env_state_all_values_in_valid_range() {
     let mut env = make_env();
     env.reset(Some(99));
     // Walk 20 steps with a mix of actions and assert every state value is in range.
-    let actions = [0, 9, 0, 5, 1, 0, 12, 3, 0, 7, 11, 0, 2, 6, 0, 8, 0, 4, 10, 0];
+    let actions = [
+        0, 9, 0, 5, 1, 0, 12, 3, 0, 7, 11, 0, 2, 6, 0, 8, 0, 4, 10, 0,
+    ];
     for a in actions {
         let r = env.step(a);
         assert_eq!(r.state.len(), 12);
         // [0] inventory fraction in [0,1]
-        assert!(r.state[0] >= 0.0 && r.state[0] <= 1.0, "s0 out of range: {}", r.state[0]);
+        assert!(
+            r.state[0] >= 0.0 && r.state[0] <= 1.0,
+            "s0 out of range: {}",
+            r.state[0]
+        );
         // [1] time fraction in [0,1]
-        assert!(r.state[1] >= 0.0 && r.state[1] <= 1.0, "s1 out of range: {}", r.state[1]);
+        assert!(
+            r.state[1] >= 0.0 && r.state[1] <= 1.0,
+            "s1 out of range: {}",
+            r.state[1]
+        );
         // [2..=4] are tanh() of non-negative ratios → in [0, 1)
         for k in 2..=4 {
             assert!(
@@ -690,7 +741,11 @@ fn rl_env_state_all_values_in_valid_range() {
             );
         }
         // [5] OFI in [-1,1]; always 0.0 in synthetic mode (no agg-trades loaded)
-        assert!(r.state[5] >= -1.0 && r.state[5] <= 1.0, "s5 (OFI) out of range: {}", r.state[5]);
+        assert!(
+            r.state[5] >= -1.0 && r.state[5] <= 1.0,
+            "s5 (OFI) out of range: {}",
+            r.state[5]
+        );
         // [6..=7] are signed tanh() → in (-1, 1)
         for k in 6..=7 {
             assert!(
@@ -700,8 +755,14 @@ fn rl_env_state_all_values_in_valid_range() {
             );
         }
         // [8..=9] impact dims: 0.0 in synthetic/historical modes
-        assert_eq!(r.state[8], 0.0, "s8 (perm impact) must be 0 in synthetic mode");
-        assert_eq!(r.state[9], 0.0, "s9 (temp impact) must be 0 in synthetic mode");
+        assert_eq!(
+            r.state[8], 0.0,
+            "s8 (perm impact) must be 0 in synthetic mode"
+        );
+        assert_eq!(
+            r.state[9], 0.0,
+            "s9 (temp impact) must be 0 in synthetic mode"
+        );
         // [10..=11] regime dims: tanh(ln(ratio)) → signed, in (-1, 1).
         // Phase 3 fix replaced the old 3-way {0.0, 0.5, 1.0} bucketing —
         // see regime_dims()'s doc comment.
@@ -877,14 +938,16 @@ fn batched_env_reset_and_step_match_n_single_instances() {
         let batch_reset_row = &reset_result.states[i * reset_result.d..(i + 1) * reset_result.d];
         let expected_reset: Vec<f32> = single_reset.state.iter().map(|&x| x as f32).collect();
         assert_eq!(
-            batch_reset_row, expected_reset.as_slice(),
+            batch_reset_row,
+            expected_reset.as_slice(),
             "instance {i}: batched reset state != single-instance reset state"
         );
 
         let batch_step_row = &step_result.states[i * step_result.d..(i + 1) * step_result.d];
         let expected_step: Vec<f32> = single_step.state.iter().map(|&x| x as f32).collect();
         assert_eq!(
-            batch_step_row, expected_step.as_slice(),
+            batch_step_row,
+            expected_step.as_slice(),
             "instance {i}: batched step state != single-instance step state"
         );
         assert_eq!(
@@ -918,12 +981,18 @@ fn reset_indices_only_resets_specified_instances() {
     let mut fresh1 = RlEnv::new(synthetic_cfg_template());
     let fresh1_state = fresh1.reset(Some(99));
     let expected1: Vec<f32> = fresh1_state.state.iter().map(|&x| x as f32).collect();
-    assert_eq!(&reset_result.states[0..reset_result.d], expected1.as_slice());
+    assert_eq!(
+        &reset_result.states[0..reset_result.d],
+        expected1.as_slice()
+    );
 
     let mut fresh3 = RlEnv::new(synthetic_cfg_template());
     let fresh3_state = fresh3.reset(Some(100));
     let expected3: Vec<f32> = fresh3_state.state.iter().map(|&x| x as f32).collect();
-    assert_eq!(&reset_result.states[reset_result.d..2 * reset_result.d], expected3.as_slice());
+    assert_eq!(
+        &reset_result.states[reset_result.d..2 * reset_result.d],
+        expected3.as_slice()
+    );
 
     // Instances 0 and 2 must be UNTOUCHED: stepping them further must
     // continue their existing (3-steps-in) trajectory, not a fresh episode.
@@ -936,7 +1005,8 @@ fn reset_indices_only_resets_specified_instances() {
     let expected0_step4 = continued0.step(5);
     let expected0: Vec<f32> = expected0_step4.state.iter().map(|&x| x as f32).collect();
     assert_eq!(
-        &after.states[0 * after.d..1 * after.d], expected0.as_slice(),
+        &after.states[0 * after.d..1 * after.d],
+        expected0.as_slice(),
         "instance 0 (not reset) must continue its pre-existing trajectory unchanged"
     );
 
@@ -948,7 +1018,8 @@ fn reset_indices_only_resets_specified_instances() {
     let expected2_step4 = continued2.step(5);
     let expected2: Vec<f32> = expected2_step4.state.iter().map(|&x| x as f32).collect();
     assert_eq!(
-        &after.states[2 * after.d..3 * after.d], expected2.as_slice(),
+        &after.states[2 * after.d..3 * after.d],
+        expected2.as_slice(),
         "instance 2 (not reset) must continue its pre-existing trajectory unchanged"
     );
     let _ = before; // used only to advance state; no direct assertion needed
@@ -1053,7 +1124,11 @@ fn batch_socket_server_round_trip() {
         &mut stream,
         batch_arrow::encode_reset_indices_request(&[0, 2], &[111, 222]),
     );
-    assert_eq!(response.num_rows(), 2, "partial reset must return exactly len(indices) rows");
+    assert_eq!(
+        response.num_rows(),
+        2,
+        "partial reset must return exactly len(indices) rows"
+    );
 
     drop(stream); // closes the connection; server loop exits on next read
     let _ = handle.join();

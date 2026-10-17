@@ -12,14 +12,13 @@ use std::sync::Arc;
 
 use serde_json::Value;
 
-use strata_exec::market::agg_trades::AggTradesDay;
 use strata_exec::market::adversarial::{FrontRunner, LiquidityWithdrawer};
+use strata_exec::market::agg_trades::AggTradesDay;
 use strata_exec::market::counterfactual_lob::CounterfactualLob;
 use strata_exec::market::gbm::PriceSimulator;
 use strata_exec::market::lob_generator::{generate_lob, LobGeneratorParams};
 use strata_exec::market::lob_replay::LobReplay;
 use strata_exec::market::order_book::OrderBook;
-
 
 use crate::config::*;
 use crate::market_cache::MarketDataCache;
@@ -153,7 +152,10 @@ impl RlEnv {
     /// Construct an `RlEnv` sharing an existing `MarketDataCache` with other
     /// instances (used by `BatchedRlEnv` so N instances parse each date's CSV
     /// once between them, not N times).
-    pub fn new_with_shared_cache(cfg: EnvConfig, market_cache: Rc<RefCell<MarketDataCache>>) -> Self {
+    pub fn new_with_shared_cache(
+        cfg: EnvConfig,
+        market_cache: Rc<RefCell<MarketDataCache>>,
+    ) -> Self {
         let adversarial = if cfg.adversarial {
             Some(AdversarialState {
                 withdrawer: LiquidityWithdrawer::new(),

@@ -265,14 +265,32 @@ mod tests {
         // Mid = 100.0, spread = 0.2, half_spread = 0.1
         OrderBook::new(
             vec![
-                PriceLevel { price: 100.1, quantity: 10.0 },
-                PriceLevel { price: 100.2, quantity: 20.0 },
-                PriceLevel { price: 100.3, quantity: 30.0 },
+                PriceLevel {
+                    price: 100.1,
+                    quantity: 10.0,
+                },
+                PriceLevel {
+                    price: 100.2,
+                    quantity: 20.0,
+                },
+                PriceLevel {
+                    price: 100.3,
+                    quantity: 30.0,
+                },
             ],
             vec![
-                PriceLevel { price: 99.9, quantity: 10.0 },
-                PriceLevel { price: 99.8, quantity: 20.0 },
-                PriceLevel { price: 99.7, quantity: 30.0 },
+                PriceLevel {
+                    price: 99.9,
+                    quantity: 10.0,
+                },
+                PriceLevel {
+                    price: 99.8,
+                    quantity: 20.0,
+                },
+                PriceLevel {
+                    price: 99.7,
+                    quantity: 30.0,
+                },
             ],
         )
     }
@@ -293,10 +311,7 @@ mod tests {
     fn mid_price_is_average_of_best_bid_and_ask() {
         let book = make_book();
         let mid = book.mid_price().expect("must have mid");
-        assert!(
-            (mid - 100.0).abs() < 1e-10,
-            "expected mid=100.0, got {mid}"
-        );
+        assert!((mid - 100.0).abs() < 1e-10, "expected mid=100.0, got {mid}");
     }
 
     #[test]
@@ -339,8 +354,16 @@ mod tests {
         let mut book = make_book();
         // Sell 5 units — fits within best bid (10 units at 99.9)
         let fill = book.fill_market_sell(5.0);
-        assert!((fill.filled_qty - 5.0).abs() < 1e-10, "filled_qty={}", fill.filled_qty);
-        assert!((fill.avg_fill_price - 99.9).abs() < 1e-10, "avg_fill_price={}", fill.avg_fill_price);
+        assert!(
+            (fill.filled_qty - 5.0).abs() < 1e-10,
+            "filled_qty={}",
+            fill.filled_qty
+        );
+        assert!(
+            (fill.avg_fill_price - 99.9).abs() < 1e-10,
+            "avg_fill_price={}",
+            fill.avg_fill_price
+        );
         assert_eq!(fill.levels_consumed, 1);
         assert!((fill.residual_qty).abs() < 1e-10);
         // Book: best bid now has 5 units remaining at 99.9
@@ -383,8 +406,16 @@ mod tests {
         let mut book = make_book();
         // Total bid depth = 10 + 20 + 30 = 60; sell 100 → residual = 40
         let fill = book.fill_market_sell(100.0);
-        assert!((fill.filled_qty - 60.0).abs() < 1e-10, "filled={}", fill.filled_qty);
-        assert!((fill.residual_qty - 40.0).abs() < 1e-10, "residual={}", fill.residual_qty);
+        assert!(
+            (fill.filled_qty - 60.0).abs() < 1e-10,
+            "filled={}",
+            fill.filled_qty
+        );
+        assert!(
+            (fill.residual_qty - 40.0).abs() < 1e-10,
+            "residual={}",
+            fill.residual_qty
+        );
         // Book should be empty on bid side
         assert!(book.best_bid().is_none());
     }
@@ -406,12 +437,13 @@ mod tests {
         // Large sell hits deeper (worse) bid levels → more slippage from mid
         let mut book_small = make_book();
         let mut book_large = make_book();
-        let fill_small = book_small.fill_market_sell(5.0);   // stays at best bid
-        let fill_large = book_large.fill_market_sell(25.0);  // crosses into deeper levels
+        let fill_small = book_small.fill_market_sell(5.0); // stays at best bid
+        let fill_large = book_large.fill_market_sell(25.0); // crosses into deeper levels
         assert!(
             fill_large.slippage_from_mid > fill_small.slippage_from_mid,
             "larger sell must have more slippage: small={}, large={}",
-            fill_small.slippage_from_mid, fill_large.slippage_from_mid
+            fill_small.slippage_from_mid,
+            fill_large.slippage_from_mid
         );
     }
 

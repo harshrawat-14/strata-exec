@@ -227,7 +227,8 @@ impl AdversarialBook {
         let result = self.base_book.fill_market_sell(qty);
 
         self.last_depth_withdrawn =
-            self.withdrawer.post_fill(&mut self.base_book, result.filled_qty, pre_our_depth);
+            self.withdrawer
+                .post_fill(&mut self.base_book, result.filled_qty, pre_our_depth);
         self.withdrawer.recover_step(&mut self.base_book);
 
         self.front_runner.update_volume(result.filled_qty);
@@ -288,10 +289,16 @@ mod tests {
         let fill_qty = 0.50 * pre_depth;
         let withdrawn = wd.post_fill(&mut book, fill_qty, pre_depth);
 
-        assert!(withdrawn > 0.0, "withdrawer must remove depth on a large fill, got {withdrawn}");
+        assert!(
+            withdrawn > 0.0,
+            "withdrawer must remove depth on a large fill, got {withdrawn}"
+        );
         // Each level should have shrunk by withdrawal_pct.
         for lvl in book.bid_levels() {
-            assert!(lvl.quantity >= 0.0, "level quantities must remain non-negative");
+            assert!(
+                lvl.quantity >= 0.0,
+                "level quantities must remain non-negative"
+            );
         }
     }
 
@@ -406,8 +413,14 @@ mod tests {
         let passive_fill = passive_book.fill_market_sell(order_qty);
         let adv_fill = adv.fill(order_qty);
 
-        assert!(adv_fill.filled_qty > 0.0, "adversarial fill must execute some quantity");
-        assert!(passive_fill.filled_qty > 0.0, "passive fill must execute some quantity");
+        assert!(
+            adv_fill.filled_qty > 0.0,
+            "adversarial fill must execute some quantity"
+        );
+        assert!(
+            passive_fill.filled_qty > 0.0,
+            "passive fill must execute some quantity"
+        );
 
         // For a sell, "worse" means lower avg fill price.
         assert!(

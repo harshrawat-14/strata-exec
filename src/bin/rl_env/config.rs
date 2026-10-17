@@ -1,8 +1,5 @@
 //! Constants, the environment configuration, and CLI parsing.
 
-
-
-
 /// Penalty reward applied when an episode is force-terminated by a data-ingestion
 /// failure (missing/corrupt historical file, zero valid snapshots) rather than
 /// crashing the whole training process. Deliberately an order of magnitude larger
@@ -19,10 +16,8 @@ pub(crate) const DATA_INGESTION_FAILURE_PENALTY: f64 = -1.0;
 /// Discrete action → fraction of remaining inventory to trade.
 /// Log-scale spacing gives resolution where it matters (small trades).
 pub const ACTION_FRACTIONS: [f64; 20] = [
-    0.000, 0.001, 0.003, 0.005, 0.008,
-    0.010, 0.015, 0.020, 0.030, 0.050,
-    0.070, 0.100, 0.150, 0.200, 0.300,
-    0.400, 0.500, 0.700, 0.900, 1.000,
+    0.000, 0.001, 0.003, 0.005, 0.008, 0.010, 0.015, 0.020, 0.030, 0.050, 0.070, 0.100, 0.150,
+    0.200, 0.300, 0.400, 0.500, 0.700, 0.900, 1.000,
 ];
 
 /// Default permanent-impact fraction; full-inventory sell causes

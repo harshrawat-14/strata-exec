@@ -1,9 +1,5 @@
 //! Market advance, volatility estimate, regime signals and the state vector.
 
-
-
-
-
 use crate::config::*;
 use crate::env::*;
 
@@ -32,7 +28,8 @@ impl RlEnv {
                     self.push_return(log_ret);
                     self.current_mid = new_price;
                     self.current_sigma = new_sigma;
-                    let mut book = synthetic_book(new_price, self.current_sigma, self.cfg.total_inventory);
+                    let mut book =
+                        synthetic_book(new_price, self.current_sigma, self.cfg.total_inventory);
                     apply_adversarial_deficit(&mut book, self.adversarial.as_ref());
                     self.current_book = Some(book);
                     self.price_history.push_back(new_price);
@@ -86,7 +83,12 @@ impl RlEnv {
         }
         let n = self.return_buffer.len() as f64;
         let mean = self.return_buffer.iter().sum::<f64>() / n;
-        let var = self.return_buffer.iter().map(|r| (r - mean).powi(2)).sum::<f64>() / n;
+        let var = self
+            .return_buffer
+            .iter()
+            .map(|r| (r - mean).powi(2))
+            .sum::<f64>()
+            / n;
         let per_step = var.sqrt();
         // Annualise against the FIXED TRADING_STEPS_PER_YEAR, never
         // cfg.total_steps (the per-episode horizon, randomised 200-1440
@@ -99,8 +101,13 @@ impl RlEnv {
     /// Build the 8-dim observation vector.
     pub(crate) fn build_state(&self) -> Vec<f64> {
         let book = self.current_book.as_ref();
-        let mid = book.and_then(|b| b.mid_price()).unwrap_or(self.current_mid).max(1e-12);
-        let half_spread = book.and_then(|b| b.half_spread()).unwrap_or(self.spread_ref);
+        let mid = book
+            .and_then(|b| b.mid_price())
+            .unwrap_or(self.current_mid)
+            .max(1e-12);
+        let half_spread = book
+            .and_then(|b| b.half_spread())
+            .unwrap_or(self.spread_ref);
         let depth_1pct = book.map(|b| b.bid_depth_up_to(mid * 0.99)).unwrap_or(0.0);
 
         let total_inv = self.cfg.total_inventory.max(1.0);
@@ -122,7 +129,11 @@ impl RlEnv {
             let drift = if self.price_history.len() >= 11 {
                 let now = *self.price_history.back().unwrap();
                 let then = self.price_history[self.price_history.len() - 11];
-                if then.abs() > 1e-12 { (now - then) / then } else { 0.0 }
+                if then.abs() > 1e-12 {
+                    (now - then) / then
+                } else {
+                    0.0
+                }
             } else {
                 0.0
             };
@@ -172,17 +183,14 @@ impl RlEnv {
             // time, so current_book.timestamp defaults to 0 -> time_of_day is a
             // constant 0.0, which is harmless (synthetic training has no intraday
             // structure to learn from regardless).
-            let current_timestamp_ms =
-                self.current_book.as_ref().map(|b| b.timestamp).unwrap_or(0);
-            let seconds_since_midnight =
-                (current_timestamp_ms % 86_400_000) as f64 / 1000.0;
+            let current_timestamp_ms = self.current_book.as_ref().map(|b| b.timestamp).unwrap_or(0);
+            let seconds_since_midnight = (current_timestamp_ms % 86_400_000) as f64 / 1000.0;
             let time_of_day = seconds_since_midnight / 86_400.0;
 
             // Reuses the existing rolling realised-vol estimate as the "intraday"
             // signal and sigma_ref as the "daily" baseline -- no separate 5-min /
             // daily vol trackers exist, and both are already tracked per-step.
-            let intraday_vol_ratio =
-                self.current_sigma / (self.cfg.sigma_ref.max(1e-9) + 1e-10);
+            let intraday_vol_ratio = self.current_sigma / (self.cfg.sigma_ref.max(1e-9) + 1e-10);
 
             state.push(time_of_day);
             state.push((intraday_vol_ratio - 1.0).tanh());

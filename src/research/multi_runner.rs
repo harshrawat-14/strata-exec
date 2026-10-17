@@ -9,10 +9,10 @@ use crate::engine::scheduler::Scheduler;
 use crate::events::event::{Event as DebugEvent, EventSender};
 use crate::execution::impact::SquareRootImpact;
 use crate::execution::transient_impact::TransientImpactTracker;
+use crate::market::agg_trades::AggTradesDay;
 use crate::market::gbm::PriceSimulator;
 use crate::market::liquidity::LiquiditySnapshot;
 use crate::market::lob_generator::{generate_lob, LobGeneratorParams};
-use crate::market::agg_trades::AggTradesDay;
 use crate::market::lob_replay::LobReplay;
 use crate::market::order_book::OrderBook;
 use crate::market::vpin::VpinCalculator;
@@ -154,7 +154,11 @@ impl MultiStrategyRunner {
     /// Select fill mode via the legacy bool flag (backward-compatible).
     /// `true` → `FillMode::SyntheticLob`; `false` → `FillMode::Formula`.
     pub fn with_lob(mut self, enabled: bool) -> Self {
-        self.fill_mode = if enabled { FillMode::SyntheticLob } else { FillMode::Formula };
+        self.fill_mode = if enabled {
+            FillMode::SyntheticLob
+        } else {
+            FillMode::Formula
+        };
         self
     }
 
@@ -222,8 +226,8 @@ impl MultiStrategyRunner {
         // theta = mean-reversion speed; sigma_r = per-step reserve volatility.
         // Fixed seed for reproducibility — independent of the price simulator seed.
         let reserve_mean = 500.0_f64;
-        let reserve_theta = 0.05_f64;  // pulls 5% of the gap back toward mean each step
-        let reserve_sigma = 0.02_f64;  // 2% per-step multiplicative noise on each reserve
+        let reserve_theta = 0.05_f64; // pulls 5% of the gap back toward mean each step
+        let reserve_sigma = 0.02_f64; // 2% per-step multiplicative noise on each reserve
         let mut rng: StdRng = StdRng::seed_from_u64(1234);
         let mut reserve_in = reserve_mean;
         let mut reserve_out = reserve_mean;
@@ -265,7 +269,7 @@ impl MultiStrategyRunner {
             .max(1.0);
         let mut price_adjustment: Vec<f64> = vec![0.0; n];
         let fill_mode = self.fill_mode; // Copy — extracted to avoid borrow conflicts below.
-        // Counts how many LOB snapshots have been consumed so far (= lob_replay cursor).
+                                        // Counts how many LOB snapshots have been consumed so far (= lob_replay cursor).
         let mut replay_step: usize = 0;
 
         for step in 0..self.max_steps {
@@ -275,10 +279,10 @@ impl MultiStrategyRunner {
             // Advance mean-reverting reserve process before each step.
             let z_in: f64 = rng.sample(StandardNormal);
             let z_out: f64 = rng.sample(StandardNormal);
-            reserve_in += reserve_theta * (reserve_mean - reserve_in)
-                + reserve_sigma * reserve_in * z_in;
-            reserve_out += reserve_theta * (reserve_mean - reserve_out)
-                + reserve_sigma * reserve_out * z_out;
+            reserve_in +=
+                reserve_theta * (reserve_mean - reserve_in) + reserve_sigma * reserve_in * z_in;
+            reserve_out +=
+                reserve_theta * (reserve_mean - reserve_out) + reserve_sigma * reserve_out * z_out;
             // Clamp to prevent degenerate near-zero reserves.
             reserve_in = reserve_in.max(1.0);
             reserve_out = reserve_out.max(1.0);
@@ -301,7 +305,10 @@ impl MultiStrategyRunner {
                     // Fallback: LOB depth-change proxy. lob_vpin_series has one entry per
                     // bucket completion (not per snapshot), so clamp to last available.
                     let idx = replay_step.min(self.lob_vpin_series.len() - 1);
-                    self.lob_vpin_series.get(idx).map(|(_, v)| *v).unwrap_or(0.0)
+                    self.lob_vpin_series
+                        .get(idx)
+                        .map(|(_, v)| *v)
+                        .unwrap_or(0.0)
                 } else {
                     0.0
                 }
@@ -312,7 +319,10 @@ impl MultiStrategyRunner {
                         vpin_calc.add_trade(price, volume_proxy, pp);
                     }
                 }
-                self.vpin.as_ref().and_then(|v| v.current_vpin()).unwrap_or(0.0)
+                self.vpin
+                    .as_ref()
+                    .and_then(|v| v.current_vpin())
+                    .unwrap_or(0.0)
             };
             prev_price_for_vpin = Some(price);
 
@@ -338,7 +348,9 @@ impl MultiStrategyRunner {
                     let adjusted_mid_est = price; // pre-trade mid (close enough for classification)
                     let scale = adjusted_mid_est / book.mid_price().unwrap_or(adjusted_mid_est);
                     let scaled_book = book.rescale(scale);
-                    scaled_book.half_spread().unwrap_or(0.5 * volatility * dt_for_spread.sqrt() * price)
+                    scaled_book
+                        .half_spread()
+                        .unwrap_or(0.5 * volatility * dt_for_spread.sqrt() * price)
                 } else {
                     0.5 * volatility * dt_for_spread.sqrt() * price
                 }
@@ -437,16 +449,17 @@ impl MultiStrategyRunner {
                                 adjusted_mid_perm
                             };
                             let hs = fill.real_spread_cost / traded.max(1e-15);
-                            let temp_frac = fill.slippage_from_mid.abs() / adjusted_mid_perm.max(1e-15);
+                            let temp_frac =
+                                fill.slippage_from_mid.abs() / adjusted_mid_perm.max(1e-15);
                             (ep, hs, temp_frac)
                         }
                         FillMode::HistoricalLob => {
                             let lob_params = LobGeneratorParams::default();
                             // Clone the step snapshot (captured before the strategy loop);
                             // fall back to synthetic if the replay was exhausted this step.
-                            let raw_book = step_snapshot
-                                .clone()
-                                .unwrap_or_else(|| generate_lob(adjusted_mid_perm, volatility, &lob_params));
+                            let raw_book = step_snapshot.clone().unwrap_or_else(|| {
+                                generate_lob(adjusted_mid_perm, volatility, &lob_params)
+                            });
                             // Normalize from real-data price scale to simulation scale.
                             // After rescaling, book.mid_price() == adjusted_mid_perm and
                             // all fill prices are directly comparable to effective_price.
@@ -460,7 +473,8 @@ impl MultiStrategyRunner {
                                 adjusted_mid_perm
                             };
                             let hs = fill.real_spread_cost / traded.max(1e-15);
-                            let temp_frac = fill.slippage_from_mid.abs() / adjusted_mid_perm.max(1e-15);
+                            let temp_frac =
+                                fill.slippage_from_mid.abs() / adjusted_mid_perm.max(1e-15);
                             (ep, hs, temp_frac)
                         }
                     };
@@ -523,7 +537,9 @@ impl MultiStrategyRunner {
             for strat in self.strategies.iter_mut() {
                 let residual = strat.scheduler.remaining_notional();
                 if residual > 1e-8 {
-                    strat.metrics.record_forced_liquidation(residual, last_price);
+                    strat
+                        .metrics
+                        .record_forced_liquidation(residual, last_price);
                     strat.completed = true;
                 }
             }
@@ -613,7 +629,7 @@ mod tests {
     fn build_runner(gamma: f64, max_steps: usize) -> MultiStrategyRunner {
         let total_notional = 100_000.0; // large enough for meaningful slices
         let arrival_price = 100.0;
-        let sigma_ref = 0.02;    // 2% vol — low enough that schedules complete
+        let sigma_ref = 0.02; // 2% vol — low enough that schedules complete
         let eta = 0.001;
         let lambda = 1e-4;
         let max_slippage_pct = 0.99; // permissive so strategies always trade
@@ -653,7 +669,10 @@ mod tests {
         static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
         let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let results_dir = std::env::temp_dir()
-            .join(format!("strataexec-unit-results-{}-{n}", std::process::id()))
+            .join(format!(
+                "strataexec-unit-results-{}-{n}",
+                std::process::id()
+            ))
             .to_string_lossy()
             .into_owned();
 
@@ -670,8 +689,8 @@ mod tests {
     #[test]
     fn permanent_impact_is_not_uniform_across_strategies() {
         let mut runner = build_runner(
-            0.005,  // gamma=0.5% total permanent depression over full sell
-            500,    // 500 steps → enough for both strategies to complete
+            0.005, // gamma=0.5% total permanent depression over full sell
+            500,   // 500 steps → enough for both strategies to complete
         );
         runner.run().expect("runner should complete without error");
 
@@ -684,7 +703,8 @@ mod tests {
             assert!(
                 pct >= 99.99,
                 "strategy '{}' pct_executed={:.4}% — must be >=99.99% for a valid IS comparison",
-                strat.name, pct,
+                strat.name,
+                pct,
             );
         }
 
@@ -713,7 +733,7 @@ mod tests {
     fn effective_price_decreases_monotonically_during_sell() {
         // Simulate the permanent impact math directly (mirrors MultiStrategyRunner logic)
         // so we don't need filesystem access or a full runner.
-        let gamma = 0.05;           // 5% total permanent impact over full inventory
+        let gamma = 0.05; // 5% total permanent impact over full inventory
         let total_notional = 1000.0;
         let raw_price = 100.0;
         let trade_per_step = 100.0; // sell 10% per step for 10 steps
@@ -752,7 +772,11 @@ impl FormulaRunner {
         simulator: Box<dyn crate::market::gbm::PriceSimulator>,
         max_steps: usize,
     ) -> Self {
-        Self { strategies, simulator, max_steps }
+        Self {
+            strategies,
+            simulator,
+            max_steps,
+        }
     }
 
     pub fn run(&mut self) -> Result<(), String> {
@@ -780,25 +804,33 @@ impl FormulaRunner {
             let current_time = step as f64;
             let z_in: f64 = rng.sample(StandardNormal);
             let z_out: f64 = rng.sample(StandardNormal);
-            reserve_in += reserve_theta * (reserve_mean - reserve_in)
-                + reserve_sigma * reserve_in * z_in;
-            reserve_out += reserve_theta * (reserve_mean - reserve_out)
-                + reserve_sigma * reserve_out * z_out;
+            reserve_in +=
+                reserve_theta * (reserve_mean - reserve_in) + reserve_sigma * reserve_in * z_in;
+            reserve_out +=
+                reserve_theta * (reserve_mean - reserve_out) + reserve_sigma * reserve_out * z_out;
             reserve_in = reserve_in.max(1.0);
             reserve_out = reserve_out.max(1.0);
-            let liquidity = crate::market::liquidity::LiquiditySnapshot::new(reserve_in, reserve_out);
+            let liquidity =
+                crate::market::liquidity::LiquiditySnapshot::new(reserve_in, reserve_out);
 
             let price = self.simulator.step();
             let volatility = self.simulator.volatility();
             let dt = 1.0 / self.max_steps as f64;
 
             for (i, strat) in self.strategies.iter_mut().enumerate() {
-                if strat.completed { continue; }
+                if strat.completed {
+                    continue;
+                }
                 let effective_price = price * (1.0 - price_adjustment[i]);
                 let remaining_before = strat.scheduler.remaining_notional();
-                strat.scheduler.on_block(volatility, &liquidity).map_err(|e| format!("{e}"))?;
+                strat
+                    .scheduler
+                    .on_block(volatility, &liquidity)
+                    .map_err(|e| format!("{e}"))?;
                 let traded = remaining_before - strat.scheduler.remaining_notional();
-                strat.metrics.record_risk_step(remaining_before, volatility, dt);
+                strat
+                    .metrics
+                    .record_risk_step(remaining_before, volatility, dt);
 
                 if traded > 0.0 {
                     let base_impact = strat.impact_model.compute_impact(traded, volatility);
@@ -816,13 +848,22 @@ impl FormulaRunner {
 
                     let half_spread_proxy = 0.5 * volatility * dt.sqrt() * effective_price;
                     strat.metrics.record_trade(
-                        traded, effective_price, slippage_cost,
-                        transient_impact, delta_permanent, price, half_spread_proxy,
+                        traded,
+                        effective_price,
+                        slippage_cost,
+                        transient_impact,
+                        delta_permanent,
+                        price,
+                        half_spread_proxy,
                     );
                 }
-                if strat.scheduler.remaining_notional() <= 1e-6 { strat.completed = true; }
+                if strat.scheduler.remaining_notional() <= 1e-6 {
+                    strat.completed = true;
+                }
             }
-            if self.strategies.iter().all(|s| s.completed) { break; }
+            if self.strategies.iter().all(|s| s.completed) {
+                break;
+            }
         }
         Ok(())
     }

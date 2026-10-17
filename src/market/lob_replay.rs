@@ -22,8 +22,8 @@
 use std::error::Error;
 use std::sync::Arc;
 
-use chrono::NaiveDateTime;
 use crate::market::order_book::{OrderBook, PriceLevel};
+use chrono::NaiveDateTime;
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -89,7 +89,10 @@ impl LobReplay {
             return Err("CSV contained no valid L2 snapshots".into());
         }
 
-        Ok(Self { snapshots: Arc::new(snapshots), cursor: 0 })
+        Ok(Self {
+            snapshots: Arc::new(snapshots),
+            cursor: 0,
+        })
     }
 
     /// Construct a fresh replay (cursor at 0) from already-parsed, shared snapshot
@@ -97,7 +100,10 @@ impl LobReplay {
     /// (e.g. a batched env's parallel episodes, or repeated resets on one date) its
     /// own independent cursor over one shared, immutable parse of the CSV.
     pub fn from_arc(snapshots: Arc<Vec<LobSnapshot>>) -> Self {
-        Self { snapshots, cursor: 0 }
+        Self {
+            snapshots,
+            cursor: 0,
+        }
     }
 
     /// Clone of the `Arc` (cheap refcount bump, not a data copy) for caching by a
@@ -158,11 +164,7 @@ impl LobReplay {
     /// Returns a vector of `(timestamp_ms, vpin)` pairs, one per bucket
     /// completion.  May be shorter than `self.len()` when depth changes are
     /// too small to fill many buckets.
-    pub fn compute_vpin_series(
-        &self,
-        bucket_size: f64,
-        window_buckets: usize,
-    ) -> Vec<(u64, f64)> {
+    pub fn compute_vpin_series(&self, bucket_size: f64, window_buckets: usize) -> Vec<(u64, f64)> {
         use crate::market::vpin::VpinCalculator;
 
         let mut calc = VpinCalculator::new(bucket_size, window_buckets);
@@ -240,14 +242,10 @@ fn parse_binance_tall(path: &str) -> Result<Vec<LobSnapshot>, Box<dyn Error>> {
         .map(|h| h.trim().to_lowercase())
         .collect();
 
-    let ts_col = col_idx(&headers, "timestamp")
-        .ok_or("missing 'timestamp' column")?;
-    let pct_col = col_idx(&headers, "percentage")
-        .ok_or("missing 'percentage' column")?;
-    let depth_col = col_idx(&headers, "depth")
-        .ok_or("missing 'depth' column")?;
-    let notional_col = col_idx(&headers, "notional")
-        .ok_or("missing 'notional' column")?;
+    let ts_col = col_idx(&headers, "timestamp").ok_or("missing 'timestamp' column")?;
+    let pct_col = col_idx(&headers, "percentage").ok_or("missing 'percentage' column")?;
+    let depth_col = col_idx(&headers, "depth").ok_or("missing 'depth' column")?;
+    let notional_col = col_idx(&headers, "notional").ok_or("missing 'notional' column")?;
 
     // Accumulate raw rows, keyed by timestamp string to preserve stable order.
     let mut groups: Vec<(String, Vec<TallRow>)> = Vec::new();
@@ -280,7 +278,12 @@ fn parse_binance_tall(path: &str) -> Result<Vec<LobSnapshot>, Box<dyn Error>> {
             continue; // pct=0 has no economic meaning; negative depth is degenerate
         }
 
-        let row = TallRow { timestamp: ts.clone(), percentage: pct, cum_depth, cum_notional };
+        let row = TallRow {
+            timestamp: ts.clone(),
+            percentage: pct,
+            cum_depth,
+            cum_notional,
+        };
 
         if let Some(&idx) = key_index.get(&ts) {
             groups[idx].1.push(row);
@@ -313,7 +316,11 @@ fn parse_binance_tall(path: &str) -> Result<Vec<LobSnapshot>, Box<dyn Error>> {
 
         let timestamp = parse_timestamp_ms(ts_str.trim())?;
 
-        snapshots.push(LobSnapshot { timestamp, bids, asks });
+        snapshots.push(LobSnapshot {
+            timestamp,
+            bids,
+            asks,
+        });
     }
 
     // Keep rows in file order (groups were inserted in encounter order).
@@ -338,7 +345,10 @@ fn diff_levels(sorted_rows: &[&TallRow]) -> Vec<PriceLevel> {
         if dq > 1e-12 {
             let price = infer_price(dn, dq);
             if price > 0.0 {
-                levels.push(PriceLevel { price, quantity: dq });
+                levels.push(PriceLevel {
+                    price,
+                    quantity: dq,
+                });
             }
         }
 
@@ -351,7 +361,11 @@ fn diff_levels(sorted_rows: &[&TallRow]) -> Vec<PriceLevel> {
 
 /// Recover a price from a notional/depth pair.
 fn infer_price(notional: f64, depth: f64) -> f64 {
-    if depth.abs() < 1e-15 { 100.0 } else { notional / depth }
+    if depth.abs() < 1e-15 {
+        100.0
+    } else {
+        notional / depth
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -373,7 +387,10 @@ fn parse_wide(path: &str, headers: &[String]) -> Result<Vec<LobSnapshot>, Box<dy
     for result in reader.records() {
         let record = match result {
             Ok(r) => r,
-            Err(_) => { row_idx += 1; continue; }
+            Err(_) => {
+                row_idx += 1;
+                continue;
+            }
         };
 
         let timestamp = ts_col
@@ -385,7 +402,11 @@ fn parse_wide(path: &str, headers: &[String]) -> Result<Vec<LobSnapshot>, Box<dy
         let asks = parse_wide_levels(&record, &ask_pairs);
 
         if !bids.is_empty() && !asks.is_empty() {
-            snapshots.push(LobSnapshot { timestamp, bids, asks });
+            snapshots.push(LobSnapshot {
+                timestamp,
+                bids,
+                asks,
+            });
         }
 
         row_idx += 1;
@@ -424,7 +445,10 @@ fn parse_wide_levels(record: &csv::StringRecord, pairs: &[LevelCols]) -> Vec<Pri
             let price = record.get(*p_col)?.trim().parse::<f64>().ok()?;
             let qty = record.get(*q_col)?.trim().parse::<f64>().ok()?;
             if price > 0.0 && qty > 0.0 {
-                Some(PriceLevel { price, quantity: qty })
+                Some(PriceLevel {
+                    price,
+                    quantity: qty,
+                })
             } else {
                 None
             }
@@ -499,10 +523,12 @@ timestamp,percentage,depth,notional
         static COUNTER: AtomicU64 = AtomicU64::new(0);
         let id = COUNTER.fetch_add(1, Ordering::Relaxed);
         let path = std::env::temp_dir()
-            .join(format!("lob_fixture_{}_{}_{}.csv",
+            .join(format!(
+                "lob_fixture_{}_{}_{}.csv",
                 std::process::id(),
                 id,
-                content.len()))
+                content.len()
+            ))
             .to_str()
             .unwrap()
             .to_string();
@@ -552,7 +578,9 @@ timestamp,percentage,depth,notional
         assert!(replay.next_snapshot().is_none(), "must be exhausted");
 
         replay.reset();
-        let book = replay.next_snapshot().expect("must return first snapshot after reset");
+        let book = replay
+            .next_snapshot()
+            .expect("must return first snapshot after reset");
         let best_bid = book.best_bid().expect("must have best bid");
         assert!(
             (best_bid - 99.9).abs() < 1e-9,
@@ -610,7 +638,10 @@ timestamp,percentage,depth,notional
         while let Some(book) = replay.next_snapshot() {
             let bid = book.best_bid().expect("must have best bid");
             let ask = book.best_ask().expect("must have best ask");
-            assert!(ask > bid, "book must not be crossed: bid={bid:.2} ask={ask:.2}");
+            assert!(
+                ask > bid,
+                "book must not be crossed: bid={bid:.2} ask={ask:.2}"
+            );
         }
     }
 
@@ -670,7 +701,9 @@ timestamp,percentage,depth,notional
         let mut replay = LobReplay::from_csv(&path).expect("must load");
         // Seek to index 2; row 2 is: 1002,99.8,8.0,...
         replay.seek(2);
-        let book = replay.next_snapshot().expect("must return snapshot at index 2");
+        let book = replay
+            .next_snapshot()
+            .expect("must return snapshot at index 2");
         let best_bid = book.best_bid().expect("must have best bid");
         assert!(
             (best_bid - 99.8).abs() < 1e-9,
