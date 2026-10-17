@@ -51,6 +51,7 @@ findings were retracted and the retractions are preserved deliberately rather th
 | 09 | [policy-capacity-and-entropy.md](experiments/09-policy-capacity-and-entropy.md) | Underfit policy fixed; the pacing dissociation survives, and strengthens |
 | 10 | [full-holdout-evaluation-predictions.md](experiments/10-full-holdout-evaluation-predictions.md) · [result](experiments/10-full-holdout-evaluation-result.md) | **Current headline.** All 9 held-out dates: 4/4 crash-tier wins, 0/5 calm/normal |
 | 11 | [imitation-warm-start-predictions.md](experiments/11-imitation-warm-start-predictions.md) · [result](experiments/11-imitation-warm-start-result.md) | **Negative result.** Cloning AC gives the calm-day floor but destroys the crash-day edge |
+| 12 | [forced-liquidation-at-data-exhaustion.md](experiments/12-forced-liquidation-at-data-exhaustion.md) | Simulator fix. AC/RL unaffected; Adaptive-AC and sqrt-impact baselines were flattered (0.14 / 0.53 pp) |
 
 Predictions files are **pre-registered** — written and committed before the corresponding experiment
 was run, so the result cannot be retrofitted to the outcome.

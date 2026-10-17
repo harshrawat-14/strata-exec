@@ -139,3 +139,14 @@ re-derive from a post-Step-0 binary without retraining first): `phase2r_ablation
 `phase3_tail_validation_episodes.csv`, `phase3_tail_validation_summary.csv`,
 `phase3_tail_validation_cvar_bootstrap.csv`, `phase3_tail_validation_crux.csv`, and (per the
 severity-expansion doc) `phase2r_honest_lambda_all11.csv`, `phase2r_lambda_grid_full.csv`.
+
+## Third boundary: forced liquidation at data exhaustion (2026-10-18)
+
+Before the fix in `docs/experiments/12-forced-liquidation-at-data-exhaustion.md`, a
+fixed-horizon counterfactual episode that ran past the day's last snapshot priced its whole
+remaining inventory by the punitive fallback against an empty book. **AC-Optimal and the RL
+checkpoints are unaffected** (they never reach the end of the data; bit-identical across the
+fix). **Adaptive-AC and Sqrt-Impact-Optimal rows in every counterfactual CSV produced before
+this date are optimistic** (≈0.14 pp and ≈0.53 pp mean IS on training dates; the sqrt-impact
+fit itself exploited the bug). TWAP and Heuristic shift by < 0.005 pp.
+`issue1_*_prefix.csv` / `issue1_*_fixed.csv` are the before/after measurements.
