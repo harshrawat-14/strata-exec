@@ -35,15 +35,16 @@ timestamp,b0_p,b0_q,b1_p,b1_q,a0_p,a0_q,a1_p,a1_q
 ";
 
 fn write_fixture(content: &str) -> String {
+    // Unique per call: tests run in parallel, and a shared path let one test
+    // read the file while another was truncating it (flaky "no valid L2
+    // snapshots" failure).
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    static NEXT: AtomicUsize = AtomicUsize::new(0);
+    let n = NEXT.fetch_add(1, Ordering::Relaxed);
     let path = std::env::temp_dir()
-        .join(format!(
-            "vpin_integ_{}_{}.csv",
-            std::process::id(),
-            content.len()
-        ))
-        .to_str()
-        .unwrap()
-        .to_string();
+        .join(format!("vpin_integ_{}_{n}.csv", std::process::id()))
+        .to_string_lossy()
+        .into_owned();
     std::fs::write(&path, content).expect("fixture write must succeed");
     path
 }
