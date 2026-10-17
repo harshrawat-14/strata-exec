@@ -4,6 +4,8 @@
 /// changes simulation outputs compared to running with the default coefficient.
 ///
 /// No real historical file is required — each test writes a temp CSV and cleans up.
+mod common;
+
 use strata_exec::analytics::metrics::ExecutionMetrics;
 use strata_exec::calibration::impact_fit::CalibrationEngine;
 use strata_exec::engine::risk::RiskManager;
@@ -82,7 +84,8 @@ fn run_twap(impact_coeff: f64, steps: usize) -> f64 {
 
     let dt = 1.0 / steps as f64;
     let sim = Box::new(GbmSimulator::new(arrival_price, 0.05, sigma_ref, dt, 42));
-    let mut runner = MultiStrategyRunner::new(vec![strat], sim, steps);
+    let mut runner = MultiStrategyRunner::new(vec![strat], sim, steps)
+        .with_results_dir(common::scratch_results_dir());
     runner.run().expect("runner must succeed");
 
     runner.strategies()[0]

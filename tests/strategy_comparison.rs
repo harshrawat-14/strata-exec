@@ -4,6 +4,8 @@
 /// or GARCH paths and assert high-level claims about execution quality.
 ///
 /// All tests are read-only with respect to production code.
+mod common;
+
 use strata_exec::analytics::metrics::ExecutionMetrics;
 use strata_exec::engine::risk::RiskManager;
 use strata_exec::engine::scheduler::{ExecutionMode, Scheduler};
@@ -112,7 +114,8 @@ fn all_strategies_exhaust_inventory() {
     let steps = 500; // 500 steps — enough horizon for all modes to complete
     let strategies = build_all_strategies(&p, steps);
     let sim = gbm_simulator(&p, steps, 42);
-    let mut runner = MultiStrategyRunner::new(strategies, sim, steps);
+    let mut runner = MultiStrategyRunner::new(strategies, sim, steps)
+        .with_results_dir(common::scratch_results_dir());
     runner.run().expect("runner must succeed");
 
     let total_notional = p.total_notional;
@@ -158,7 +161,8 @@ fn ac_has_lower_variance_than_twap() {
     for path_id in 0..n_paths {
         let strategies = build_all_strategies(&p, steps);
         let sim = garch_simulator(&p, steps, path_id as u64);
-        let mut runner = MultiStrategyRunner::new(strategies, sim, steps);
+        let mut runner = MultiStrategyRunner::new(strategies, sim, steps)
+        .with_results_dir(common::scratch_results_dir());
         runner.run().expect("runner must succeed");
 
         let strats = runner.strategies();
@@ -203,7 +207,8 @@ fn adaptive_ac_differs_from_static_ac_under_garch() {
     for path_id in 0..n_paths {
         let strategies = build_all_strategies(&p, steps);
         let sim = garch_simulator(&p, steps, path_id as u64);
-        let mut runner = MultiStrategyRunner::new(strategies, sim, steps);
+        let mut runner = MultiStrategyRunner::new(strategies, sim, steps)
+        .with_results_dir(common::scratch_results_dir());
         runner.run().expect("runner must succeed");
 
         let strats = runner.strategies();
@@ -286,7 +291,8 @@ fn lob_spread_cost_is_non_zero_after_lob_wired_run() {
         completed: false,
     };
     let sim = gbm_simulator(&p, steps, 42);
-    let mut runner = MultiStrategyRunner::new(vec![strat], sim, steps).with_lob(true);
+    let mut runner = MultiStrategyRunner::new(vec![strat], sim, steps)
+        .with_results_dir(common::scratch_results_dir()).with_lob(true);
     runner.run().expect("runner must succeed");
 
     let decomp = runner.strategies()[0]
@@ -311,7 +317,8 @@ fn conservation_law_still_holds_with_lob_fills() {
     let steps = 200;
     let strategies = build_all_strategies(&p, steps);
     let sim = gbm_simulator(&p, steps, 99);
-    let mut runner = MultiStrategyRunner::new(strategies, sim, steps).with_lob(true);
+    let mut runner = MultiStrategyRunner::new(strategies, sim, steps)
+        .with_results_dir(common::scratch_results_dir()).with_lob(true);
     runner.run().expect("runner must succeed");
 
     for strat in runner.strategies() {
@@ -346,7 +353,8 @@ fn all_strategies_still_exhaust_inventory_with_lob() {
     let steps = 500;
     let strategies = build_all_strategies(&p, steps);
     let sim = gbm_simulator(&p, steps, 7);
-    let mut runner = MultiStrategyRunner::new(strategies, sim, steps).with_lob(true);
+    let mut runner = MultiStrategyRunner::new(strategies, sim, steps)
+        .with_results_dir(common::scratch_results_dir()).with_lob(true);
     runner.run().expect("runner must succeed");
 
     for strat in runner.strategies() {
@@ -394,7 +402,8 @@ fn heuristic_and_twap_have_different_chunk_profiles() {
         };
         // Same seed for both runs so they see identical price paths.
         let sim = gbm_simulator(&p, steps, 42);
-        let mut runner = MultiStrategyRunner::new(vec![strategy], sim, steps);
+        let mut runner = MultiStrategyRunner::new(vec![strategy], sim, steps)
+        .with_results_dir(common::scratch_results_dir());
         runner.run().expect("single-strategy runner must succeed");
 
         // Extract shortfall per step as a proxy for chunk sizes (monotone decreasing
@@ -453,7 +462,8 @@ fn heuristic_and_twap_have_different_chunk_profiles() {
 
     // Run both strategies on the SAME price path (same simulator, same seed).
     let sim = gbm_simulator(&p, steps, 42);
-    let mut runner = MultiStrategyRunner::new(vec![twap_strat, heuristic_strat], sim, steps);
+    let mut runner = MultiStrategyRunner::new(vec![twap_strat, heuristic_strat], sim, steps)
+        .with_results_dir(common::scratch_results_dir());
     runner.run().expect("runner must succeed");
 
     let twap_mean_cost = runner.strategies()[0].metrics.mean_cost();
@@ -487,6 +497,7 @@ fn formula_and_lob_paths_both_exhaust_inventory() {
         let strategies = build_all_strategies(&p, steps);
         let sim = gbm_simulator(&p, steps, 42);
         let mut runner = MultiStrategyRunner::new(strategies, sim, steps)
+        .with_results_dir(common::scratch_results_dir())
             .with_lob(use_lob);
         runner.run().expect("runner must succeed");
 
@@ -539,6 +550,7 @@ fn lob_path_produces_nonzero_real_spread() {
         };
         let sim = gbm_simulator(&p, steps, 42);
         let mut runner = MultiStrategyRunner::new(vec![strat], sim, steps)
+        .with_results_dir(common::scratch_results_dir())
             .with_lob(use_lob);
         runner.run().expect("runner must succeed");
         runner.strategies()[0]
@@ -602,7 +614,8 @@ fn lob_vs_formula_delta_table() {
                 GarchSimulator::new(p.arrival_price, 0.05, 0.000002, 0.08, 0.90,
                     p.sigma_ref * p.sigma_ref, dt, seed)
             );
-            let mut runner = MultiStrategyRunner::new(strats, sim, steps).with_lob(true);
+            let mut runner = MultiStrategyRunner::new(strats, sim, steps)
+        .with_results_dir(common::scratch_results_dir()).with_lob(true);
             runner.run().expect("LOB runner must succeed");
             for (i, strat) in runner.strategies().iter().enumerate() {
                 lob_is[i].push(strat.metrics.shortfall_percent().unwrap_or(0.0));
@@ -814,7 +827,8 @@ fn three_column_calibration_table() {
                 GarchSimulator::new(p.arrival_price, 0.05, 0.000002, 0.08, 0.90,
                     p.sigma_ref * p.sigma_ref, dt, seed)
             );
-            let mut runner = MultiStrategyRunner::new(strats, sim, steps).with_lob(true);
+            let mut runner = MultiStrategyRunner::new(strats, sim, steps)
+        .with_results_dir(common::scratch_results_dir()).with_lob(true);
             runner.run().expect("synthetic LOB runner must succeed");
             for (i, strat) in runner.strategies().iter().enumerate() {
                 synth_is[i].push(strat.metrics.shortfall_percent().unwrap_or(0.0));
@@ -830,6 +844,7 @@ fn three_column_calibration_table() {
             );
             let replay = LobReplay::from_csv(&fixture_path).expect("fixture must load");
             let mut runner = MultiStrategyRunner::new(strats, sim, steps)
+        .with_results_dir(common::scratch_results_dir())
                 .with_historical_lob(replay);
             runner.run().expect("historical LOB runner must succeed");
             for (i, strat) in runner.strategies().iter().enumerate() {

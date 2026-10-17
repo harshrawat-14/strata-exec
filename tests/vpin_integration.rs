@@ -9,6 +9,8 @@
 ///   4. LOB VPIN series length is bounded by snapshot count.
 ///   5. All LOB VPIN values stay in [0, 1].
 ///   6. P75 threshold produces a nonzero high-toxicity fill fraction.
+mod common;
+
 use strata_exec::analytics::metrics::ExecutionMetrics;
 use strata_exec::engine::risk::RiskManager;
 use strata_exec::engine::scheduler::{ExecutionMode, Scheduler};
@@ -79,6 +81,7 @@ fn build_runner_with_vpin(steps: usize) -> MultiStrategyRunner {
 
     MultiStrategyRunner::new(vec![strategy], simulator, steps)
         .with_vpin(50_000.0, 10) // small bucket/window for fast saturation in tests
+        .with_results_dir(common::scratch_results_dir())
 }
 
 // ---------------------------------------------------------------------------

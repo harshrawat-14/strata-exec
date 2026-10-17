@@ -168,7 +168,8 @@ fn evaluate_config(
         };
 
         let strategies = build_sweep_strategies(params, max_steps);
-        let mut runner = MultiStrategyRunner::new(strategies, simulator, max_steps);
+        let mut runner =
+            MultiStrategyRunner::new(strategies, simulator, max_steps).without_csv_export();
         runner.force_complete = params.force_complete;
 
         if let Err(e) = runner.run() {

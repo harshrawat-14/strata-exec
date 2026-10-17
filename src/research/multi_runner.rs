@@ -97,7 +97,8 @@ pub struct MultiStrategyRunner {
     /// Per-snapshot VPIN series built from `agg_trades` on the first `run()` call.
     /// Indexed by `replay_step` — one value per bookDepth snapshot.
     pub real_vpin_series: Vec<f64>,
-    pub results_dir: String,
+    /// Directory `run()` writes `comparison.csv` into; `None` disables the export.
+    pub results_dir: Option<String>,
 }
 
 /// Per-step snapshot for one strategy (used during CSV export).
@@ -126,13 +127,21 @@ impl MultiStrategyRunner {
             lob_vpin_series: Vec::new(),
             agg_trades: None,
             real_vpin_series: Vec::new(),
-            results_dir: "results".to_string(),
+            results_dir: Some("results".to_string()),
         }
     }
 
     /// Set results directory output path.
     pub fn with_results_dir(mut self, dir: String) -> Self {
-        self.results_dir = dir;
+        self.results_dir = Some(dir);
+        self
+    }
+
+    /// Skip the per-run `comparison.csv` export. Monte Carlo sweeps run one
+    /// runner per path and only need the in-memory metrics; exporting would
+    /// overwrite the single-run CSV once per path.
+    pub fn without_csv_export(mut self) -> Self {
+        self.results_dir = None;
         self
     }
 
@@ -521,7 +530,9 @@ impl MultiStrategyRunner {
         }
 
         // Export history to CSV if run successfully.
-        self.export_csv(&prices, &history)?;
+        if let Some(dir) = &self.results_dir {
+            self.export_csv(dir, &prices, &history)?;
+        }
 
         Ok(())
     }
@@ -547,8 +558,12 @@ impl MultiStrategyRunner {
     }
 
     /// Internal helper to write out path results.
-    fn export_csv(&self, prices: &[f64], history: &[Vec<StepRecord>]) -> Result<(), String> {
-        let results_dir = &self.results_dir;
+    fn export_csv(
+        &self,
+        results_dir: &str,
+        prices: &[f64],
+        history: &[Vec<StepRecord>],
+    ) -> Result<(), String> {
         if std::fs::metadata(results_dir).is_err() {
             std::fs::create_dir(results_dir).map_err(|e| e.to_string())?;
         }
@@ -634,7 +649,15 @@ mod tests {
         let dt = 1.0 / max_steps as f64;
         let simulator = Box::new(GbmSimulator::new(arrival_price, 0.05, sigma_ref, dt, 42));
 
-        MultiStrategyRunner::new(strategies, simulator, max_steps)
+        // Unique temp dir so tests never overwrite the tracked results/ CSVs.
+        static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let results_dir = std::env::temp_dir()
+            .join(format!("strataexec-unit-results-{}-{n}", std::process::id()))
+            .to_string_lossy()
+            .into_owned();
+
+        MultiStrategyRunner::new(strategies, simulator, max_steps).with_results_dir(results_dir)
     }
 
     // ── Tests ────────────────────────────────────────────────────────────────

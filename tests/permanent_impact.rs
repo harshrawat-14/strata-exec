@@ -2,6 +2,8 @@
 ///
 /// These tests verify that gamma (permanent impact coefficient) correctly
 /// penalises fast strategies and that gamma=0 reproduces the pre-impact baseline.
+mod common;
+
 use strata_exec::analytics::metrics::ExecutionMetrics;
 use strata_exec::engine::risk::RiskManager;
 use strata_exec::engine::scheduler::{ExecutionMode, Scheduler};
@@ -49,7 +51,8 @@ fn run_two_strategies(
 ) -> MultiStrategyRunner {
     let dt = 1.0 / steps as f64;
     let sim = Box::new(GbmSimulator::new(100.0, 0.05, 0.02, dt, seed));
-    let mut runner = MultiStrategyRunner::new(vec![strat_a, strat_b], sim, steps);
+    let mut runner = MultiStrategyRunner::new(vec![strat_a, strat_b], sim, steps)
+        .with_results_dir(common::scratch_results_dir());
     runner.run().expect("runner must complete without error");
     runner
 }
