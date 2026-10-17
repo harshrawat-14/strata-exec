@@ -1165,9 +1165,16 @@ StrataExec/
 │
 ├── rl/                         # Python RL layer
 │   ├── requirements.txt        # Python dependencies (pinned)
-│   ├── environment.py          # Gymnasium wrapper around rl-env binary
-│   ├── train.py                # RecurrentPPO (LSTM) training script
-│   └── evaluate.py             # Policy evaluation + CSV export
+│   ├── environment.py          # Gymnasium wrapper around rl-env binary (JSON/stdio)
+│   ├── batched_environment.py  # Arrow batch client; batched_vec_env.py = SB3 VecEnv
+│   ├── train.py                # RecurrentPPO training CLI
+│   ├── training/               # callbacks, LR schedules, device, env factories
+│   ├── evaluate.py             # Evaluation CLI + facade re-exporting `evaluation`
+│   ├── evaluation/             # date splits, policies/ (TWAP, AC, sqrt-impact),
+│   │                           #   metrics, harness, reporting
+│   ├── experiments/            # frozen scripts behind docs/experiments/ results
+│   ├── results/                # experiment CSVs (see PROVENANCE.md)
+│   └── tests/                  # pytest; tests/golden/ = refactor regression guard
 │
 ├── results/                    # Rust research output (CSV)
 │   ├── comparison.csv
