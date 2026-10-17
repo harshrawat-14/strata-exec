@@ -227,7 +227,7 @@ impl RlEnv {
     /// tanh(ln 2.8) ≈ 0.774 vs tanh(ln 4.1) ≈ 0.886.
     ///
     /// NOTE for anyone diffing against the old encoding (e.g.
-    /// `rl/phase2r_urgency_diagnosis.py`'s "s11: liq_regime (discrete
+    /// `rl/experiments/phase2r_urgency_diagnosis.py`'s "s11: liq_regime (discrete
     /// 0/.5/1)" comment, now stale): the liquidity sign convention changed.
     /// Old: 0.0=thin(bad), 1.0=deep(good). New: positive=thin/wider spread
     /// (bad), matching vol's positive=stressed convention, so both dims

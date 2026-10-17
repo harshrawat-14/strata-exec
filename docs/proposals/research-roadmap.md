@@ -281,7 +281,7 @@ mechanism kept visible) and logged as meta-lesson bug-class instance #4.
 
 ### Step 1 — Tail validation (gates IQN) — independent of Step 0 — DONE 2026-08-13, mixed result
 Full writeup: `docs/experiments/05-tail-risk-validation.md`. Per-episode dumping added
-(`rl/phase3_tail_validation_eval.py`, all 25 V2 dates, not just 17). Requirement #2 (severity → CVaR
+(`rl/experiments/phase3_tail_validation_eval.py`, all 25 V2 dates, not just 17). Requirement #2 (severity → CVaR
 advantage) and #4 (bootstrap robustness, CVaR-90/95/99) **MET** — top-7-severity CVaR clean sweep,
 same pattern as the mean result; raw CVaR deltas significant at p<0.0001 across all quantiles on both
 crash holdouts. **Requirement #3 (the crux — mean-controlled tail advantage) NOT MET**: once each

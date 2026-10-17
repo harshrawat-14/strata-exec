@@ -65,7 +65,7 @@ class TestActionFractionsSingleSourceOfTruth:
     def test_evaluate_module_reuses_environment_modules_table_not_a_new_copy(self):
         # Phase 2R found a THIRD hand-maintained copy of this table living in
         # rl/environment.py (byte-identical by luck, unprotected by any test,
-        # and still imported by rl/phase2r_vwap_gate.py). Root-fixed by making
+        # and still imported by rl/experiments/phase2r_vwap_gate.py). Root-fixed by making
         # environment.py the one canonical query point and having evaluate.py
         # import its ACTION_FRACTIONS from there instead of querying
         # independently. This test guards against a fourth copy re-appearing:

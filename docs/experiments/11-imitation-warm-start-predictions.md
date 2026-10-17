@@ -69,9 +69,9 @@ crash +0.92 / +0.92 / +0.37 / +0.26; calm/normal −0.31 / −0.46 / −0.58 / �
 ## Guardrails
 
 - The expert cloned in stage 1 was honest-λ (1e-6), never per-date hindsight-λ. Verified: the
-  collection loop in `rl/phase3_stepB_bc_pretrain.py` restricts to `TRAINING_DATES_V2` and uses one
+  collection loop in `rl/experiments/phase3_stepB_bc_pretrain.py` restricts to `TRAINING_DATES_V2` and uses one
   fixed `HONEST_LAMBDA`.
-- Evaluation must reuse `rl/phase3_stepA_full_holdout_eval.py` unchanged (same 9 dates, same
+- Evaluation must reuse `rl/experiments/phase3_stepA_full_holdout_eval.py` unchanged (same 9 dates, same
   n_episodes, same policy set) so the comparison against Step 4 is single-variable.
 - Audit finding 5 (near-duplicate eval episodes) remains open and is NOT addressed here; per-date
   significance claims stay uncredible regardless of this run's outcome.

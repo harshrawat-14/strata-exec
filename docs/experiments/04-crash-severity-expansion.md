@@ -4,7 +4,7 @@ Tracks the data-expansion work that follows the honest-λ headline (see
 `docs/experiments/02-reward-objective-audit.md`, "The λ-selection protocol was hindsight") — raising n on
 the severe-stress side honestly, before any claim about whether the 2-crash-date pattern generalizes.
 
-## Status: data pulled AND evaluated (`rl/phase2r_severity_expansion_eval.py`,
+## Status: data pulled AND evaluated (`rl/experiments/phase2r_severity_expansion_eval.py`,
 `rl/results/phase2r_severity_expansion_full.csv`) — see "Results" below. Counting rules and
 data-quality findings (further down) were fixed *before* these results existed, per explicit
 instruction, not decided after seeing them.

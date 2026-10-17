@@ -8,10 +8,15 @@ checkpoint, same honest lambda, same n_episodes, same policy set -- only the
 date coverage changes.
 
 Usage:
-    rl/.venv/bin/python rl/phase3_stepA_full_holdout_eval.py \
+    rl/.venv/bin/python rl/experiments/phase3_stepA_full_holdout_eval.py \
         --model rl/models/phase3_step4_capacity_entropy_best/best_model
 """
 from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # rl/, for bare imports like `import evaluate`
 
 import argparse
 import os

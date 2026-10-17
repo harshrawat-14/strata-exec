@@ -20,10 +20,15 @@ cost model" that this project can produce without a full trajectory
 optimizer over the real order book.
 
 Usage:
-    rl/.venv/bin/python rl/phase3_step3_sqrt_impact_eval.py \
+    rl/.venv/bin/python rl/experiments/phase3_step3_sqrt_impact_eval.py \
         --model rl/models/phase3_step2b_allcoverage_best/best_model
 """
 from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # rl/, for bare imports like `import evaluate`
 
 import argparse
 import json

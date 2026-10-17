@@ -46,7 +46,7 @@ number pair as if they were measured on the same ruler.
   below — this is the second instance of this exact failure mode in the project.
 - **Third `ACTION_FRACTIONS` mirror in `rl/environment.py`** — found during the Task 4 close-out
   implementation-consistency audit, currently byte-identical to the real table by luck (unprotected
-  by any test), still imported by `rl/phase2r_vwap_gate.py`. Root-fixed the same way: `environment.py`
+  by any test), still imported by `rl/experiments/phase2r_vwap_gate.py`. Root-fixed the same way: `environment.py`
   is now the one canonical Python-side query point; `evaluate.py` imports from it instead of
   querying independently. Identity-asserting regression test added. Third instance of this bug
   class — see the meta-lesson below, sharpened further.
@@ -102,7 +102,7 @@ Do not carry forward language like "needs more work" or "unresolved pending a re
   metric on a strongly-trending day, per open issue #1; flagged, not resolved here.)
   **Confirmed with the full Task 4 statistical machinery (second cheap confirmation, greenlit):**
   re-ran the complete 11-date ablation with paired bootstrap significance testing at honest λ=1e-6
-  (`rl/phase2r_ablation_honest_lambda.py`, `rl/results/phase2r_ablation_honest_lambda.csv`, same
+  (`rl/experiments/phase2r_ablation_honest_lambda.py`, `rl/results/phase2r_ablation_honest_lambda.csv`, same
   methodology as the original Task 4 deliverable). **Both held-out crash-date wins are statistically
   strong, not just point estimates: p=0.0000 (paired bootstrap, 10,000 resamples, matched episode
   seeds) against both AC-Optimal and Adaptive-AC on both 2024-03-05 (+1.27pp / +1.87pp) and 2024-08-05
@@ -187,14 +187,14 @@ Do not carry forward language like "needs more work" or "unresolved pending a re
 - **Headline sharpened and validated with two no-training checks before any item 5/6 decision:**
   "RL learned execution but not urgency" (`execution_pct` -1.19 beats both AC's -1.67 and a trivial
   policy's -1.80 on 2024-08-05; AC's urgency swings 1.00→0.285→0.088 by regime while RL sits at
-  0.93–0.99 everywhere). Two checks, `rl/phase2r_urgency_diagnosis.py`:
+  0.93–0.99 everywhere). Two checks, `rl/experiments/phase2r_urgency_diagnosis.py`:
   - **Task A (does AC-pacing + RL-execution beat tuned AC, no training?): first pass was capped by
     its own construction — corrected framing, then re-run uncapped.** The first hybrid (AC's
     cumulative schedule for urgency, catch-up capped at RL's own median chunk size) was **second-best
     on both dates tested, not a win**: ranking was AC > hybrid > RL on 2024-08-05, and RL > hybrid >
     AC on 2024-03-05 — "beats AC on 2024-03-05" (the original framing) omitted that it still lost to
     pure RL there; corrected. Re-run with the cap removed
-    (`rl/phase2r_urgency_hybrid_v2.py`): on 2024-08-05, the uncapped hybrid **beats both AC and RL
+    (`rl/experiments/phase2r_urgency_hybrid_v2.py`): on 2024-08-05, the uncapped hybrid **beats both AC and RL
     outright** (-3.75 vs AC's -4.79 and RL's -6.58) — confirming the original cap was the binding
     constraint, as suspected. But on 2024-03-05, uncapping makes the hybrid *worse* (-1.44, behind
     both RL and the original capped hybrid) — RL's own organic pacing was already close to right-sized
@@ -282,7 +282,7 @@ entirely. **Deferred** — cosmetic, not measured to affect any reported number.
 ### 6. Discrete regime-indicator state dims (s10, s11) are dead exactly when urgency must be decided
 Named and elevated from a sub-finding to its own standing issue, per explicit instruction — this is a
 state-representation problem, not merely a footnote on the RL-vs-AC comparison. Measured directly
-(`rl/phase2r_urgency_diagnosis.py`, Task B): `s10` (vol_regime) and `s11` (liq_regime), the two state
+(`rl/experiments/phase2r_urgency_diagnosis.py`, Task B): `s10` (vol_regime) and `s11` (liq_regime), the two state
 dims specifically engineered to encode which regime the market is in, are **completely flat and
 bit-identical across the severe-crash date and both calm dates for the entire first 100 steps (50
 minutes) of the episode** — the window in which a policy would need to decide how urgently to trade.
@@ -375,7 +375,7 @@ entry below:
    real table from the Rust binary instead of copying it.
 3. **A third copy of the same `ACTION_FRACTIONS` table** (found during the Task 4 close-out audit,
    same phase) — `rl/environment.py` had its own independent hardcoded copy, byte-identical only by
-   luck, unprotected by any test, silently still imported by `rl/phase2r_vwap_gate.py`. This one
+   luck, unprotected by any test, silently still imported by `rl/experiments/phase2r_vwap_gate.py`. This one
    hadn't diverged *yet*, but existed under the exact same conditions (hand-copied, untested, two
    places) that caused #2 to diverge. Fixed the same way, plus an identity (`is`) test to make a
    fourth copy structurally harder to introduce by accident.
@@ -444,7 +444,7 @@ These are named directions, not commitments, so they don't evaporate — none ar
 - **Interval-VWAP as the primary reporting benchmark** (not the training reward, which is already
   drift-neutral — this is about what the *comparison tables* report). Would make reported IS numbers
   drift-neutral too, addressing issue #1 above at the reporting-metric layer specifically. The
-  `interval_volume`/`book_mid` telemetry and `rl/phase2r_vwap_gate.py` scaffolding from the
+  `interval_volume`/`book_mid` telemetry and `rl/experiments/phase2r_vwap_gate.py` scaffolding from the
   (retracted) objective-bias investigation remain in the tree and are reusable for this.
 - **Multi-day episodes**: span more than one historical day per training episode, or randomize
   which day's price path is spliced into an episode, to reduce any single day's realized drift from

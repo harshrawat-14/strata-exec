@@ -25,9 +25,14 @@ against AC's chosen discrete action at each step. This is supervised learning
 only -- no reward, no PPO update, no simulator-outcome-based label of any kind.
 
 Usage:
-    rl/.venv/bin/python rl/phase3_stepB_bc_pretrain.py --seeds-per-date 3 --epochs 3
+    rl/.venv/bin/python rl/experiments/phase3_stepB_bc_pretrain.py --seeds-per-date 3 --epochs 3
 """
 from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # rl/, for bare imports like `import evaluate`
 
 import argparse
 import os
@@ -193,7 +198,7 @@ def main():
     print(f"\nSaved BC-pretrained model to {args.out}")
     print("Next: verify this checkpoint's held-out performance is close to AC's "
           "BEFORE any RL fine-tuning (the floor guarantee) -- "
-          "rl/phase3_stepB_verify_floor.py")
+          "rl/experiments/phase3_stepB_verify_floor.py")
 
 
 if __name__ == "__main__":

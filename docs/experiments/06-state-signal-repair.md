@@ -117,5 +117,5 @@ is now in question.
 ## Artifacts
 
 - `rl/models/phase3_step2_16dim_v2_best/best_model`, `..._final.zip`
-- `rl/phase3_step2_urgency_eval.py` — pace metric (t50/t90), defined explicitly in its docstring
+- `rl/experiments/phase3_step2_urgency_eval.py` — pace metric (t50/t90), defined explicitly in its docstring
 - `rl/results/phase3_step2_urgency_step2.csv`, `rl/results/phase3_step2_urgency_rl16.csv`

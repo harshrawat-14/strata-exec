@@ -18,9 +18,14 @@ Method (cheap analytic gate, no training):
       IS_arrival = -(raw_total_IS_pct)            # the current objective
       IS_twap    = (avg_exec - twap)/twap * 100   # drift-neutral benchmark
 
-Run: rl/.venv/bin/python rl/phase2r_vwap_gate.py
+Run: rl/.venv/bin/python rl/experiments/phase2r_vwap_gate.py
 """
 from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # rl/, for bare imports like `import evaluate`
 
 import numpy as np
 

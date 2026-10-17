@@ -13,13 +13,18 @@ used per-date-optimal lambda (hindsight); this uses one lambda, chosen without
 ever looking at a held-out date's own outcome, applied uniformly -- the same
 standard RL itself is held to.
 
-Structure mirrors rl/phase2r_ablation_report.py exactly (same bootstrap
+Structure mirrors rl/experiments/phase2r_ablation_report.py exactly (same bootstrap
 method, same date/regime table, same summary sections) so the two are
 directly comparable side by side.
 
-Usage: rl/.venv/bin/python rl/phase2r_ablation_honest_lambda.py
+Usage: rl/.venv/bin/python rl/experiments/phase2r_ablation_honest_lambda.py
 """
 from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # rl/, for bare imports like `import evaluate`
 
 import os
 

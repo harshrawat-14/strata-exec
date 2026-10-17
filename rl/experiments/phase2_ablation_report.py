@@ -25,9 +25,14 @@ HONESTY NOTES (both must survive into the report, not just this docstring):
    observed delta could be partly attributable to this, not purely the
    state-vector change.
 
-Usage: rl/.venv/bin/python rl/phase2_ablation_report.py
+Usage: rl/.venv/bin/python rl/experiments/phase2_ablation_report.py
 """
 from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # rl/, for bare imports like `import evaluate`
 
 import os
 

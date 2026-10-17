@@ -16,14 +16,14 @@ is **not overturned** — it belongs to a different checkpoint
 
 ## What was run
 
-- **Stage 1 (BC):** `rl/phase3_stepB_bc_pretrain.py` — 48 demonstration episodes (16
+- **Stage 1 (BC):** `rl/experiments/phase3_stepB_bc_pretrain.py` — 48 demonstration episodes (16
   `TRAINING_DATES_V2` × 3 seeds), honest λ=1e-6 AC-Optimal as the sole expert, teacher-forced
   cross-entropy, truncated BPTT (chunk=128). NLL 2.996 (uniform) → 0.313 over 8 epochs.
-- **Floor check:** `rl/phase3_stepB_verify_floor.py` — the clone tracked AC-Optimal within
+- **Floor check:** `rl/experiments/phase3_stepB_verify_floor.py` — the clone tracked AC-Optimal within
   **0.088pp mean absolute deviation** on all 9 `HELD_OUT_DATES_V2`. Floor guarantee achieved.
 - **Stage 2 (RL fine-tune):** `train.py --resume-from` the BC checkpoint, 1.5M timesteps, `n_envs=16`,
   `device=cpu`, `base_lr=1e-4` (reduced from 3e-4 specifically to protect the floor). 28m55s.
-- **Evaluation:** `rl/phase3_stepA_full_holdout_eval.py` unchanged (same 9 dates, same n_episodes,
+- **Evaluation:** `rl/experiments/phase3_stepA_full_holdout_eval.py` unchanged (same 9 dates, same n_episodes,
   same policy set) → `rl/results/phase3_stepB_finetuned_holdout.csv`.
 
 ## Result: RL − AC-Optimal (mean_IS)
@@ -119,7 +119,7 @@ training dates rather than spending further looks at the 9 held-out dates.
 
 ## Artifacts
 
-- `rl/phase3_stepB_bc_pretrain.py`, `rl/phase3_stepB_verify_floor.py`
+- `rl/experiments/phase3_stepB_bc_pretrain.py`, `rl/experiments/phase3_stepB_verify_floor.py`
 - `rl/models/phase3_stepB_bc_pretrain/bc_pretrained.zip`
 - `rl/models/phase3_stepB_warmstart_finetune_best/best_model.zip` (450k steps)
 - `rl/results/phase3_stepB_floor_check.csv`, `rl/results/phase3_stepB_finetuned_holdout.csv`

@@ -4,15 +4,20 @@ BEFORE any RL fine-tuning. If the behavior-cloned policy doesn't reproduce
 AC-Optimal's performance on held-out dates, fine-tuning from it is building on
 a broken base -- stop and fix the clone, don't proceed to RL fine-tuning.
 
-Same harness as Step A (rl/phase3_stepA_full_holdout_eval.py) so numbers are
+Same harness as Step A (rl/experiments/phase3_stepA_full_holdout_eval.py) so numbers are
 directly comparable to the existing AC-Optimal column: same 9 HELD_OUT_DATES_V2,
 same honest lambda, same n_episodes.
 
 Usage:
-    rl/.venv/bin/python rl/phase3_stepB_verify_floor.py \
+    rl/.venv/bin/python rl/experiments/phase3_stepB_verify_floor.py \
         --model rl/models/phase3_stepB_bc_pretrain/bc_pretrained
 """
 from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # rl/, for bare imports like `import evaluate`
 
 import argparse
 import warnings

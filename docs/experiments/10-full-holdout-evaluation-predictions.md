@@ -1,6 +1,6 @@
 # Phase 3 Step A — pre-registered predictions (full 9-date held-out evaluation)
 
-Written 2026-09-01, BEFORE running `rl/phase3_stepA_full_holdout_eval.py`. Purpose: the project has
+Written 2026-09-01, BEFORE running `rl/experiments/phase3_stepA_full_holdout_eval.py`. Purpose: the project has
 twice built a comparison that looked like a clean finding and turned out to be a strawman
 (hindsight-λ AC, near-duplicate eval episodes). This file exists so the outcome can't be
 retrofitted to whatever the numbers say — predictions are locked in first, checked after.

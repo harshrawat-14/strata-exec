@@ -9,9 +9,14 @@ Produces the three tables in that report:
      best-constant-execute (the decisive "the agent is correctly optimizing a
      directionally-biased objective" table)
 
-Run: rl/.venv/bin/python rl/phase2r_objective_analysis.py
+Run: rl/.venv/bin/python rl/experiments/phase2r_objective_analysis.py
 """
 from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # rl/, for bare imports like `import evaluate`
 
 import numpy as np
 from collections import Counter

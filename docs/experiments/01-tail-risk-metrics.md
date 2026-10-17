@@ -11,7 +11,7 @@ date with clean historical data (11 dates), broken out by regime, with a bootstr
 CVaR-95 estimate (Global Rule 4) and an AC risk-aversion (λ) grid on the two crash dates
 (Phase 1 task 3a). Full per-strategy-per-date table: `rl/results/phase1_tail_risk.csv`.
 λ-grid table: `rl/results/phase1_ac_lambda_grid.csv`. Reproduce with
-`rl/.venv/bin/python rl/phase1_tail_risk_report.py`.
+`rl/.venv/bin/python rl/experiments/phase1_tail_risk_report.py`.
 
 ## ⚠️ Honesty note (carried forward from Phase 0, restated here because it directly bears on how to read this table)
 

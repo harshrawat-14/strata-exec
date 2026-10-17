@@ -126,7 +126,7 @@ tightly on calm/normal days; RL is the outlier, and not in a good direction.
   flag and `CounterfactualLob::config()` getter, so Python can read back the exact
   per-date calibrated impact_coefficient/sigma/adv_btc the environment used (no
   hand-copied second estimate).
-- `rl/phase3_step3_sqrt_impact_eval.py`: the script that produced this table.
+- `rl/experiments/phase3_step3_sqrt_impact_eval.py`: the script that produced this table.
 - `rl/results/phase3_step3_sqrt_impact.csv`
 - `rl/tests/test_evaluate.py::TestSqrtImpactOptimalSchedule`,
   `::TestSqrtImpactOptimalFitIntegration`

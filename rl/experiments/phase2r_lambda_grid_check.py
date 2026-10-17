@@ -8,9 +8,14 @@ Answers directly: does AC at its BEST lambda still lose to RL on calm dates?
 Does a better lambda make AC beat RL more decisively on crash dates (as the
 Phase 1 grid's direction suggested it might)?
 
-Usage: rl/.venv/bin/python rl/phase2r_lambda_grid_check.py
+Usage: rl/.venv/bin/python rl/experiments/phase2r_lambda_grid_check.py
 """
 from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # rl/, for bare imports like `import evaluate`
 
 import numpy as np
 

@@ -1,7 +1,7 @@
 """
 Phase 2R severity expansion: evaluate the 14 new event-window 2024 dates
 against RL-12dim / RL-16dim, at the SAME honest lambda=1e-6 used for the
-original 11-date ablation (rl/phase2r_ablation_honest_lambda.py) -- selected
+original 11-date ablation (rl/experiments/phase2r_ablation_honest_lambda.py) -- selected
 from TRAINING_DATES only, never from any held-out date's own outcome,
 including these new ones.
 
@@ -19,9 +19,14 @@ Guardrails (explicit, both enforced in the reporting below):
      not re-evaluated, and are reported as part of their window's episode,
      not as a separate/new observation.
 
-Usage: rl/.venv/bin/python rl/phase2r_severity_expansion_eval.py
+Usage: rl/.venv/bin/python rl/experiments/phase2r_severity_expansion_eval.py
 """
 from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # rl/, for bare imports like `import evaluate`
 
 import os
 

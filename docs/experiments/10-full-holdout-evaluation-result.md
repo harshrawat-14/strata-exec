@@ -1,7 +1,7 @@
 # Phase 3 Step A — full 9-date held-out evaluation (result)
 
 Written 2026-09-01. Predictions pre-registered in `docs/experiments/10-full-holdout-evaluation-predictions.md` before
-`rl/phase3_stepA_full_holdout_eval.py` was run — see that file for the reasoning locked in beforehand.
+`rl/experiments/phase3_stepA_full_holdout_eval.py` was run — see that file for the reasoning locked in beforehand.
 
 ## What changed
 
@@ -43,7 +43,7 @@ different story).**
    pre-state-repair) and got the same qualitative result: a clean win (+0.38pp, p=0.0000). Two
    unrelated models, two project phases, same direction — the win is not an artifact of this specific
    checkpoint.
-3. **Depth-thinning check** (`rl/phase3_stepA_full_holdout_eval.py` is the eval; the depth check was
+3. **Depth-thinning check** (`rl/experiments/phase3_stepA_full_holdout_eval.py` is the eval; the depth check was
    ad hoc, not committed as a script): a local-window search for the bid-depth minimum around each
    day's price minimum (calibrated loosely against the documented 03-05 signature — offset 59s here
    vs. the originally-documented 47s, ratio 0.56 here vs. 0.22 documented; directionally consistent,

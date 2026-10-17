@@ -11,9 +11,14 @@ patient schedule wants (thin/crash-day books). Also runs the crash-date IS
 decomposition (drift/"adverse holding" vs execution/"spread+impact") the same
 message asked for.
 
-Usage: rl/.venv/bin/python rl/phase2r_granularity_investigation.py
+Usage: rl/.venv/bin/python rl/experiments/phase2r_granularity_investigation.py
 """
 from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # rl/, for bare imports like `import evaluate`
 
 import json
 import numpy as np

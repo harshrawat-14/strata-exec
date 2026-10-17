@@ -57,9 +57,14 @@ strategy on seed=0..n_episodes-1 for a given date/call), more powerful and
 more honest than an unpaired comparison against a scalar baseline --
 especially important given the held-out crash set is only n=2 dates.
 
-Usage: rl/.venv/bin/python rl/phase2r_ablation_report.py
+Usage: rl/.venv/bin/python rl/experiments/phase2r_ablation_report.py
 """
 from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # rl/, for bare imports like `import evaluate`
 
 import os
 

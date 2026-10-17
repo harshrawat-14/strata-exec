@@ -1,6 +1,6 @@
 """
 Phase 3 Step 1: tail-validation analysis on top of the per-episode dump
-produced by rl/phase3_tail_validation_eval.py.
+produced by rl/experiments/phase3_tail_validation_eval.py.
 
 Tests the four-part evidence bar from docs/proposals/research-roadmap.md, "The tail claim
 -- evidence bar and current status":
@@ -13,18 +13,23 @@ Tests the four-part evidence bar from docs/proposals/research-roadmap.md, "The t
      tail mechanism.
   #4 robustness -- bootstrap CIs on the raw CVaR deltas at 90/95/99%,
      paired by matched episode seed (same method as
-     rl/phase2r_ablation_honest_lambda.py's paired_bootstrap_delta and
+     rl/experiments/phase2r_ablation_honest_lambda.py's paired_bootstrap_delta and
      evaluate.py's bootstrap_cvar_95_ci, generalized to CVaR-of-paired-
      difference and, for the crux test, to CVaR-of-mean-centered-residual).
      No new statistical method: this is those two existing methods
      composed, not invented.
 
 Reads rl/results/phase3_tail_validation_episodes.csv (must exist --
-run rl/phase3_tail_validation_eval.py first).
+run rl/experiments/phase3_tail_validation_eval.py first).
 
-Usage: rl/.venv/bin/python rl/phase3_tail_validation_analysis.py
+Usage: rl/.venv/bin/python rl/experiments/phase3_tail_validation_analysis.py
 """
 from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # rl/, for bare imports like `import evaluate`
 
 import os
 
@@ -148,7 +153,7 @@ def paired_bootstrap_std_delta(a_samples, b_samples, n_bootstrap=N_BOOTSTRAP, se
 def load_episodes() -> pd.DataFrame:
     if not os.path.exists(EPISODES_CSV):
         raise FileNotFoundError(
-            f"{EPISODES_CSV} not found -- run rl/phase3_tail_validation_eval.py first"
+            f"{EPISODES_CSV} not found -- run rl/experiments/phase3_tail_validation_eval.py first"
         )
     return pd.read_csv(EPISODES_CSV)
 

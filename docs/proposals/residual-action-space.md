@@ -27,7 +27,7 @@ Adaptive-AC's live response itself lags in exactly the early window where urgenc
 `docs/experiments/02-reward-objective-audit.md`, "The λ-selection protocol was hindsight," for the full
 finding and the mechanistic-thesis framing.
 
-**The two no-training checks below (`rl/phase2r_urgency_diagnosis.py`) still bear on the design's
+**The two no-training checks below (`rl/experiments/phase2r_urgency_diagnosis.py`) still bear on the design's
 mechanics regardless of which reference schedule is eventually chosen:**
 1. A real simulated hybrid (AC's cumulative schedule for urgency, catch-up capped at RL's own median
    chunk size) was **second-best on both dates tested, not a win over AC** — corrected from the

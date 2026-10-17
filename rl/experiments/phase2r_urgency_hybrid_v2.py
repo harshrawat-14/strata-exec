@@ -1,7 +1,7 @@
 """
 Phase 2R close-out gate, follow-up correction to the Task A hybrid experiment.
 
-The first hybrid (rl/phase2r_urgency_diagnosis.py) capped every catch-up step at
+The first hybrid (rl/experiments/phase2r_urgency_diagnosis.py) capped every catch-up step at
 RL's own median chunk size -- a constraint AC itself is never subject to -- and
 that cap was found to be the binding constraint on 2024-08-05 (the hybrid fell
 short of tuned AC there). That means the first experiment's own construction
@@ -17,9 +17,14 @@ hybrid construction with two more generous caps:
 Also corrects the earlier framing: report the full ranking (RL / AC / hybrid),
 not just "beats AC" or "loses to AC" framed against a single comparator.
 
-Usage: rl/.venv/bin/python rl/phase2r_urgency_hybrid_v2.py
+Usage: rl/.venv/bin/python rl/experiments/phase2r_urgency_hybrid_v2.py
 """
 from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # rl/, for bare imports like `import evaluate`
 
 import numpy as np
 import pandas as pd

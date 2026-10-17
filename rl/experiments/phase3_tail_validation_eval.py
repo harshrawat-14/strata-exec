@@ -9,7 +9,7 @@ what that function does not persist: (a) the raw per-episode is_samples
 arrays to disk, and (b) CVaR at multiple quantiles (90/95/99, not just 95)
 with paired-bootstrap confidence intervals, using the SAME paired-resample
 methodology already used for p_16_vs_ac / p_16_vs_aac in
-rl/phase2r_ablation_honest_lambda.py and rl/phase2r_severity_expansion_eval.py
+rl/experiments/phase2r_ablation_honest_lambda.py and rl/experiments/phase2r_severity_expansion_eval.py
 (matched episode seeds, index-resample both arms together) -- generalized
 from "mean of paired differences" (paired_bootstrap_delta) and "CVaR-95 of
 one array" (evaluate.compute_cvar_95 / bootstrap_cvar_95_ci) to "CVaR-q of
@@ -30,9 +30,14 @@ evaluate_all_strategies_on_date call (measured directly on 2024-08-05 before
 committing to the full run) -- roughly 40 minutes for all 25 dates, judged
 affordable and run in one pass rather than scoped down.
 
-Usage: rl/.venv/bin/python rl/phase3_tail_validation_eval.py
+Usage: rl/.venv/bin/python rl/experiments/phase3_tail_validation_eval.py
 """
 from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # rl/, for bare imports like `import evaluate`
 
 import os
 import time

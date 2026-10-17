@@ -32,13 +32,18 @@ recorded in docs/proposals/research-roadmap.md, Step 2. Comparing PACE across th
 safer, since pace is a function of actions alone.
 
 Usage (run once per model, with the matching binary):
-    rl/.venv/bin/python rl/phase3_step2_urgency_eval.py \
+    rl/.venv/bin/python rl/experiments/phase3_step2_urgency_eval.py \
         --model rl/models/phase3_step2_16dim_v2_best/best_model --label step2
     STRATAEXEC_RL_ENV_BIN=/tmp/rl-env-prestep0 \
-      rl/.venv/bin/python rl/phase3_step2_urgency_eval.py \
+      rl/.venv/bin/python rl/experiments/phase3_step2_urgency_eval.py \
         --model rl/models/ppo_ablation_16dim_cf_best/best_model --label rl16
 """
 from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # rl/, for bare imports like `import evaluate`
 
 import argparse
 import os

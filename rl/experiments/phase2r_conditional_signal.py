@@ -2,7 +2,7 @@
 Phase 2R conditional-signal analysis (the interesting question).
 
 Under the drift-neutral VWAP benchmark, the WAIT-vs-EXECUTE preference is
-per-date conditional (rl/phase2r_vwap_gate.py): execution wins on intra-window
+per-date conditional (rl/experiments/phase2r_vwap_gate.py): execution wins on intra-window
 crashes (2024-03-05), waiting wins on already-crashed/flat-thin books
 (2024-08-05). The question that decides whether a rail is needed:
 
@@ -18,15 +18,20 @@ Method: capture the undisturbed state path (wait rollout) over the EARLY window
 (first `EARLY_STEPS` steps -- before heavy execution must commit), average each
 observable dim per date, group by the VWAP verdict from the gate.
 
-Run: rl/.venv/bin/python rl/phase2r_conditional_signal.py
+Run: rl/.venv/bin/python rl/experiments/phase2r_conditional_signal.py
 """
 from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # rl/, for bare imports like `import evaluate`
 
 import numpy as np
 
 from environment import StrataExecEnv
 
-# VWAP verdicts from rl/phase2r_vwap_gate.py (EXEC wins = execution beats waiting)
+# VWAP verdicts from rl/experiments/phase2r_vwap_gate.py (EXEC wins = execution beats waiting)
 VWAP_VERDICT = {
     "2024-01-15": "EXEC", "2024-02-20": "WAIT", "2024-04-15": "EXEC",
     "2024-06-10": "WAIT", "2024-09-15": "EXEC", "2024-10-15": "WAIT",

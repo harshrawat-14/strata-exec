@@ -8,9 +8,14 @@ post-correction ablation CSV (rl/results/phase2r_ablation_postcorrection.csv), w
 was produced by the same models/config this grid compares against, so re-running RL
 would just reproduce the same numbers at extra cost.
 
-Usage: rl/.venv/bin/python rl/phase2r_lambda_grid_full.py
+Usage: rl/.venv/bin/python rl/experiments/phase2r_lambda_grid_full.py
 """
 from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # rl/, for bare imports like `import evaluate`
 
 import pandas as pd
 

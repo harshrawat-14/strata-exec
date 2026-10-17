@@ -15,9 +15,14 @@ Falsifiable: if the short-horizon arm ALSO collapses to wait, the hypothesis is
 wrong (the cause is not horizon/credit-assignment). Two independent arms, same
 seed, same model config, same dates -- only the horizon differs.
 
-Run: rl/.venv/bin/python rl/phase2r_horizon_experiment.py
+Run: rl/.venv/bin/python rl/experiments/phase2r_horizon_experiment.py
 """
 from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # rl/, for bare imports like `import evaluate`
 
 import sys
 import numpy as np

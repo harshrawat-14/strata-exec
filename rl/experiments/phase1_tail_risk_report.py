@@ -18,9 +18,14 @@ not evidence for or against the CVaR thesis. This is stated in the report
 output itself, not just in this docstring, so it can't be missed by a
 reader who only sees the printed/saved output.
 
-Usage: rl/.venv/bin/python rl/phase1_tail_risk_report.py
+Usage: rl/.venv/bin/python rl/experiments/phase1_tail_risk_report.py
 """
 from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # rl/, for bare imports like `import evaluate`
 
 import os
 

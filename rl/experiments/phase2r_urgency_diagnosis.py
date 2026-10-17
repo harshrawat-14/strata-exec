@@ -15,9 +15,14 @@ the episode (when urgency must be decided), or does it arrive late/attenuated?
 Checks dims 2 (vol ratio), 10-11 (vol/liq regime), 13 (intraday vol ratio) at the
 first several dozen decision points, crash dates vs calm dates.
 
-Usage: rl/.venv/bin/python rl/phase2r_urgency_diagnosis.py
+Usage: rl/.venv/bin/python rl/experiments/phase2r_urgency_diagnosis.py
 """
 from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # rl/, for bare imports like `import evaluate`
 
 import numpy as np
 import pandas as pd

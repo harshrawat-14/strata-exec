@@ -92,7 +92,7 @@ its own reward prefers. It is *not* a policy correctly optimizing a mis-specifie
 ## The training failure is LATE-TRAINING POLICY COLLAPSE (measured, decisive)
 
 The credit-assignment-via-long-horizon hypothesis was tested and is **not** the cause. A controlled
-two-arm smoke experiment (`rl/phase2r_horizon_experiment.py`, 80k steps each, identical but for
+two-arm smoke experiment (`rl/experiments/phase2r_horizon_experiment.py`, 80k steps each, identical but for
 horizon: SHORT=60 vs LONG=800 fixed steps, gamma=0.99) had **both** arms learn to execute
 (wait-fraction 0.000) — the LONG arm did not collapse. That experiment was, however, too short to
 reach the collapse regime (see below), so it is *inconclusive on horizon* rather than a clean
@@ -630,7 +630,7 @@ lam=ac_lambda)` and `AdaptiveACPolicy(..., lam=lam)`, always fed the same defaul
 but never-run-post-correction `evaluate_ac_lambda_grid` function (Phase 1-era) was parameterized for
 counterfactual mode and run across a wide grid (`1e-6` to `1.0`) on the 4 anchor dates — both held-out
 crash dates and both held-out calm dates — comparing best-tuned AC/Adaptive-AC per date against the
-already-trained RL-16dim arm (`rl/phase2r_lambda_grid_check.py`, local only):
+already-trained RL-16dim arm (`rl/experiments/phase2r_lambda_grid_check.py`, local only):
 
 | date | regime | RL-16dim mean_IS | AC @ default λ=1e-3 | **AC @ best λ** | best λ | result at best λ |
 |---|---|---|---|---|---|---|
@@ -735,7 +735,7 @@ loses worst.
 **Method:** ran one fixed-seed (seed=0) trajectory each for RL-16dim, AC-Optimal at its per-date best
 λ (from the item-1 grid), and a trivial constant 10%/step policy, on the two held-out crash dates and
 two held-out calm dates, in the real counterfactual simulator (not a toy replica) —
-`rl/phase2r_granularity_investigation.py`, trajectories plotted at `rl/results/plots/
+`rl/experiments/phase2r_granularity_investigation.py`, trajectories plotted at `rl/results/plots/
 granularity_<date>.png`, summary in `rl/results/phase2r_granularity_investigation.csv`.
 
 **The specific chattering mechanism is NOT what the trajectories show.** RL does not alternate
@@ -802,7 +802,7 @@ urgency.** RL's execution quality is the best of the three policies compared (`e
 95bps). Trade-frequency makes the mechanism concrete: AC's urgency swings 1.00 → 0.285 → 0.088 across
 calm → milder-crash → severe-crash (κ=√(λσ²/η) recomputing from live vol, for free), while RL sits at
 0.93–0.99 on every regime tested. Two cheap, no-training checks were run before deciding what to do
-about it (`rl/phase2r_urgency_diagnosis.py`).
+about it (`rl/experiments/phase2r_urgency_diagnosis.py`).
 
 **Task A — does AC's pacing combined with RL's execution style beat tuned AC, with no training?**
 First pass capped every catch-up step at RL's own median per-step chunk size (0.5% of remaining on
@@ -814,7 +814,7 @@ RL there was an incomplete framing; corrected here.**
 That RL-derived cap was also identified as the likely binding constraint on 2024-08-05, which means
 the first pass's own construction could have produced its shortfall — a lower bound, not a verdict.
 Re-ran with two more generous caps: AC's own maximum observed single-step chunk, and fully uncapped
-(`rl/phase2r_urgency_hybrid_v2.py`). On both dates tested, AC's own max chunk turned out to already be
+(`rl/experiments/phase2r_urgency_hybrid_v2.py`). On both dates tested, AC's own max chunk turned out to already be
 1.0 (its natural end-of-schedule dust-sweep reaches the top bucket), so that variant is mechanically
 identical to uncapped — one real comparison, not two:
 
@@ -989,7 +989,7 @@ caveat as the granularity investigation above.)
 ### Follow-up (greenlit): full 11-date λ-grid, extended to bracket the true optimum
 
 Gate B's 4-date grid left the optimum at the grid edge (1e-6) on 3/4 dates — not yet bracketed.
-Extended the grid down to 1e-9 and ran all 11 dates (`rl/phase2r_lambda_grid_full.py`,
+Extended the grid down to 1e-9 and ran all 11 dates (`rl/experiments/phase2r_lambda_grid_full.py`,
 `rl/results/phase2r_lambda_grid_full.csv`, 143 rows, ~24 min wall-clock):
 
 | date | regime | RL16 | best AC | @λ | best AAC | @λ | result |
@@ -1114,7 +1114,7 @@ Full design note: `docs/experiments/03-ac-baseline-calibration.md`. Summary:
 - **Third hand-maintained `ACTION_FRACTIONS` mirror — FOUND and FIXED.** `rl/environment.py` carried
   its own hardcoded copy of the fraction table (currently byte-identical to the real Rust table by
   luck, unprotected by any test), still imported by the retracted-but-tree-resident
-  `rl/phase2r_vwap_gate.py`. Third instance of this exact bug class in the project. Root-fixed:
+  `rl/experiments/phase2r_vwap_gate.py`. Third instance of this exact bug class in the project. Root-fixed:
   `environment.py` is now the one canonical Python-side query point (queries the Rust binary at
   import time); `evaluate.py` imports `ACTION_FRACTIONS` from `environment.py` instead of querying
   independently. New test asserts identity (`is`, not `==`) so a fourth copy can't silently

@@ -1519,7 +1519,7 @@ def log_eval_results_to_mlflow(
     unified_results: {date: {strategy_key: metrics_dict}}, the return shape
     of evaluate_all_strategies_on_date collected across multiple dates (see
     run_full_analysis's --unified-comparison path, or
-    rl/phase1_tail_risk_report.py).
+    rl/experiments/phase1_tail_risk_report.py).
 
     strategies: which strategy_keys to log (default: just "rl_agent", since
     for a training run's own tracked history the model's own performance is

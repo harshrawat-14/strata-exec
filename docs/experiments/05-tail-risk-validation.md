@@ -84,13 +84,13 @@ outside this task's assigned section.
   it, which is what makes paired-episode comparison valid (same method every existing
   `phase2r_*_honest_lambda*.py` script already relies on).
 - **New code:**
-  - `rl/phase3_tail_validation_eval.py` — thin wrapper around `evaluate.evaluate_all_strategies_on_date`
+  - `rl/experiments/phase3_tail_validation_eval.py` — thin wrapper around `evaluate.evaluate_all_strategies_on_date`
     (does not reimplement its simulation logic) that additionally persists the raw per-episode
     `is_samples` arrays it already computes but the existing scripts only ever summarized to a mean
     and CVaR-95 before writing to disk. Outputs `rl/results/phase3_tail_validation_episodes.csv`
     (6,250 rows: 25 dates × 5 policies × 50 episodes) and
     `rl/results/phase3_tail_validation_summary.csv` (25 rows).
-  - `rl/phase3_tail_validation_analysis.py` — the four-requirement analysis below. Reuses
+  - `rl/experiments/phase3_tail_validation_analysis.py` — the four-requirement analysis below. Reuses
     `evaluate.compute_cvar_95` by direct delegation for q=0.95 (not reimplemented) and generalizes its
     same tail-mean method to q=0.90/0.99. Reuses the same paired-index-resample bootstrap mechanics as
     `phase2r_ablation_honest_lambda.paired_bootstrap_delta` (resample the same episode indices for both
@@ -244,8 +244,8 @@ by anything here — it is a separate, already-robust result. What this document
 
 ## Artifacts
 
-- `rl/phase3_tail_validation_eval.py` — per-episode eval/dump script (new).
-- `rl/phase3_tail_validation_analysis.py` — four-requirement analysis script (new).
+- `rl/experiments/phase3_tail_validation_eval.py` — per-episode eval/dump script (new).
+- `rl/experiments/phase3_tail_validation_analysis.py` — four-requirement analysis script (new).
 - `rl/results/phase3_tail_validation_episodes.csv` — 6,250 raw per-episode outcomes (25 dates × 5
   policies × 50 episodes), pre-Step-0 binary.
 - `rl/results/phase3_tail_validation_summary.csv` — per-date mean/CVaR-95 summary, 25 dates.
