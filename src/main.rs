@@ -1,32 +1,16 @@
-#![allow(dead_code)]
-
-mod analytics;
-mod api;
-mod blockchain;
-mod calibration;
-mod config;
-mod engine;
-mod error;
-mod events;
-mod execution;
-mod market;
-mod observability;
-mod research;
-mod strategies;
-mod types;
-mod utils;
 
 use std::sync::Arc;
 use std::time::Duration;
 
 use tokio::net::TcpListener;
 
-use crate::api::AppState;
-use crate::blockchain::client::RpcClient;
-use crate::engine::engine::Engine;
-use crate::engine::risk::RiskManager;
-use crate::engine::scheduler::{ExecutionMode, Scheduler};
-use crate::market::volatility::VolatilityEstimator;
+use strata_exec::api::AppState;
+use strata_exec::blockchain::client::RpcClient;
+use strata_exec::engine::engine::Engine;
+use strata_exec::engine::risk::RiskManager;
+use strata_exec::engine::scheduler::{ExecutionMode, Scheduler};
+use strata_exec::market::volatility::VolatilityEstimator;
+use strata_exec::{api, config, utils};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
