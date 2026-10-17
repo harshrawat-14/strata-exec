@@ -192,7 +192,7 @@ class TestMakeEnvDoesNotRaise:
         passed_kwargs = {
             "mode", "adversarial", "lob_date", "agg_date", "btc_target",
             "n_state_dims", "seed", "fixed_steps", "fixed_size",
-            "jump_diffusion", "no_time_features",
+            "no_time_features",
         }
         unknown = passed_kwargs - valid_params
         assert not unknown, (

@@ -1329,3 +1329,81 @@ fn forced_liquidation_is_pct_reflects_real_execution_not_pinned_zero() {
          (got {is_pct})"
     );
 }
+
+mod cli {
+    use crate::config::*;
+
+    fn args(list: &[&str]) -> Vec<String> {
+        list.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn accepts_every_flag_python_callers_pass() {
+        let cfg = parse_args(&args(&[
+            "--rl-mode",
+            "Counterfactual",
+            "--adversarial",
+            "--lob-data",
+            "b.csv",
+            "--agg-trades",
+            "a.csv",
+            "--btc-target",
+            "50000",
+            "--total-steps",
+            "400",
+            "--fixed-steps",
+            "--fixed-size",
+            "--no-time-features",
+            "--seed",
+            "7",
+            "--batch-size",
+            "4",
+            "--socket-path",
+            "/tmp/s.sock",
+            "--print-calibration",
+        ]))
+        .expect("valid arguments must parse");
+        assert!(matches!(cfg.mode, RlMode::Counterfactual));
+        assert_eq!(cfg.total_steps, 400);
+        assert_eq!(cfg.btc_target, 50_000.0);
+        assert_eq!(cfg.seed, 7);
+        assert!(cfg.adversarial && cfg.fixed_steps && cfg.fixed_size && cfg.no_time_features);
+    }
+
+    #[test]
+    fn replay_modes_keep_their_defaults() {
+        let cfg = parse_args(&args(&["--rl-mode", "historical"])).expect("parses");
+        assert_eq!(cfg.total_steps, HISTORICAL_DEFAULT_STEPS);
+        assert_eq!(cfg.sigma_ref, CALIBRATED_SIGMA_REF);
+        let cfg =
+            parse_args(&args(&["--rl-mode", "historical", "--sigma-ref", "0.3"])).expect("parses");
+        assert_eq!(cfg.sigma_ref, 0.3);
+        let cfg = parse_args(&[]).expect("no arguments is valid");
+        assert!(matches!(cfg.mode, RlMode::Synthetic));
+        assert_eq!(cfg.sigma_ref, DEFAULT_SIGMA);
+    }
+
+    #[test]
+    fn rejects_unknown_flag() {
+        let err = parse_args(&args(&["--jump-diffusion"])).expect_err("must reject");
+        assert!(err.contains("--jump-diffusion"), "{err}");
+    }
+
+    #[test]
+    fn rejects_unknown_mode_instead_of_falling_back_to_synthetic() {
+        let err = parse_args(&args(&["--rl-mode", "counterfacual"])).expect_err("must reject");
+        assert!(err.contains("counterfacual"), "{err}");
+    }
+
+    #[test]
+    fn rejects_unparseable_number_instead_of_using_default() {
+        assert!(parse_args(&args(&["--btc-target", "abc"])).is_err());
+        assert!(parse_args(&args(&["--total-steps", "-5"])).is_err());
+    }
+
+    #[test]
+    fn rejects_missing_value() {
+        let err = parse_args(&args(&["--lob-data"])).expect_err("must reject");
+        assert!(err.contains("requires a value"), "{err}");
+    }
+}

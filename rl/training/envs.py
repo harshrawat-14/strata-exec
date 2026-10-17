@@ -9,7 +9,7 @@ from environment import StrataExecEnv
 
 
 def make_multi_date_eval_env(mode, adversarial, eval_dates, btc_target,
-                             n_state_dims, jump_diffusion, no_time_features):
+                             n_state_dims, no_time_features):
     """
     Phase 2R fix (2): a MULTI-date eval env for best-model selection.
 
@@ -32,7 +32,7 @@ def make_multi_date_eval_env(mode, adversarial, eval_dates, btc_target,
         return lambda: Monitor(StrataExecEnv(
             mode=mode, adversarial=adversarial, lob_date=date, agg_date=date,
             btc_target=btc_target, n_state_dims=n_state_dims, seed=9999,
-            fixed_steps=True, fixed_size=True, jump_diffusion=jump_diffusion,
+            fixed_steps=True, fixed_size=True,
             no_time_features=no_time_features,
         ))
     return DummyVecEnv([_one(d) for d in eval_dates])
@@ -49,7 +49,6 @@ def make_env(
     seed=42,
     fixed_steps=False,
     fixed_size=False,
-    jump_diffusion=False,
     no_time_features=False,
     worker_date=None,
 ):
@@ -84,7 +83,6 @@ def make_env(
             seed=seed,
             fixed_steps=fixed_steps,
             fixed_size=fixed_size,
-            jump_diffusion=jump_diffusion,
             no_time_features=no_time_features,
         )
         return Monitor(env)

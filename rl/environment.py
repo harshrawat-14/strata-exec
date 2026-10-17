@@ -139,7 +139,6 @@ class StrataExecEnv(gym.Env):
         n_state_dims: int = 8,
         fixed_steps: bool = False,
         fixed_size: bool = False,
-        jump_diffusion: bool = False,
         no_time_features: bool = False,
         total_steps: Optional[int] = None,
         lob_dates: Optional[list] = None,
@@ -214,8 +213,6 @@ class StrataExecEnv(gym.Env):
             self.cmd.append("--fixed-steps")
         if fixed_size:
             self.cmd.append("--fixed-size")
-        if jump_diffusion:
-            self.cmd.append("--jump-diffusion")
         if no_time_features:
             self.cmd.append("--no-time-features")
 

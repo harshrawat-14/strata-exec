@@ -143,82 +143,102 @@ impl Default for EnvConfig {
 // CLI parsing
 // ---------------------------------------------------------------------------
 
+/// Parse the process arguments, exiting with status 2 on invalid input.
 pub(crate) fn parse_cli() -> EnvConfig {
-    let args: Vec<String> = std::env::args().collect();
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    match parse_args(&args) {
+        Ok(cfg) => cfg,
+        Err(e) => {
+            eprintln!("rl-env: {e}");
+            std::process::exit(2);
+        }
+    }
+}
+
+fn flag_value<'a>(args: &'a [String], i: usize, flag: &str) -> Result<&'a str, String> {
+    args.get(i + 1)
+        .map(String::as_str)
+        .ok_or_else(|| format!("{flag} requires a value"))
+}
+
+fn parse_num<T: std::str::FromStr>(v: &str, flag: &str) -> Result<T, String> {
+    v.parse::<T>()
+        .map_err(|_| format!("invalid value for {flag}: {v:?}"))
+}
+
+/// Parse rl-env arguments (without the program name).
+///
+/// Strict on purpose: unknown flags, unknown modes, missing values and
+/// unparseable numbers are errors. The previous parser ignored all four,
+/// so e.g. Python's `--jump-diffusion` was silently a no-op and a mistyped
+/// `--rl-mode` silently ran synthetic mode.
+pub(crate) fn parse_args(args: &[String]) -> Result<EnvConfig, String> {
     let mut cfg = EnvConfig::default();
     // Tracks whether --sigma-ref was passed explicitly, so the
     // historical/counterfactual calibrated default below doesn't clobber a
     // caller's deliberate override (e.g. a future λ-style sigma_ref sweep).
     let mut sigma_ref_explicit = false;
 
-    let mut i = 1;
+    let mut i = 0;
     while i < args.len() {
-        let a = args[i].as_str();
-        match a {
+        let flag = args[i].as_str();
+        match flag {
             "--rl-mode" => {
-                if let Some(v) = args.get(i + 1) {
-                    cfg.mode = match v.to_lowercase().as_str() {
-                        "historical" => RlMode::Historical,
-                        "counterfactual" => RlMode::Counterfactual,
-                        _ => RlMode::Synthetic,
-                    };
-                    i += 1;
-                }
+                let v = flag_value(args, i, flag)?;
+                cfg.mode = match v.to_lowercase().as_str() {
+                    "synthetic" => RlMode::Synthetic,
+                    "historical" => RlMode::Historical,
+                    "counterfactual" => RlMode::Counterfactual,
+                    _ => return Err(format!("unknown --rl-mode {v:?}")),
+                };
+                i += 1;
             }
-            "--adversarial" => cfg.adversarial = true,
             "--total-inventory" => {
-                if let Some(v) = args.get(i + 1) {
-                    cfg.total_inventory = v.parse::<f64>().unwrap_or(cfg.total_inventory);
-                    i += 1;
-                }
+                cfg.total_inventory = parse_num(flag_value(args, i, flag)?, flag)?;
+                i += 1;
             }
             "--total-steps" => {
-                if let Some(v) = args.get(i + 1) {
-                    cfg.total_steps = v.parse::<usize>().unwrap_or(cfg.total_steps);
-                    i += 1;
-                }
+                cfg.total_steps = parse_num(flag_value(args, i, flag)?, flag)?;
+                i += 1;
             }
             "--seed" => {
-                if let Some(v) = args.get(i + 1) {
-                    cfg.seed = v.parse::<u64>().unwrap_or(cfg.seed);
-                    i += 1;
-                }
+                cfg.seed = parse_num(flag_value(args, i, flag)?, flag)?;
+                i += 1;
             }
             "--lob-data" => {
-                if let Some(v) = args.get(i + 1) {
-                    cfg.lob_data_path = Some(v.clone());
-                    i += 1;
-                }
+                cfg.lob_data_path = Some(flag_value(args, i, flag)?.to_string());
+                i += 1;
             }
             "--btc-target" => {
-                if let Some(v) = args.get(i + 1) {
-                    cfg.btc_target = v.parse::<f64>().unwrap_or(cfg.btc_target);
-                    i += 1;
-                }
+                cfg.btc_target = parse_num(flag_value(args, i, flag)?, flag)?;
+                i += 1;
             }
             "--adv-btc" => {
-                if let Some(v) = args.get(i + 1) {
-                    cfg.adv_btc = v.parse::<f64>().unwrap_or(0.0);
-                    i += 1;
-                }
+                cfg.adv_btc = parse_num(flag_value(args, i, flag)?, flag)?;
+                i += 1;
             }
             "--agg-trades" => {
-                if let Some(v) = args.get(i + 1) {
-                    cfg.agg_trades_path = Some(v.clone());
-                    i += 1;
-                }
+                cfg.agg_trades_path = Some(flag_value(args, i, flag)?.to_string());
+                i += 1;
             }
             "--sigma-ref" => {
-                if let Some(v) = args.get(i + 1) {
-                    cfg.sigma_ref = v.parse::<f64>().unwrap_or(cfg.sigma_ref);
-                    sigma_ref_explicit = true;
-                    i += 1;
-                }
+                cfg.sigma_ref = parse_num(flag_value(args, i, flag)?, flag)?;
+                sigma_ref_explicit = true;
+                i += 1;
             }
+            // Consumed by parse_batch_args; validated here so they are not
+            // mistaken for unknown flags.
+            "--batch-size" | "--socket-path" => {
+                flag_value(args, i, flag)?;
+                i += 1;
+            }
+            "--adversarial" => cfg.adversarial = true,
             "--fixed-steps" => cfg.fixed_steps = true,
             "--fixed-size" => cfg.fixed_size = true,
             "--no-time-features" => cfg.no_time_features = true,
-            _ => {}
+            // Query modes handled in main().
+            "--print-action-fractions" | "--print-env-constants" | "--print-calibration" => {}
+            _ => return Err(format!("unknown argument {flag:?}")),
         }
         i += 1;
     }
@@ -237,5 +257,5 @@ pub(crate) fn parse_cli() -> EnvConfig {
     if matches!(cfg.mode, RlMode::Historical | RlMode::Counterfactual) && !sigma_ref_explicit {
         cfg.sigma_ref = CALIBRATED_SIGMA_REF;
     }
-    cfg
+    Ok(cfg)
 }

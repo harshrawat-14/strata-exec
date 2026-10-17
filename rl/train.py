@@ -55,7 +55,6 @@ def train(
     run_name: str = "ppo_passive",
     lr_schedule: str = "cosine_restarts",
     ent_coef: float = 0.05,
-    jump_diffusion: bool = False,
     n_envs: int = 4,
     no_time_features: bool = False,
     resume_from: str = None,
@@ -124,7 +123,6 @@ def train(
                 n_envs=n_envs,
                 total_timesteps=total_timesteps,
                 adversarial=adversarial,
-                jump_diffusion=jump_diffusion,
                 btc_target=btc_target,
                 action_space_version="v6",
                 mode=mode,
@@ -143,8 +141,6 @@ def train(
             print(f"Multi-dates: {multi_dates}")
         if adversarial:
             print("  Adversarial agents: FrontRunner + LiquidityWithdrawer ACTIVE")
-        if jump_diffusion:
-            print("  Jump diffusion: Poisson jump events ACTIVE")
         print(f"  ent_coef: {ent_coef}")
         print(f"  lr_schedule: {lr_schedule} (base_lr={base_lr:.2e})")
         print(f"  LSTM: {LSTM_HIDDEN_SIZE} hidden × {LSTM_LAYERS} layers"
@@ -163,7 +159,6 @@ def train(
             n_state_dims=n_state_dims,
             fixed_steps=False,
             fixed_size=False,
-            jump_diffusion=jump_diffusion,
             no_time_features=no_time_features,
         )
 
@@ -264,7 +259,7 @@ def train(
         eval_env = make_multi_date_eval_env(
             mode=mode, adversarial=adversarial, eval_dates=eval_dates,
             btc_target=btc_target, n_state_dims=n_state_dims,
-            jump_diffusion=jump_diffusion, no_time_features=no_time_features,
+            no_time_features=no_time_features,
         )
 
         device = force_device if force_device else get_device()
@@ -404,8 +399,6 @@ if __name__ == "__main__":
                    help="Comma-separated dates: 2024-01-15,2024-03-05")
     p.add_argument("--ent-coef", type=float, default=0.05,
                    help="Entropy coefficient. Higher -> more exploration.")
-    p.add_argument("--jump-diffusion", action="store_true",
-                   help="Enable Poisson jump diffusion in GARCH price model.")
     p.add_argument("--no-time-features", action="store_true",
                    help="Counterfactual mode only: use the 12-dim state "
                         "(omit intraday time features s12-s15). Default is "
@@ -461,7 +454,6 @@ if __name__ == "__main__":
         run_name=args.name,
         lr_schedule=args.lr_schedule,
         ent_coef=args.ent_coef,
-        jump_diffusion=args.jump_diffusion,
         no_time_features=args.no_time_features,
         n_envs=args.n_envs,
         resume_from=args.resume_from,
