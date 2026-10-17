@@ -8,7 +8,7 @@
 </p>
 
 <p align="center">
-  <code>Rust + Python + React</code> · <code>428 Rust + 93 Pytest + 25 Vitest tests</code> · <code>zero warnings</code>
+  <code>Rust + Python + React</code> · <code>265 Rust + 158 Pytest + 25 Vitest tests</code> · <code>zero warnings</code>
 </p>
 
 <p align="center">
@@ -64,45 +64,58 @@ The synthetic square-root impact model used in the AC derivation significantly u
 
 Both are genuine null results and are reported as such.
 
-### Phase 4: RL Agent Results
+### RL Agent Results — current
 
-The core RL question: can a learned policy outperform the closed-form AC optimal on real market data?
+The core RL question: can a learned policy outperform the closed-form Almgren-Chriss optimal on real market data?
 
-> **⚠️ UNVERIFIED — the crash-day and 2024-03-05 rows below are not a
-> trustworthy result.** A Phase 0 audit found that the training set
-> documented for this model (the `--multi-date` invocation below) included
-> **both** 2024-08-05 (the crash day this table is built around) and
-> 2024-03-05 (mislabeled "BTC breakout" here; it is actually the single
-> most severe liquidation-cascade day in the dataset by depth-thinning
-> signature — see `HELD_OUT_CRASH_DATES` in `rl/evaluate.py`). A learned
-> policy evaluated on a date it trained on is partly memorizing that LOB
-> path, and AC/TWAP/Heuristic cannot memorize, so **the "RL beats AC on
-> the crash day" claim in this table is unverified** until the model is
-> retrained on a split that genuinely holds out both dates (Phase 2). The
-> non-crash rows (calm/consolidation/surge dates, and the three original
-> test dates) are unaffected by this specific issue but are also stale
-> pending that retrain, since 2024-04-15 has been moved from the
-> out-of-sample test set into the training set as part of the corrected
-> split (it was the only remaining date with a genuine, if milder, stress
-> signature). This table is left in place for historical reference, not as
-> a current claim.
+**Answer, stated precisely: only when the market breaks.** Evaluated on all 9 held-out dates of the 25-date pool, against an Almgren-Chriss baseline whose λ is selected honestly (from training dates only, never per-date hindsight):
 
-**Final results — RL (LSTM, counterfactual training) vs Static Optimal AC (PRE-FIX, contains train/eval overlap on the two rows marked below):**
+| Date | Regime | RL − AC (mean IS) | Result |
+|------|--------|------------------:|--------|
+| 2024-08-05 | crash — Yen unwind | **+0.92pp** | RL wins |
+| 2024-03-05 | crash — flash liquidation cascade | **+0.92pp** | RL wins |
+| 2024-08-02 | crash | **+0.37pp** | RL wins |
+| 2024-08-04 | crash | **+0.26pp** | RL wins |
+| 2024-08-03 | normal | −0.31pp | AC wins |
+| 2024-12-10 | normal | −0.46pp | AC wins |
+| 2024-07-12 | normal | −0.58pp | AC wins |
+| 2024-07-11 | calm | −0.59pp | AC wins |
+| 2024-07-10 | calm | −0.80pp | AC wins |
+
+**4/4 crash-tier wins, 0/5 calm and normal.** The learned policy earns its keep exactly where Almgren-Chriss's static-schedule and linear-impact assumptions break down, and loses everywhere those assumptions roughly hold.
+
+**Caveats, stated up front:**
+- The four crash dates span only **two independent macro events** (three are consecutive days of the August 2024 Yen-unwind window). This is denser sampling of two events, not four independent trials.
+- Eval episodes within a single date are near-duplicates, so per-date significance claims are not credible. See [docs/methodology/platform-audit.md](docs/methodology/platform-audit.md), finding 5 — still open.
+- Two earlier, more flattering versions of this result were **retracted** — the first rested on hardcoded baseline parameters that handicapped AC; the second let AC select λ using each date's own outcome. The current protocol was built specifically to eliminate both. See [docs/experiments/02-reward-objective-audit.md](docs/experiments/02-reward-objective-audit.md).
+
+Counterintuitively, RL wins crash days while pacing *less* urgently than AC (it sells slower, not faster). Pacing and impact-model shape were both tested directly and ruled out as the mechanism; per-fill reactivity to the realised order book is the standing explanation. See [docs/experiments/08-sqrt-impact-baseline.md](docs/experiments/08-sqrt-impact-baseline.md) and [docs/experiments/09-policy-capacity-and-entropy.md](docs/experiments/09-policy-capacity-and-entropy.md).
+
+A follow-up experiment tested whether behaviour-cloning AC first could keep the crash edge *and* remove the calm-day deficit. It could not: the warm start eliminated the calm-day loss but destroyed the crash-day edge. Reported as a negative result in [docs/experiments/11-imitation-warm-start-result.md](docs/experiments/11-imitation-warm-start-result.md).
+
+Full detail: [docs/experiments/10-full-holdout-evaluation-result.md](docs/experiments/10-full-holdout-evaluation-result.md) · predictions were [pre-registered](docs/experiments/10-full-holdout-evaluation-predictions.md) before the run.
+
+<details>
+<summary><b>Superseded (2026-07): the original 8-date table, retained for provenance</b></summary>
+
+The table below was this project's first RL-vs-AC result. It is **superseded and should not be cited.**
+A Phase 0 audit found its training set included both 2024-08-05 and 2024-03-05 — the two crash dates
+the claim was built around — so the crash rows were partly memorisation. That has since been fixed by
+a corrected train/held-out split and several retrains; the current numbers are in the table above.
+Kept here because this project does not silently delete results it later overturned.
 
 | Date | Regime | AC Optimal | RL Agent | RL wins by |
 |------|--------|-----------|---------|-----------|
 | 2024-01-15 | calm bull | -0.990% | -0.430% | +0.560pp |
-| 2024-03-05 | crash — flash liquidation cascade ⚠️ *(was trained on; held out going forward)* | -1.228% | -0.459% | +0.769pp |
+| 2024-03-05 | crash — flash liquidation cascade ⚠️ *(was trained on)* | -1.228% | -0.459% | +0.769pp |
 | 2024-06-10 | quiet consolidation | -0.868% | -0.454% | +0.414pp |
-| 2024-08-05 | crash — Yen unwind ⚠️ *(was trained on; held out going forward)* | -1.071% | -0.482% | +0.589pp |
+| 2024-08-05 | crash — Yen unwind ⚠️ *(was trained on)* | -1.071% | -0.482% | +0.589pp |
 | 2024-11-06 | post-election surge | -1.212% | -0.478% | +0.734pp |
-| **2024-04-15** | BTC correction *(test in this old run; moved into training going forward)* | -1.311% | -0.465% | +0.846pp |
-| **2024-07-10** | mid-summer sideways *(test)* | -1.057% | -0.427% | +0.630pp |
-| **2024-12-10** | December bull run *(test)* | -1.442% | -0.430% | +1.012pp |
+| 2024-04-15 | BTC correction | -1.311% | -0.465% | +0.846pp |
+| 2024-07-10 | mid-summer sideways *(test)* | -1.057% | -0.427% | +0.630pp |
+| 2024-12-10 | December bull run *(test)* | -1.442% | -0.430% | +1.012pp |
 
-**Bold dates were out-of-sample test dates never used during training under the old split.**
-
-Mean sim-to-real degradation: **-0.56pp** (vs synthetic baseline of +0.10%). This table's claim that "RL outperforms static AC across all 8 dates including the held-out test set" holds for the non-crash rows, but the crash-day rows require the Phase 2 retrain above before they can be re-asserted.
+</details>
 
 ---
 
@@ -113,25 +126,22 @@ closed-form Almgren-Chriss optimal execution solution on real Binance
 BTC-USDT perpetual futures data, across diverse market regimes, including
 dates it never saw during training?
 
-**Evaluation methodology:** each strategy is run for 50 episodes per
-evaluation date (seeds 0-49), inside the counterfactual LOB environment
-(real Binance L2 snapshots + accumulated own-impact — see "Market Impact" below
-for what this model actually is). Eight
-evaluation dates span five market regimes (calm bull, breakout, quiet
-consolidation, crash, post-election surge) plus three dates originally
-documented as held-out out-of-sample tests (April, July, December).
-**Correction (Phase 0 audit):** the "never included in any training run"
-claim was false for the crash-day comparison above — the model's
-documented `--multi-date` training invocation (below) included both
-2024-08-05 and 2024-03-05, the two dates this project's tail-risk/CVaR
-claims center on. July and December were genuinely never trained on. The
-corrected split (`TRAINING_DATES` / `HELD_OUT_CRASH_DATES` in
-`rl/evaluate.py`) holds out both crash dates and moves April into training
-as the one retained stress-like date; results above should be read against
-that correction, not the original claim, until Phase 2 retrains on the
-corrected split. Metrics reported: mean implementation shortfall (IS%),
-95% CI, CVaR-95, action distribution and entropy, and forced-liquidation
-rate.
+**Evaluation methodology:** each strategy is run for 20 episodes per
+evaluation date inside the counterfactual LOB environment (real Binance L2
+snapshots + accumulated own-impact — see "Market Impact" below for what this
+model actually is). The date pool is 25 Binance BTC-USDT days, split 16
+training / 9 held-out (`TRAINING_DATES_V2` / `HELD_OUT_DATES_V2` in
+`rl/evaluate.py`), classified into crash / normal / calm regimes by an
+outcome-independent severity measure. Multi-day event windows are split at the
+window level, not the day level, so a single named event cannot straddle the
+train/held-out boundary. Metrics reported: mean implementation shortfall (IS%),
+95% CI, CVaR-95, action distribution and entropy, and forced-liquidation rate.
+
+**Split integrity:** an earlier version of this project reported crash-day
+results on dates the model had trained on — caught by an audit, corrected, and
+retained in the write-up rather than quietly fixed. Best-model selection is now
+verified to use training dates only. The full history of that correction is in
+[docs/experiments/02-reward-objective-audit.md](docs/experiments/02-reward-objective-audit.md).
 
 **Null results, documented honestly:** not every idea worked, and the
 negative results are kept in the write-up rather than quietly dropped —
@@ -152,20 +162,20 @@ alternatives for identified, specific reasons rather than vague
   causal feedback that pure historical replay lacks. This is the single change
   that eliminated the degenerate instant-liquidation policy (see
   [Critical Engineering Decision #5](#5-degenerate-policy-in-synthetic-lob)
-  and [ADR-002](docs/system_design/ADR.md#adr-002-counterfactual-lob-over-historical-replay)).
+  and [ADR-002](docs/architecture/decision-records.md#adr-002-counterfactual-lob-over-historical-replay)).
 - **`_CPULSTMWrapper` MPS fix** — works around a PyTorch 2.1 MPS LSTM
   kernel crash by pinning only the LSTM submodules to CPU while the
   MLP layers stay on Apple GPU (see
   [Critical Engineering Decision #3](#3-mps-lstm-crash-pytorch-21) and
-  [ADR-005](docs/system_design/ADR.md#adr-005-_cpulstmwrapper-for-the-mps-pytorch-21-bug)).
+  [ADR-005](docs/architecture/decision-records.md#adr-005-_cpulstmwrapper-for-the-mps-pytorch-21-bug)).
 - **JSON-over-stdin/stdout IPC protocol** — the Rust simulation core and
   the Python RL stack are separate processes exchanging newline-delimited
   JSON, avoiding ABI coupling between the two toolchains (see
-  [ADR-001](docs/system_design/ADR.md#adr-001-json-over-stdinstdout-for-ipc)).
-- **428 Rust tests, zero compiler warnings** — enforced by CI
+  [ADR-001](docs/architecture/decision-records.md#adr-001-json-over-stdinstdout-for-ipc)).
+- **265 Rust tests, zero compiler warnings** — enforced by CI
   (`.github/workflows/ci.yml`) on every push. (`unwrap()`/`panic!()` remain
   in a few places outside the LOB-ingestion hot path; see Phase S's
-  graceful-degradation work in `docs/system_design/phase_s_baseline.md`
+  graceful-degradation work in `docs/performance/baseline-profiling.md`
   for what was specifically hardened and why.)
 - **Unified comparison framework** — TWAP, Heuristic, AC Optimal, and
   Adaptive AC each implement the same `.predict(obs, state, episode_start,
@@ -268,12 +278,12 @@ StrataExec is a three-mode system:
 ## Architecture
 
 Full component diagram, data flow, and scalability notes:
-[docs/system_design/HLD.md](docs/system_design/HLD.md). Struct-level
+[docs/architecture/high-level-design.md](docs/architecture/high-level-design.md). Struct-level
 detail (CounterfactualLob fields, fill algorithm, JSON wire protocol, full
 state vector table, RecurrentPPO architecture):
-[docs/system_design/LLD.md](docs/system_design/LLD.md). The 5 key
+[docs/architecture/low-level-design.md](docs/architecture/low-level-design.md). The 5 key
 architecture decisions with alternatives and consequences:
-[docs/system_design/ADR.md](docs/system_design/ADR.md).
+[docs/architecture/decision-records.md](docs/architecture/decision-records.md).
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
@@ -394,7 +404,7 @@ cargo build --release
 ### Quick Smoke Test
 
 ```bash
-# Run all 428 tests (no RPC / network needed)
+# Run all 265 tests (no RPC / network needed)
 cargo test
 
 # Run a quick research simulation (no .env needed)
@@ -591,7 +601,7 @@ The `rl-env` binary communicates over stdin/stdout with newline-delimited JSON:
 
 `build_state()` always emits the 12-dim vector below, plus 4 additional
 time-of-day dims unless `--no-time-features` is passed (see
-[LLD.md](docs/system_design/LLD.md#state-vector-12-dim-v5--16-dim-v6) for
+[docs/architecture/low-level-design.md](docs/architecture/low-level-design.md#state-vector-12-dim-v5--16-dim-v6) for
 the full table including the v6 time dims and evaluation backward
 compatibility with pre-v6 checkpoints).
 
@@ -901,10 +911,10 @@ The stack components are:
 StrataExec implements a comprehensive, multi-layered testing strategy spanning the core execution engine (Rust), the backend services (Pytest), and the user interface (Vitest).
 
 ### 1. Rust Core Engine Simulation Tests
-The Rust core backtester contains **428 tests** checking mathematics, order routing, event priority queues, volatility estimation, and market impact models.
+The Rust core backtester contains **265 tests** checking mathematics, order routing, event priority queues, volatility estimation, and market impact models.
 
 ```bash
-# Run all 428 core Rust tests (requires no database or RPC endpoint)
+# Run all 265 core Rust tests (requires no database or RPC endpoint)
 cargo test
 
 # Run specific strategy tests
@@ -1032,6 +1042,14 @@ StrataExec/
 ├── strataexec.db               # Local SQLite development database
 ├── historical_trades.csv       # Sample calibration data
 ├── README.md
+│
+├── docs/                       # See docs/README.md for the full index
+│   ├── architecture/           # HLD, LLD, and architectural decision records
+│   ├── performance/            # Throughput profiling + regression verification
+│   ├── experiments/            # Research results, numbered chronologically
+│   ├── methodology/            # Standing issues, platform audit
+│   ├── proposals/              # Roadmap and design sketches (not implemented)
+│   └── maintenance/            # Repository housekeeping records
 │
 ├── src/
 │   ├── main.rs                 # Live engine entry point (tokio async)
