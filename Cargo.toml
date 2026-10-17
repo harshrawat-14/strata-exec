@@ -13,7 +13,7 @@ path = "src/bin/research_sim.rs"
 
 [[bin]]
 name = "rl-env"
-path = "src/bin/rl_env.rs"
+path = "src/bin/rl_env/main.rs"
 
 [dependencies]
 tokio = { version = "1", features = ["full"] }

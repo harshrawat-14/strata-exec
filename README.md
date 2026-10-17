@@ -570,7 +570,7 @@ The RL layer trains a RecurrentPPO (LSTM) agent to learn execution timing agains
 Python (sb3-contrib RecurrentPPO)
        │  line-delimited JSON via stdin/stdout
        ▼
-./target/release/rl-env   (Rust — src/bin/rl_env.rs)
+./target/release/rl-env   (Rust — src/bin/rl_env/)
        │
        ├── synthetic mode  →  GBM / GARCH price path
        ├── historical mode →  LobReplay (real Binance snapshots)
@@ -1057,7 +1057,15 @@ StrataExec/
 │   │
 │   ├── bin/
 │   │   ├── research_sim.rs     # Research simulator entry point
-│   │   └── rl_env.rs           # RL environment server (JSON over stdin/stdout)
+│   │   └── rl_env/             # RL environment server (JSON over stdio, Arrow batch mode)
+│   │       ├── main.rs         #   entry point, --print-* queries, stdio loop
+│   │       ├── config.rs       #   constants, ACTION_FRACTIONS, EnvConfig, CLI parsing
+│   │       ├── market_cache.rs #   per-process cache of parsed per-date data
+│   │       ├── env/            #   RlEnv: reset.rs, execution.rs (step/reward), state.rs
+│   │       ├── batched.rs      #   N envs per process (ADR-006)
+│   │       ├── batch_arrow.rs  #   Arrow encode/decode
+│   │       ├── transport.rs    #   JSON wire types, framed Unix-socket batch server
+│   │       └── tests.rs
 │   │
 │   ├── engine/                 # Core orchestration
 │   │   ├── engine.rs           # Block-polling loop + Scheduler integration

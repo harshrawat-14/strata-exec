@@ -140,7 +140,7 @@ replay that parses to zero valid snapshots — the response is instead
 `{"reward": -1.0, "done": true, "state": [0.0, ...] (correct width), "info":
 {"error": "<message>", "terminated_reason": "data_ingestion_failure"}}` rather than the
 process panicking (Phase S graceful degradation; see `DATA_INGESTION_FAILURE_PENALTY`
-in `rl_env.rs`).
+in `src/bin/rl_env/config.rs`).
 
 ## Batched Wire Protocol (Phase S, ADR-006)
 
@@ -174,7 +174,7 @@ vs. `action`) rather than a separate message-type field.
 
 `BatchedRlEnv` shares one `MarketDataCache` (`Rc<RefCell<_>>`) across its N `RlEnv`
 instances, so a date replayed by multiple instances in the batch is parsed from disk
-once between them, not N times (see `MarketDataCache`'s doc comment in `rl_env.rs` and
+once between them, not N times (see `MarketDataCache`'s doc comment in `src/bin/rl_env/market_cache.rs` and
 [../performance/baseline-profiling.md](../performance/baseline-profiling.md) for the measurement this design responds to).
 
 ## State Vector (12-dim v5 / 16-dim v6)
