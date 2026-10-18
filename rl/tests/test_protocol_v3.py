@@ -130,3 +130,44 @@ def test_train_refuses_held_out_selection_dates(monkeypatch):
         train_module.train(mode="counterfactual", multi_dates=list(TRAINING_DATES_V3),
                            eval_dates=["2024-08-05"], total_timesteps=1, n_envs=1,
                            force_device="cpu")
+
+
+@needs_env
+def test_selection_rounds_score_identical_episodes():
+    # SB3's evaluate_policy resets once more than it uses; without rewinding,
+    # each round would start the cycle one position later.
+    import numpy as np
+    from stable_baselines3.common.evaluation import evaluate_policy
+
+    from training.envs import make_multi_date_eval_env
+
+    venv = make_multi_date_eval_env(
+        mode="counterfactual", adversarial=False, eval_dates=[DATE, DATE],
+        btc_target=50_000.0, n_state_dims=16, no_time_features=False,
+        episode_steps=EPISODE_STEPS, starts_per_date=5,
+    )
+    starts = []
+    for env in venv.envs:
+        inner = env.unwrapped
+        original = inner.reset
+
+        def spy(*a, _orig=original, **k):
+            out = _orig(*a, **k)
+            starts.append(out[1]["start_offset"])
+            return out
+        inner.reset = spy
+
+    class SellAll:
+        def predict(self, obs, state=None, episode_start=None, deterministic=True):
+            return np.full((len(obs),), 19), state
+
+    rounds = []
+    for _ in range(2):
+        for env in venv.envs:
+            env.unwrapped.restart_start_cycle()
+        starts.clear()
+        evaluate_policy(SellAll(), venv, n_eval_episodes=10, deterministic=True)
+        rounds.append(sorted(starts[:12]))
+    venv.close()
+    assert rounds[0] == rounds[1]
+    assert len(set(rounds[0])) == 5

@@ -174,6 +174,15 @@ class ResumeSafeEvalCallback(EvalCallback):
                       f"{self.best_mean_reward:.6f}")
 
     def _on_step(self) -> bool:
+        # Protocol v3: rewind each eval env's start cycle before an evaluation
+        # round, so every round scores checkpoints on the identical episodes
+        # (SB3's evaluate_policy does an extra reset per round, which would
+        # otherwise shift the cycle by one position each time).
+        if self.eval_freq > 0 and self.n_calls % self.eval_freq == 0:
+            for env in getattr(self.eval_env, "envs", []):
+                inner = getattr(env, "unwrapped", env)
+                if hasattr(inner, "restart_start_cycle"):
+                    inner.restart_start_cycle()
         prev_best = self.best_mean_reward
         result = super()._on_step()
         if (self._best_reward_path is not None

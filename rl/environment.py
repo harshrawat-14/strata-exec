@@ -269,6 +269,10 @@ class StrataExecEnv(gym.Env):
         # _rebind_date can skip a respawn when the redraw picks the same date.
         self._current_date = lob_date
 
+    def restart_start_cycle(self) -> None:
+        """Begin the `start_cycle` sequence again from its first position."""
+        self._cycle_pos = 0
+
     def _send(self, obj: dict) -> dict:
         if self.process is None or self.process.poll() is not None:
             self._start_process()

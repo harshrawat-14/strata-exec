@@ -350,7 +350,10 @@ def train(
             _patch_mps_lstm(model.policy)
 
         # eval enough episodes that every date gets a fair sample (>=5 each).
-        n_eval_episodes = max(50, len(eval_dates) * 5)
+        # Protocol v3: exactly one pass over each date's 5 start positions, so
+        # every evaluation round sees the same 5 episodes per date.
+        n_eval_episodes = (len(eval_dates) * 5 if episode_steps
+                           else max(50, len(eval_dates) * 5))
         callbacks = [
             # Phase 2R fix (2)+(3): reward-based selection across ALL dates, with
             # best_mean_reward persisted across resume.
