@@ -116,6 +116,12 @@ pub struct EnvConfig {
     /// Existing v4/v5 evaluation must pass --no-time-features to keep observations
     /// dimension-compatible with checkpoints trained before this field existed.
     pub no_time_features: bool,
+    /// Evaluation protocol v3 (`--episode-steps H`): every episode is exactly
+    /// H steps and may start anywhere that still leaves H snapshots of data,
+    /// chosen by the reset message's `start_frac` or drawn from the seed.
+    /// `None` keeps the legacy protocol (horizon = day length or random,
+    /// start = seed % (day/3)) byte-for-byte.
+    pub episode_steps: Option<usize>,
 }
 
 impl Default for EnvConfig {
@@ -135,6 +141,7 @@ impl Default for EnvConfig {
             fixed_steps: false,
             fixed_size: false,
             no_time_features: false,
+            episode_steps: None,
         }
     }
 }
@@ -178,6 +185,7 @@ pub(crate) fn parse_args(args: &[String]) -> Result<EnvConfig, String> {
     // historical/counterfactual calibrated default below doesn't clobber a
     // caller's deliberate override (e.g. a future λ-style sigma_ref sweep).
     let mut sigma_ref_explicit = false;
+    let mut total_steps_explicit = false;
 
     let mut i = 0;
     while i < args.len() {
@@ -199,6 +207,15 @@ pub(crate) fn parse_args(args: &[String]) -> Result<EnvConfig, String> {
             }
             "--total-steps" => {
                 cfg.total_steps = parse_num(flag_value(args, i, flag)?, flag)?;
+                total_steps_explicit = true;
+                i += 1;
+            }
+            "--episode-steps" => {
+                let h: usize = parse_num(flag_value(args, i, flag)?, flag)?;
+                if h == 0 {
+                    return Err("--episode-steps must be positive".to_string());
+                }
+                cfg.episode_steps = Some(h);
                 i += 1;
             }
             "--seed" => {
@@ -241,6 +258,19 @@ pub(crate) fn parse_args(args: &[String]) -> Result<EnvConfig, String> {
             _ => return Err(format!("unknown argument {flag:?}")),
         }
         i += 1;
+    }
+
+    if let Some(h) = cfg.episode_steps {
+        if total_steps_explicit {
+            return Err("--episode-steps and --total-steps are mutually exclusive".to_string());
+        }
+        if matches!(cfg.mode, RlMode::Synthetic) {
+            return Err(
+                "--episode-steps applies to historical and counterfactual modes only".to_string(),
+            );
+        }
+        cfg.total_steps = h;
+        cfg.fixed_steps = true;
     }
 
     // The adversarial agents act on the historical/synthetic book only; the

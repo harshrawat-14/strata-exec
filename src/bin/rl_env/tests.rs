@@ -113,6 +113,7 @@ fn step_allocation_time_share_of_wall_time() {
         fixed_steps: true,
         fixed_size: true,
         no_time_features: true,
+        episode_steps: None,
     };
     let mut env = RlEnv::new(cfg);
 
@@ -209,6 +210,7 @@ fn historical_lob_episode_hash_identical_across_20_runs_same_seed() {
             fixed_steps: true,
             fixed_size: true,
             no_time_features: true,
+            episode_steps: None,
         };
         RlEnv::new(cfg)
     };
@@ -258,6 +260,7 @@ fn make_env() -> RlEnv {
         fixed_steps: false,
         fixed_size: false,
         no_time_features: true,
+        episode_steps: None,
     };
     RlEnv::new(cfg)
 }
@@ -296,6 +299,7 @@ fn reset_on_missing_lob_file_terminates_episode_gracefully_instead_of_panicking(
         fixed_steps: true,
         fixed_size: true,
         no_time_features: true,
+        episode_steps: None,
     };
     let mut env = RlEnv::new(cfg);
     let r = env.reset(Some(1));
@@ -358,6 +362,7 @@ fn reset_on_lob_file_with_zero_valid_snapshots_terminates_gracefully() {
         fixed_steps: true,
         fixed_size: true,
         no_time_features: true,
+        episode_steps: None,
     };
     let mut env = RlEnv::new(cfg);
     let r = env.reset(Some(1));
@@ -434,6 +439,7 @@ fn rl_env_done_when_steps_exhausted() {
         fixed_steps: false,
         fixed_size: false,
         no_time_features: true,
+        episode_steps: None,
     };
     let mut env = RlEnv::new(cfg);
     env.reset(None);
@@ -507,6 +513,7 @@ fn counterfactual_spread_ref_is_rescaled_not_raw_btc_dollar_scale() {
         fixed_steps: true,
         fixed_size: true,
         no_time_features: true,
+        episode_steps: None,
     };
     let mut env = RlEnv::new(cfg);
     env.reset(Some(1));
@@ -572,6 +579,7 @@ fn regime_dims_separate_crash_from_calm_in_first_100_steps() {
             fixed_steps: true,
             fixed_size: true,
             no_time_features: true,
+            episode_steps: None,
         };
         let mut env = RlEnv::new(cfg);
         env.reset(Some(0));
@@ -641,6 +649,7 @@ fn training_horizon_episode_fits_within_day_no_stale_tail() {
         fixed_steps: true,
         fixed_size: true,
         no_time_features: true,
+        episode_steps: None,
     };
     let mut env = RlEnv::new(cfg);
     env.reset(Some(900));
@@ -795,6 +804,7 @@ fn make_env_with_time_features() -> RlEnv {
         fixed_steps: false,
         fixed_size: false,
         no_time_features: false,
+        episode_steps: None,
     };
     RlEnv::new(cfg)
 }
@@ -914,6 +924,7 @@ fn synthetic_cfg_template() -> EnvConfig {
         fixed_steps: true,
         fixed_size: true,
         no_time_features: true,
+        episode_steps: None,
     }
 }
 
@@ -1177,6 +1188,7 @@ fn forced_liquidation_is_not_reward_superior_to_trading() {
         fixed_steps: true,
         fixed_size: true,
         no_time_features: true,
+        episode_steps: None,
     };
 
     // Never-trade policy: action 0 every step, forced-liquidated at the horizon.
@@ -1244,6 +1256,7 @@ fn historical_price_factor_is_fixed_at_episode_start_not_recomputed_per_step() {
         fixed_steps: true,
         fixed_size: true,
         no_time_features: true,
+        episode_steps: None,
     };
     let mut env = RlEnv::new(cfg);
     env.reset(Some(42));
@@ -1303,6 +1316,7 @@ fn forced_liquidation_is_pct_reflects_real_execution_not_pinned_zero() {
         fixed_steps: true,
         fixed_size: true,
         no_time_features: true,
+        episode_steps: None,
     };
     let mut env = RlEnv::new(cfg);
     env.reset(Some(42));
@@ -1439,6 +1453,7 @@ fn forced_liquidation_at_data_exhaustion_walks_the_last_real_book() {
         fixed_steps: true,
         fixed_size: true,
         no_time_features: true,
+        episode_steps: None,
         ..EnvConfig::default()
     };
     let mut env = RlEnv::new(cfg);
@@ -1457,4 +1472,131 @@ fn forced_liquidation_at_data_exhaustion_walks_the_last_real_book() {
         filled > 0.0,
         "forced dump at data exhaustion must fill against real depth, got {filled}"
     );
+}
+
+mod protocol_v3 {
+    use crate::config::*;
+    use crate::env::*;
+
+    const LOB: &str = "TradeData/BookDepth/BTCUSDT-bookDepth-2024-01-15.csv";
+    const H: usize = 1920;
+
+    fn args(list: &[&str]) -> Vec<String> {
+        list.iter().map(|s| s.to_string()).collect()
+    }
+
+    fn v3_env() -> Option<RlEnv> {
+        if !std::path::Path::new(LOB).exists() {
+            eprintln!("skipping: {LOB} not present in this checkout");
+            return None;
+        }
+        let cfg = parse_args(&args(&[
+            "--rl-mode",
+            "counterfactual",
+            "--lob-data",
+            LOB,
+            "--btc-target",
+            "50000",
+            "--fixed-size",
+            "--episode-steps",
+            "1920",
+        ]))
+        .expect("valid v3 arguments");
+        Some(RlEnv::new(cfg))
+    }
+
+    #[test]
+    fn episode_steps_parses_and_validates() {
+        let cfg = parse_args(&args(&[
+            "--rl-mode",
+            "historical",
+            "--episode-steps",
+            "1920",
+        ]))
+        .expect("parses");
+        assert_eq!(cfg.episode_steps, Some(1920));
+        assert_eq!(cfg.total_steps, 1920);
+        assert!(cfg.fixed_steps);
+        for bad in [
+            &["--rl-mode", "historical", "--episode-steps", "0"][..],
+            &["--rl-mode", "synthetic", "--episode-steps", "100"][..],
+            &[
+                "--rl-mode",
+                "historical",
+                "--episode-steps",
+                "100",
+                "--total-steps",
+                "50",
+            ][..],
+        ] {
+            assert!(parse_args(&args(bad)).is_err(), "{bad:?} must be rejected");
+        }
+    }
+
+    #[test]
+    fn latest_start_runs_full_horizon_and_ends_on_real_data() {
+        // The data-exhaustion bug class: every v3 episode must last exactly H
+        // steps and its forced dump must hit a non-empty book.
+        let Some(mut env) = v3_env() else { return };
+        let r = env.reset_at(Some(0), Some(1.0));
+        let max_start = r.info["max_start"].as_u64().unwrap_or(0) as usize;
+        assert_eq!(
+            r.info["start_offset"].as_u64().map(|v| v as usize),
+            Some(max_start)
+        );
+        let (mut steps, mut last) = (0usize, r);
+        while !last.done {
+            last = env.step(0);
+            steps += 1;
+        }
+        assert_eq!(steps, H);
+        assert!(last.info["adjusted_book_depth"].as_f64().unwrap_or(0.0) > 0.0);
+        assert!(last.info["forced_liq_filled_qty"].as_f64().unwrap_or(0.0) > 0.0);
+    }
+
+    #[test]
+    fn seeds_spread_starts_across_the_window() {
+        let Some(mut env) = v3_env() else { return };
+        let starts: Vec<u64> = (0..8)
+            .map(|s| {
+                env.reset(Some(s)).info["start_offset"]
+                    .as_u64()
+                    .unwrap_or(0)
+            })
+            .collect();
+        let distinct: std::collections::BTreeSet<_> = starts.iter().collect();
+        assert!(
+            distinct.len() >= 7,
+            "seeds must give different starts: {starts:?}"
+        );
+        assert!(
+            starts.iter().any(|&s| s > 480),
+            "starts must reach the late window: {starts:?}"
+        );
+    }
+
+    #[test]
+    fn start_frac_is_rejected_outside_protocol_v3_or_range() {
+        let Some(mut env) = v3_env() else { return };
+        let r = env.reset_at(Some(0), Some(1.5));
+        assert!(
+            r.done
+                && r.info["error"]
+                    .as_str()
+                    .unwrap_or("")
+                    .contains("start_frac")
+        );
+
+        let legacy = parse_args(&args(&["--rl-mode", "counterfactual", "--lob-data", LOB]))
+            .expect("valid legacy arguments");
+        let mut env = RlEnv::new(legacy);
+        let r = env.reset_at(Some(0), Some(0.5));
+        assert!(
+            r.done
+                && r.info["error"]
+                    .as_str()
+                    .unwrap_or("")
+                    .contains("--episode-steps")
+        );
+    }
 }

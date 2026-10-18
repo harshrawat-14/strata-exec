@@ -106,6 +106,10 @@ pub struct RlEnv {
     /// Snapshot of `cfg.total_steps` at construction time. The per-episode
     /// `cfg.total_steps` is rebuilt from this each reset (random or fixed).
     base_total_steps: usize,
+    /// Protocol v3: requested start position for the episode being reset.
+    start_frac: Option<f64>,
+    /// Protocol v3: (start_offset, max_start) chosen for the current episode.
+    episode_start: Option<(usize, usize)>,
     /// Snapshot of `cfg.total_inventory` at construction time. The per-episode
     /// `cfg.total_inventory` is rebuilt from this each reset (random or fixed).
     base_total_inventory: f64,
@@ -195,6 +199,8 @@ impl RlEnv {
             volume_series: Vec::new(),
             market_cache,
             base_total_steps,
+            start_frac: None,
+            episode_start: None,
             base_total_inventory,
             episode_size_fraction: 1.0,
         }

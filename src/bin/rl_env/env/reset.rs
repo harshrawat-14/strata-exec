@@ -11,10 +11,22 @@ use strata_exec::market::order_book::OrderBook;
 use crate::config::*;
 use crate::env::*;
 
+/// Salt so the protocol-v3 start draw is independent of the size draw, which
+/// uses the same seed.
+const START_SEED_SALT: u64 = 0x5354_4152_545f_5633; // "START_V3"
+
 impl RlEnv {
     /// Reset the environment for a new episode.
     pub fn reset(&mut self, seed_override: Option<u64>) -> StepResult {
+        self.reset_at(seed_override, None)
+    }
+
+    /// Reset, optionally placing the start within the day's valid window
+    /// (protocol v3, `start_frac` in [0, 1]; requires `--episode-steps`).
+    pub fn reset_at(&mut self, seed_override: Option<u64>, start_frac: Option<f64>) -> StepResult {
         let seed = seed_override.unwrap_or(self.cfg.seed);
+        self.start_frac = start_frac;
+        self.episode_start = None;
 
         // Restore per-episode-overridable values from the construction-time snapshot
         // so randomisation does not drift across repeated resets.
@@ -26,7 +38,7 @@ impl RlEnv {
         // Eval can opt out via --fixed-steps and --fixed-size.
         if matches!(self.cfg.mode, RlMode::Historical | RlMode::Counterfactual) {
             let mut rng = StdRng::seed_from_u64(seed);
-            if !self.cfg.fixed_steps {
+            if !self.cfg.fixed_steps && self.cfg.episode_steps.is_none() {
                 self.cfg.total_steps = rng.gen_range(RANDOM_HORIZON_MIN..=RANDOM_HORIZON_MAX);
             }
             if !self.cfg.fixed_size {
@@ -88,6 +100,10 @@ impl RlEnv {
             "liq_regime": liq_regime,
             "time_features_active": !self.cfg.no_time_features,
         });
+        if let (Some((start, max_start)), Some(obj)) = (self.episode_start, info.as_object_mut()) {
+            obj.insert("start_offset".to_string(), json!(start));
+            obj.insert("max_start".to_string(), json!(max_start));
+        }
         if let Some(cf) = &self.cf_lob {
             let btc_scale = self.cfg.btc_target / self.cfg.total_inventory.max(1.0);
             let adv_btc = if self.cfg.adv_btc > 0.0 {
@@ -107,6 +123,32 @@ impl RlEnv {
             done: false,
             info,
         }
+    }
+
+    /// Episode start snapshot for a day of `n` snapshots.
+    ///
+    /// Legacy protocol: `seed % (n / 3)`. Protocol v3 (`--episode-steps H`):
+    /// any start that leaves H further snapshots, so an episode always ends
+    /// on real data -- placed by `start_frac` when given, else drawn uniformly
+    /// from the seed.
+    pub(crate) fn choose_start(&mut self, n: usize, seed: u64) -> Result<usize, String> {
+        let Some(h) = self.cfg.episode_steps else {
+            if self.start_frac.is_some() {
+                return Err("start_frac requires --episode-steps".to_string());
+            }
+            let max_start = (n / 3).max(1);
+            return Ok((seed as usize) % max_start);
+        };
+        let max_start = n
+            .checked_sub(h + 1)
+            .ok_or_else(|| format!("day has {n} snapshots, fewer than --episode-steps {h} + 1"))?;
+        let start = match self.start_frac {
+            Some(f) if (0.0..=1.0).contains(&f) => (f * max_start as f64).round() as usize,
+            Some(f) => return Err(format!("start_frac must be in [0, 1], got {f}")),
+            None => StdRng::seed_from_u64(seed ^ START_SEED_SALT).gen_range(0..=max_start),
+        };
+        self.episode_start = Some((start, max_start));
+        Ok(start)
     }
 
     pub(crate) fn reset_synthetic(&mut self, seed: u64) {
@@ -162,8 +204,9 @@ impl RlEnv {
         let mut replay = self.market_cache.borrow_mut().load_lob(&path)?;
         let n = replay.len();
         // Auto-align total_steps to replay length.
-        if self.cfg.total_steps == DEFAULT_TOTAL_STEPS
-            || self.cfg.total_steps == HISTORICAL_DEFAULT_STEPS
+        if self.cfg.episode_steps.is_none()
+            && (self.cfg.total_steps == DEFAULT_TOTAL_STEPS
+                || self.cfg.total_steps == HISTORICAL_DEFAULT_STEPS)
         {
             self.cfg.total_steps = n;
         }
@@ -197,10 +240,8 @@ impl RlEnv {
         // Scale depth_ref to simulation units (raw BTC depth × qty_factor).
         self.depth_ref = ((depth_sum / count.max(1) as f64) * qty_factor).max(1.0);
 
-        // Random start within the first third of the day.
         // Different seeds → different arrival prices → non-zero IS variance across episodes.
-        let max_start = (replay.len() / 3).max(1);
-        let start_offset = (seed as usize) % max_start;
+        let start_offset = self.choose_start(replay.len(), seed)?;
         replay.seek(start_offset);
 
         // Pull the snapshot at start_offset as the initial book.
@@ -269,8 +310,9 @@ impl RlEnv {
             .ok_or_else(|| "counterfactual mode requires --lob-data".to_string())?;
         let mut replay = self.market_cache.borrow_mut().load_lob(&path)?;
         let n = replay.len();
-        if self.cfg.total_steps == DEFAULT_TOTAL_STEPS
-            || self.cfg.total_steps == HISTORICAL_DEFAULT_STEPS
+        if self.cfg.episode_steps.is_none()
+            && (self.cfg.total_steps == DEFAULT_TOTAL_STEPS
+                || self.cfg.total_steps == HISTORICAL_DEFAULT_STEPS)
         {
             self.cfg.total_steps = n;
         }
@@ -325,9 +367,7 @@ impl RlEnv {
         replay.reset();
         self.depth_ref = (depth_sum / count.max(1) as f64).max(1.0);
 
-        // Random start within the first third of the day.
-        let max_start = (replay.len() / 3).max(1);
-        let start_offset = (seed as usize) % max_start;
+        let start_offset = self.choose_start(replay.len(), seed)?;
         replay.seek(start_offset);
 
         let first = replay.next_snapshot().ok_or_else(|| {

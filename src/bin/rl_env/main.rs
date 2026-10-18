@@ -220,7 +220,7 @@ fn main() {
         };
 
         let result = if msg.reset {
-            env.reset(msg.seed)
+            env.reset_at(msg.seed, msg.start_frac)
         } else if let Some(a) = msg.action {
             env.step(a)
         } else {

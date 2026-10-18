@@ -21,6 +21,10 @@ pub(crate) struct InMsg {
     pub(crate) reset: bool,
     #[serde(default)]
     pub(crate) seed: Option<u64>,
+    /// Protocol v3 only: where in the day's valid start window to begin
+    /// (0 = earliest, 1 = latest). Absent = draw from the seed.
+    #[serde(default)]
+    pub(crate) start_frac: Option<f64>,
     #[serde(default)]
     pub(crate) action: Option<usize>,
 }
