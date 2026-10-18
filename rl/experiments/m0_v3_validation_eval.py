@@ -21,12 +21,16 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # rl/, for bare im
 import pandas as pd
 
 from evaluation.dates import SEVERITY_RANK_V2, VALIDATION_DATES_V3
+from evaluation.decoding import MeanFractionDecoder
 from evaluation.episode import load_model
 from evaluation.harness import evaluate_all_strategies_on_date
 from evaluation.protocol import AC_LAMBDA, ADAPTIVE_AC_LAMBDA, EPISODE_STEPS, N_EVAL_EPISODES
 
+# M0 = the checkpoint selected offline by mean validation IS under mean-fraction
+# decoding (in-training selection used argmax decoding and picked the near-random
+# 50k checkpoint; see docs/experiments/13-*). Every RL model is decoded the same way.
 MODELS = {
-    "M0": "rl/models/m0_v3_best/best_model",
+    "M0": "rl/models/checkpoints/m0_v3/ckpt_1199952_steps",
     "Step 4 (legacy-trained)": "rl/models/phase3_step4_capacity_entropy_best/best_model",
 }
 OUT = "rl/results/m0_v3_validation.csv"
@@ -35,7 +39,7 @@ OUT = "rl/results/m0_v3_validation.csv"
 def main():
     rows = []
     for model_name, path in MODELS.items():
-        model = load_model(path)
+        model = MeanFractionDecoder(load_model(path))
         for date in VALIDATION_DATES_V3:
             print(f"\n=== {model_name} | {date} ({SEVERITY_RANK_V2[date][1]}) ===")
             res = evaluate_all_strategies_on_date(

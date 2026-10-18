@@ -26,7 +26,8 @@ forced liquidation and episode summary. An AST test rejects literal `sigma_ref` 
 **Instances:** the flat forced-liquidation penalty made "never trade" reward-optimal
 (07-13) · "the objective rewards speculation" concluded from IS-vs-arrival, which is not
 the reward (07-14) · the punitive dump at data exhaustion let a fitted baseline optimise
-the loophole instead of execution (10-18).
+the loophole instead of execution (10-18) · argmax decoding scored a policy that
+never acts that way (10-18).
 
 **Guard:** read the reward code and measure cumulative reward directly before
 theorising. Invariant test: never trading must not beat competent execution, on reward

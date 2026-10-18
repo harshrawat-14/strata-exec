@@ -362,3 +362,21 @@ July audit (Phase −1/0) went back over it.
 - Fixed 16-hour episodes for training and eval, starts spread across the valid window,
   4 validation dates carved from training, held-out dates used once at the end.
 - **Refs:** `docs/methodology/evaluation-protocol-v3.md`.
+
+### 2026-10-18 · METHOD · Argmax decoding misrepresented the RL policy
+- **What:** SB3 `deterministic=True` takes the most likely action. M0's policy puts ~30% on
+  "wait" and ~70% across the sell actions, so argmax waited on 60–84% of steps and dumped
+  10–45% of the order at the end. In-training selection used the same decoding and chose
+  the near-random 50k checkpoint.
+- **Found by:** M0's validation reward never beating its 50k checkpoint, then a
+  checkpoint sweep showing the trained policy force-liquidating only under argmax.
+- **Impact:** every published RL number used argmax; whether legacy checkpoints were
+  affected is OPEN.
+- **Fix / status:** `MeanFractionDecoder` (nearest action to the expected fraction) and
+  offline checkpoint selection on validation IS for all v3 models.
+  **Refs:** `docs/experiments/13-m0-protocol-v3-result.md`. **[L2] [L5]**
+
+### 2026-10-18 · PROCESS · M0's first run stopped at 2 minutes; long runs slept
+- Selection rounds compared different episode mixes; the run was stopped and relaunched
+  with the fix. The relaunch then lost ~4 h 20 min to the laptop sleeping. **Lesson:** run
+  long jobs under `caffeinate -i -w <pid>` on mains power. **[L10]**
