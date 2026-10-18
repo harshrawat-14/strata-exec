@@ -26,3 +26,9 @@ def fit_start_fracs(n_fit: int) -> list:
     """Start positions for fitting a baseline: midway between eval positions'
     spread, so fit and eval episodes cover the same window without coinciding."""
     return [(i + 0.5) / n_fit for i in range(n_fit)]
+
+
+# Honest risk aversion under v3, selected on TRAINING_DATES_V3 only
+# (rl/experiments/v3_lambda_selection.py -> rl/results/v3_lambda_grid.csv).
+AC_LAMBDA = 1e-6
+ADAPTIVE_AC_LAMBDA = 1e-9

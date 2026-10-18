@@ -170,6 +170,7 @@ def evaluate_all_strategies_on_date(
     sqrt_impact_n_fit_seeds: int = 3,
     sqrt_impact_maxiter: int = 25,
     episode_steps: int = None,
+    adaptive_ac_lambda: float = None,
 ) -> dict:
     """
     Evaluate all 5 (or 6, with include_sqrt_impact_optimal) strategies on
@@ -209,6 +210,10 @@ def evaluate_all_strategies_on_date(
     carries its own bootstrap CI rather than being presented as a clean
     point estimate.
 
+    adaptive_ac_lambda: Adaptive-AC's own risk aversion; defaults to ac_lambda.
+    Under protocol v3 the honest values differ (AC 1e-6, Adaptive-AC 1e-9;
+    rl/results/v3_lambda_grid.csv).
+
     episode_steps: evaluation protocol v3 (evaluation/protocol.py). Every
     episode is this long and episode i starts at eval_start_fracs(n)[i] of the
     day's valid window; schedule baselines adopt the env-reported horizon.
@@ -225,7 +230,8 @@ def evaluate_all_strategies_on_date(
         "heuristic": HeuristicPolicy(n_state_dims),
         "ac_optimal": ACOptimalPolicy(n_state_dims, lam=ac_lambda,
                                       track_schedule=bool(episode_steps)),
-        "adaptive_ac": AdaptiveACPolicy(n_state_dims, lam=ac_lambda,
+        "adaptive_ac": AdaptiveACPolicy(n_state_dims,
+                                        lam=ac_lambda if adaptive_ac_lambda is None else adaptive_ac_lambda,
                                         track_schedule=bool(episode_steps)),
         "rl_agent": rl_model,
     }
