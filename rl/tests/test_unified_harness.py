@@ -75,7 +75,7 @@ class TestSharedCostModel:
 
         # Bypass real episode execution -- this test is only about how the
         # env is *constructed* for each strategy, not what happens inside it.
-        def fake_run_episode(model, env, seed):
+        def fake_run_episode(model, env, seed, start_frac=None):
             return -0.5, 0.0, False, [0]
 
         monkeypatch.setattr(harness_module, "_run_episode", fake_run_episode)

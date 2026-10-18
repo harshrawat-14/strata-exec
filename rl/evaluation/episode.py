@@ -76,12 +76,19 @@ def load_model(path: str, device: str = 'cpu', env=None):
         return PPO.load(zip_path, env=env, device=device)
 
 
-def _run_episode(model, env, seed: int):
+def _run_episode(model, env, seed: int, start_frac: float = None):
     """
     Run one episode with correct RecurrentPPO LSTM state tracking.
     Returns (is_pct, episode_reward, forced_liquidation, actions_taken).
+
+    start_frac (protocol v3 only) places the episode start within the day's
+    valid window. Under v3, schedule-based policies are told the horizon the
+    environment reports, so they never assume a different episode length.
     """
-    obs, info = env.reset(seed=seed)
+    options = {"start_frac": start_frac} if start_frac is not None else None
+    obs, info = env.reset(seed=seed, options=options)
+    if getattr(env, "episode_steps", None) and hasattr(model, "set_horizon"):
+        model.set_horizon(info["episode_horizon"])
     arrival_price = info.get("arrival_price", 100.0)
 
     lstm_states = None

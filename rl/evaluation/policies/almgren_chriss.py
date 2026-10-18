@@ -5,7 +5,7 @@ Almgren-Chriss optimal schedule (static and live-volatility adaptive).
 import numpy as np
 
 from environment import CALIBRATED_SIGMA_REF, REGIME_DIMS_ARE_CONTINUOUS
-from ..actions import get_action_fractions, nearest_action
+from ..actions import schedule_target, get_action_fractions, nearest_action
 
 
 # AC risk-aversion default used by the Python AC-family policies below.
@@ -65,11 +65,21 @@ class ACOptimalPolicy:
                  sigma: float = 0.20,
                  lam: float = AC_DEFAULT_LAMBDA,
                  eta: float = 0.10,
-                 total_steps: int = 2880):
+                 total_steps: int = 2880,
+                 track_schedule: bool = False):
         self.fractions = get_action_fractions(n_state_dims)
         self.total_steps = total_steps
+        # track_schedule: protocol v3 -- follow the schedule closed-loop (see
+        # evaluation.actions.schedule_target); False keeps the legacy open loop.
+        self.track_schedule = track_schedule
         self.kappa = np.sqrt(lam * sigma**2 / (eta + 1e-10))
         self._schedule = self._build_schedule()
+
+    def set_horizon(self, total_steps: int) -> None:
+        """Rebuild the schedule for the episode length the environment runs."""
+        if int(total_steps) != self.total_steps:
+            self.total_steps = int(total_steps)
+            self._schedule = self._build_schedule()
 
     def _build_schedule(self) -> np.ndarray:
         """
@@ -105,16 +115,8 @@ class ACOptimalPolicy:
         if t_frac < 0.001 or q_frac < 0.001:
             action = nearest_action(1.0, self.fractions)
         else:
-            step_idx = int((1.0 - t_frac) * self.total_steps)
-            step_idx = min(step_idx, len(self._schedule) - 1)
-
-            ac_original_frac = self._schedule[step_idx]
-
-            if q_frac > 1e-6:
-                target = min(1.0, ac_original_frac / q_frac)
-            else:
-                target = 1.0
-
+            target = schedule_target(self._schedule, q_frac, t_frac,
+                                     self.total_steps, self.track_schedule)
             action = nearest_action(target, self.fractions)
 
         return np.array([action]), state
@@ -156,7 +158,11 @@ class AdaptiveACPolicy:
                  sigma_ref: float = None,
                  lam: float = AC_DEFAULT_LAMBDA,
                  eta: float = 0.10,
-                 total_steps: int = 2880):
+                 total_steps: int = 2880,
+                 track_schedule: bool = False):
+        # track_schedule: protocol v3 -- follow the schedule closed-loop (see
+        # evaluation.actions.schedule_target); False keeps the legacy open loop.
+        self.track_schedule = track_schedule
         # Defaults to the value queried from the Rust binary at import time,
         # never a hardcoded literal (bug-class instance #5 -- this default was
         # `0.20` and no call site overrode it, so it silently diverged from the
@@ -171,6 +177,12 @@ class AdaptiveACPolicy:
         self.lam = lam
         self.eta = eta
         self._ac_cache = {}   # cache (sigma_rounded) -> schedule
+
+    def set_horizon(self, total_steps: int) -> None:
+        """Match the episode length the environment runs (schedules are per-horizon)."""
+        if int(total_steps) != self.total_steps:
+            self.total_steps = int(total_steps)
+            self._ac_cache = {}
 
     def _get_schedule(self, sigma: float) -> np.ndarray:
         """Get or compute AC schedule for given sigma."""
@@ -245,15 +257,8 @@ class AdaptiveACPolicy:
             current_sigma = self._recover_sigma(obs)
 
             schedule = self._get_schedule(current_sigma)
-            step_idx = int((1.0 - t_frac) * self.total_steps)
-            step_idx = min(step_idx, len(schedule) - 1)
-
-            ac_original_frac = schedule[step_idx]
-            if q_frac > 1e-6:
-                target = min(1.0, ac_original_frac / q_frac)
-            else:
-                target = 1.0
-
+            target = schedule_target(schedule, q_frac, t_frac,
+                                     self.total_steps, self.track_schedule)
             action = nearest_action(target, self.fractions)
 
         return np.array([action]), state

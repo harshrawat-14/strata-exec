@@ -66,6 +66,11 @@ STDIO_CONFIGS = {
         "--agg-trades", _agg(CRASH_DATE), "--btc-target", "50000",
         "--fixed-steps", "--fixed-size",
     ],
+    "counterfactual_v3_crash": [
+        "--rl-mode", "counterfactual", "--lob-data", _book(CRASH_DATE),
+        "--agg-trades", _agg(CRASH_DATE), "--btc-target", "50000",
+        "--fixed-size", "--episode-steps", "1920",
+    ],
     "counterfactual_crash_12d_random_horizon": [
         "--rl-mode", "counterfactual", "--lob-data", _book(CRASH_DATE),
         "--agg-trades", _agg(CRASH_DATE), "--btc-target", "50000",
@@ -180,6 +185,7 @@ EVAL_CASES = {
     "counterfactual_calm": dict(date=CALM_DATE, mode="counterfactual"),
     "counterfactual_crash": dict(date=CRASH_DATE, mode="counterfactual"),
     "historical_crash": dict(date=CRASH_DATE, mode="historical"),
+    "counterfactual_v3_calm": dict(date=CALM_DATE, mode="counterfactual", episode_steps=1920),
 }
 EVAL_FIELDS = ("mean_IS", "std_IS", "cvar_95", "cvar_95_ci_lower",
                "cvar_95_ci_upper", "n_episodes")

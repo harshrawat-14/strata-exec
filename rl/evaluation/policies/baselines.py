@@ -17,6 +17,10 @@ class TWAPPolicy:
         self.fractions = get_action_fractions(n_state_dims)
         self.total_steps = 2880  # default evaluation horizon
 
+    def set_horizon(self, total_steps: int) -> None:
+        """Match the episode length the environment actually runs."""
+        self.total_steps = int(total_steps)
+
     def predict(self, obs, state=None, episode_start=None,
                 deterministic=True):
         q_frac = float(obs[0])   # remaining inventory fraction
@@ -46,6 +50,10 @@ class HeuristicPolicy:
         self.total_steps = 2880
         self.vol_weight = vol_weight
         self.depth_weight = depth_weight
+
+    def set_horizon(self, total_steps: int) -> None:
+        """Match the episode length the environment actually runs."""
+        self.total_steps = int(total_steps)
 
     def predict(self, obs, state=None, episode_start=None,
                 deterministic=True):

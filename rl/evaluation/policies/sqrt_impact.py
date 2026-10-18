@@ -10,8 +10,9 @@ from scipy.special import betainc
 import numpy as np
 
 from environment import RL_ENV_BIN, StrataExecEnv
-from ..actions import get_action_fractions, nearest_action
+from ..actions import schedule_target, get_action_fractions, nearest_action
 from ..episode import _run_episode
+from ..protocol import fit_start_fracs
 
 
 def query_calibration(date: str, agg_date: str = None, btc_target: float = 50_000.0) -> dict:
@@ -100,14 +101,21 @@ class SqrtImpactOptimalPolicy:
                  total_steps: int = 2880,
                  n_fit_seeds: int = 3,
                  maxiter: int = 25,
-                 verbose: bool = False):
+                 verbose: bool = False,
+                 episode_steps: int = None):
         self.fractions = get_action_fractions(n_state_dims)
-        self.total_steps = total_steps
+        # Protocol v3: the schedule spans the fixed episode length, and fit
+        # episodes start between the eval starts (see evaluation/protocol.py).
+        self.episode_steps = episode_steps
+        # v3 baselines follow their schedule closed-loop (actions.schedule_target).
+        self.track_schedule = bool(episode_steps)
+        self.total_steps = episode_steps if episode_steps else total_steps
         self.date = date
         # Immediately after the eval range (0..n_eval_episodes-1) -- disjoint
         # (no leakage) and, empirically, the same near-duplicate intraday
         # regime the eval range itself samples (see class docstring).
         self._fit_seed_base = n_eval_episodes
+        self._shape = (1.0, 1.0)
         self._schedule = self._build_schedule(1.0, 1.0)  # TWAP until fit() runs
         self.a, self.b, self.fit_mean_is = self._fit(
             date=date, n_state_dims=n_state_dims, mode=mode,
@@ -115,7 +123,14 @@ class SqrtImpactOptimalPolicy:
             fixed_size=fixed_size, n_fit_seeds=n_fit_seeds,
             maxiter=maxiter, verbose=verbose,
         )
+        self._shape = (self.a, self.b)
         self._schedule = self._build_schedule(self.a, self.b)
+
+    def set_horizon(self, total_steps: int) -> None:
+        """Rebuild the current shape for the episode length the environment runs."""
+        if int(total_steps) != self.total_steps:
+            self.total_steps = int(total_steps)
+            self._schedule = self._build_schedule(*self._shape)
 
     def _build_schedule(self, a: float, b: float) -> np.ndarray:
         """
@@ -139,20 +154,23 @@ class SqrtImpactOptimalPolicy:
             mode=mode, adversarial=False, lob_date=date, agg_date=date,
             n_state_dims=n_state_dims, fixed_steps=fixed_steps,
             fixed_size=fixed_size, no_time_features=n_state_dims < 16,
+            episode_steps=self.episode_steps,
         )
         if mode == "counterfactual":
             env_kwargs["btc_target"] = btc_target
         env = StrataExecEnv(**env_kwargs)
+        fit_fracs = fit_start_fracs(n_fit_seeds) if self.episode_steps else [None] * n_fit_seeds
 
         def objective(log_params) -> float:
             a = float(np.clip(np.exp(log_params[0]), 0.05, 30.0))
             b = float(np.clip(np.exp(log_params[1]), 0.05, 30.0))
+            self._shape = (a, b)
             self._schedule = self._build_schedule(a, b)
 
             is_vals = []
             for i in range(n_fit_seeds):
                 is_pct, _, _, _ = _run_episode(
-                    self, env, seed=self._fit_seed_base + i
+                    self, env, seed=self._fit_seed_base + i, start_frac=fit_fracs[i]
                 )
                 if is_pct is not None:
                     is_vals.append(is_pct)
@@ -202,16 +220,8 @@ class SqrtImpactOptimalPolicy:
         if t_frac < 0.001 or q_frac < 0.001:
             action = nearest_action(1.0, self.fractions)
         else:
-            step_idx = int((1.0 - t_frac) * self.total_steps)
-            step_idx = min(step_idx, len(self._schedule) - 1)
-
-            original_frac = self._schedule[step_idx]
-
-            if q_frac > 1e-6:
-                target = min(1.0, original_frac / q_frac)
-            else:
-                target = 1.0
-
+            target = schedule_target(self._schedule, q_frac, t_frac,
+                                     self.total_steps, self.track_schedule)
             action = nearest_action(target, self.fractions)
 
         return np.array([action]), state

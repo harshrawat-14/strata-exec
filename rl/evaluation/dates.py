@@ -228,3 +228,24 @@ HEURISTIC_IS = {
     "2024-08-05": 1.8078,
     "2024-11-06": 1.8189,
 }
+
+
+# ── V3: validation split carved from TRAINING_DATES_V2 (2026-10-18) ──────────
+# Model selection (best checkpoint, which variant wins) needs dates the model
+# does not train on but that are NOT the held-out test set -- the held-out
+# dates have already been looked at several times, and every further look
+# turns them into a validation set. One date per regime where possible:
+#   2024-04-15 crash  (shares event window A with training 04-12..14 -- a
+#                      known, accepted leak for selection; never for testing)
+#   2024-02-20 normal (isolated)
+#   2024-01-15 calm   (isolated)
+#   2024-09-15 calm   (isolated)
+# 2024-11-06 (calm by AC cost, but an ~8% election rally) stays in training:
+# selecting on it would reward waiting on a trend.
+VALIDATION_DATES_V3 = ["2024-04-15", "2024-02-20", "2024-01-15", "2024-09-15"]
+TRAINING_DATES_V3 = [d for d in TRAINING_DATES_V2 if d not in VALIDATION_DATES_V3]
+HELD_OUT_DATES_V3 = list(HELD_OUT_DATES_V2)
+
+assert set(VALIDATION_DATES_V3) <= set(TRAINING_DATES_V2)
+assert not (set(TRAINING_DATES_V3) & set(VALIDATION_DATES_V3))
+assert not (set(TRAINING_DATES_V3 + VALIDATION_DATES_V3) & set(HELD_OUT_DATES_V3))

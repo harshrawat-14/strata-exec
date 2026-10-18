@@ -480,6 +480,162 @@
     "total_reward": -0.021887054075319944
    }
   },
+  "counterfactual_v3_crash": {
+   "all_max/seed0": {
+    "final_info": {
+     "adjusted_book_depth": 12322.895000000011,
+     "book_mid": 100.30368728962293,
+     "btc_scale": 0.05,
+     "current_sigma": 0.6233571302144366,
+     "depth_reduction_pct": 95.0,
+     "fill_price": 99.50698480606506,
+     "fill_qty": 6058.223999999125,
+     "interval_volume": 61.01200000000014,
+     "is_contribution": -0.007973194367987466,
+     "permanent_impact_pct": 95.0,
+     "real_book_depth": 244671.21999999997,
+     "regime": "normal/normal",
+     "remaining": 0.0,
+     "sigma_ref": 0.4999,
+     "step": 80,
+     "total_IS_pct": 2.0760179866643846,
+     "total_is_dollar": 2076017.9866643846
+    },
+    "n_steps": 80,
+    "sha256": "b84fab2f777e4c0eab37ea6c71a3e89950c64ccd7d6c0ae9afa708f0c8a7bb68",
+    "total_reward": -0.023491933709210055
+   },
+   "all_max/seed17": {
+    "final_info": {
+     "adjusted_book_depth": 11382.86800000001,
+     "book_mid": 97.44090686917505,
+     "btc_scale": 0.05,
+     "current_sigma": 1.7705598960815216,
+     "depth_reduction_pct": 95.0,
+     "fill_price": 95.00186107977927,
+     "fill_qty": 10604.826999999452,
+     "interval_volume": 1090.6709999999682,
+     "is_contribution": -0.025084049273861438,
+     "permanent_impact_pct": 95.0,
+     "real_book_depth": 237039.45999999996,
+     "regime": "high_vol/normal",
+     "remaining": 0.0,
+     "sigma_ref": 0.4999,
+     "step": 66,
+     "total_IS_pct": 2.878277592297867,
+     "total_is_dollar": 2878277.592297867
+    },
+    "n_steps": 66,
+    "sha256": "631fe7bd36dc9f359716dc5c746b5e049d038b51350b09294354d205570ce7a3",
+    "total_reward": -0.023402354289323822
+   },
+   "all_wait/seed0": {
+    "final_info": {
+     "adjusted_book_depth": 125110.84,
+     "book_mid": 99.62641642853785,
+     "btc_scale": 0.05,
+     "current_sigma": 0.9543930525736485,
+     "depth_reduction_pct": 0.0,
+     "fill_price": 99.62641642853785,
+     "fill_qty": 0.0,
+     "forced_liq_filled_notional": 12234888.73358097,
+     "forced_liq_filled_qty": 125110.84,
+     "forced_liq_punitive_notional": 83683643.84660774,
+     "forced_liq_residual_qty": 874889.16,
+     "forced_liquidation_qty": 1000000.0,
+     "interval_volume": 154.12799999999982,
+     "is_contribution": -0.0,
+     "permanent_impact_pct": 0.0,
+     "real_book_depth": 125161.18000000001,
+     "regime": "high_vol/normal",
+     "remaining": 0.0,
+     "sigma_ref": 0.4999,
+     "step": 1920,
+     "total_IS_pct": 4.081467419811278,
+     "total_is_dollar": 4081467.4198112786
+    },
+    "n_steps": 1920,
+    "sha256": "5b116035872efe13b5ca7d15a27582cb2ca4e4fe96851d427d3013fe9d5b2676",
+    "total_reward": -0.05045599944993934
+   },
+   "all_wait/seed17": {
+    "final_info": {
+     "adjusted_book_depth": 125316.83999999998,
+     "book_mid": 99.24593007087532,
+     "btc_scale": 0.05,
+     "current_sigma": 0.8451391259956748,
+     "depth_reduction_pct": 0.0,
+     "fill_price": 99.24593007087532,
+     "fill_qty": 0.0,
+     "forced_liq_filled_notional": 12211014.053963335,
+     "forced_liq_filled_qty": 125316.83999999998,
+     "forced_liq_punitive_notional": 83172216.97227801,
+     "forced_liq_residual_qty": 874683.16,
+     "forced_liquidation_qty": 1000000.0,
+     "interval_volume": 59.24900000000009,
+     "is_contribution": -0.0,
+     "permanent_impact_pct": 0.0,
+     "real_book_depth": 125035.92,
+     "regime": "high_vol/normal",
+     "remaining": 0.0,
+     "sigma_ref": 0.4999,
+     "step": 1920,
+     "total_IS_pct": 4.616768973758653,
+     "total_is_dollar": 4616768.973758653
+    },
+    "n_steps": 1920,
+    "sha256": "43a33723104bcda0ca197299515047a4d956c4fac32cd5896f3a48e8648478a3",
+    "total_reward": -0.05148686962746215
+   },
+   "random/seed0": {
+    "final_info": {
+     "adjusted_book_depth": 10005.399000000009,
+     "book_mid": 100.50604124192404,
+     "btc_scale": 0.05,
+     "current_sigma": 1.1273061571653675,
+     "depth_reduction_pct": 95.0,
+     "fill_price": 99.90522255963494,
+     "fill_qty": 1332.0388631365024,
+     "interval_volume": 486.87700000000086,
+     "is_contribution": -0.005984596195624256,
+     "permanent_impact_pct": 95.0,
+     "real_book_depth": 194596.40000000002,
+     "regime": "high_vol/normal",
+     "remaining": 570.8737984870725,
+     "sigma_ref": 0.4999,
+     "step": 133,
+     "total_IS_pct": 1.8224986721756757,
+     "total_is_dollar": 1822498.6721756756
+    },
+    "n_steps": 133,
+    "sha256": "fac617de8bd8765f1ff23fe51268a76360cb75ea238fd58040d300268c5be555",
+    "total_reward": -0.020032564156982735
+   },
+   "random/seed17": {
+    "final_info": {
+     "adjusted_book_depth": 13286.188000000011,
+     "book_mid": 97.62539520173577,
+     "btc_scale": 0.05,
+     "current_sigma": 2.4496979756191024,
+     "depth_reduction_pct": 95.0,
+     "fill_price": 96.88295384506561,
+     "fill_qty": 2194.357815555173,
+     "interval_volume": 369.3080000000011,
+     "is_contribution": -0.007615974105697903,
+     "permanent_impact_pct": 95.0,
+     "real_book_depth": 269294.92,
+     "regime": "high_vol/normal",
+     "remaining": 0.0,
+     "sigma_ref": 0.4999,
+     "step": 100,
+     "total_IS_pct": 3.135229850802928,
+     "total_is_dollar": 3135229.850802928
+    },
+    "n_steps": 100,
+    "sha256": "694f2ccc85caa5c77665afae9b3ca6b3de69574d510172b50c1c34c5174ad404",
+    "total_reward": -0.020820377954088424
+   }
+  },
   "historical_calm": {
    "all_max/seed0": {
     "final_info": {

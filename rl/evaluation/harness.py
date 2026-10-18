@@ -12,6 +12,7 @@ from .policies.baselines import HeuristicPolicy, TWAPPolicy
 from .policies.almgren_chriss import ACOptimalPolicy, AC_DEFAULT_LAMBDA, AdaptiveACPolicy
 from .policies.sqrt_impact import SqrtImpactOptimalPolicy
 from .episode import _run_episode
+from .protocol import eval_start_fracs
 
 
 def evaluate_model_on_date(
@@ -168,6 +169,7 @@ def evaluate_all_strategies_on_date(
     include_sqrt_impact_optimal: bool = False,
     sqrt_impact_n_fit_seeds: int = 3,
     sqrt_impact_maxiter: int = 25,
+    episode_steps: int = None,
 ) -> dict:
     """
     Evaluate all 5 (or 6, with include_sqrt_impact_optimal) strategies on
@@ -207,6 +209,11 @@ def evaluate_all_strategies_on_date(
     carries its own bootstrap CI rather than being presented as a clean
     point estimate.
 
+    episode_steps: evaluation protocol v3 (evaluation/protocol.py). Every
+    episode is this long and episode i starts at eval_start_fracs(n)[i] of the
+    day's valid window; schedule baselines adopt the env-reported horizon.
+    None (default) keeps the legacy protocol byte-for-byte.
+
     include_sqrt_impact_optimal: adds Step 3's numerically-optimized
     sqrt-impact baseline (SqrtImpactOptimalPolicy, docs/proposals/research-roadmap.md).
     Defaults False -- fitting it runs real episodes through this exact env
@@ -216,8 +223,10 @@ def evaluate_all_strategies_on_date(
     policies = {
         "twap": TWAPPolicy(n_state_dims),
         "heuristic": HeuristicPolicy(n_state_dims),
-        "ac_optimal": ACOptimalPolicy(n_state_dims, lam=ac_lambda),
-        "adaptive_ac": AdaptiveACPolicy(n_state_dims, lam=ac_lambda),
+        "ac_optimal": ACOptimalPolicy(n_state_dims, lam=ac_lambda,
+                                      track_schedule=bool(episode_steps)),
+        "adaptive_ac": AdaptiveACPolicy(n_state_dims, lam=ac_lambda,
+                                        track_schedule=bool(episode_steps)),
         "rl_agent": rl_model,
     }
 
@@ -235,6 +244,7 @@ def evaluate_all_strategies_on_date(
             n_state_dims=n_state_dims, mode=mode, btc_target=btc_target,
             fixed_steps=fixed_steps, fixed_size=fixed_size,
             n_fit_seeds=sqrt_impact_n_fit_seeds, maxiter=sqrt_impact_maxiter,
+            episode_steps=episode_steps,
         )
         print(f"    [SqrtImpactOptimal fit] a={sqrt_policy.a:.3f} "
               f"b={sqrt_policy.b:.3f} fit_mean_IS={sqrt_policy.fit_mean_is:.4f}")
@@ -255,10 +265,13 @@ def evaluate_all_strategies_on_date(
             fixed_steps=fixed_steps,
             fixed_size=fixed_size,
             no_time_features=n_state_dims < 16,
+            episode_steps=episode_steps,
         )
         if mode == "counterfactual":
             env_kwargs["btc_target"] = btc_target
         env = StrataExecEnv(**env_kwargs)
+        # Protocol v3: starts spread evenly across the day's valid window.
+        start_fracs = eval_start_fracs(n_episodes) if episode_steps else [None] * n_episodes
 
         all_is = []
         all_rewards = []
@@ -267,7 +280,7 @@ def evaluate_all_strategies_on_date(
 
         for ep in range(n_episodes):
             is_pct, ep_reward, forced, actions = _run_episode(
-                policy, env, seed=ep
+                policy, env, seed=ep, start_frac=start_fracs[ep]
             )
             if forced:
                 forced_liq += 1
