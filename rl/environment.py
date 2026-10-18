@@ -2,6 +2,7 @@ import gymnasium as gym
 import os
 import subprocess
 import json
+import random
 import numpy as np
 from typing import Optional
 
@@ -142,7 +143,15 @@ class StrataExecEnv(gym.Env):
         no_time_features: bool = False,
         total_steps: Optional[int] = None,
         lob_dates: Optional[list] = None,
+        episode_steps: Optional[int] = None,
+        start_cycle: Optional[int] = None,
     ):
+        # episode_steps: evaluation protocol v3 (`--episode-steps`). Every
+        #   episode is exactly this many steps and may start anywhere in the
+        #   day that still leaves that much data (see evaluation/protocol.py).
+        # start_cycle: v3 only. Seedless resets step through `start_cycle`
+        #   evenly spaced start positions in order, so a selection eval env sees
+        #   the same spread of starts every evaluation round.
         import os
         # Per-episode date resampling. When `lob_dates` is given, this env
         # re-draws a date on every reset() instead of being permanently bound
@@ -214,6 +223,10 @@ class StrataExecEnv(gym.Env):
 
         if total_steps is not None:
             self.cmd.extend(["--total-steps", str(total_steps)])
+        if episode_steps is not None:
+            self.cmd.extend(["--episode-steps", str(episode_steps)])
+        if start_cycle is not None and (episode_steps is None or start_cycle < 2):
+            raise ValueError("start_cycle needs episode_steps and at least 2 positions")
         if fixed_steps:
             self.cmd.append("--fixed-steps")
         if fixed_size:
@@ -243,6 +256,14 @@ class StrataExecEnv(gym.Env):
 
         self.process = None
         self.current_seed = seed
+        self.episode_steps = episode_steps
+        self._start_cycle = start_cycle
+        self._cycle_pos = 0
+        # Seedless resets draw a fresh episode seed from this stream (gymnasium
+        # semantics: reset(seed=s) reseeds it). It used to reuse `seed` itself,
+        # so every training episode after a worker's first replayed the same
+        # start, horizon and order size (see docs/history/timeline.md).
+        self._seed_rng = random.Random(seed)
         self._last_info = {}
         # Tracks which date the current cmd/process is bound to, so
         # _rebind_date can skip a respawn when the redraw picks the same date.
@@ -304,8 +325,19 @@ class StrataExecEnv(gym.Env):
         # kills the current process and `_send` respawns it on the next call.
         if self._lob_dates:
             self._rebind_date(self._rng.choice(self._lob_dates))
-        use_seed = seed if seed is not None else self.current_seed
-        result = self._send({"reset": True, "seed": use_seed})
+        if seed is not None:
+            self._seed_rng = random.Random(seed)
+            use_seed = seed
+        else:
+            use_seed = self._seed_rng.randrange(2**31)
+        msg = {"reset": True, "seed": use_seed}
+        start_frac = (options or {}).get("start_frac")
+        if start_frac is None and self._start_cycle and seed is None:
+            start_frac = (self._cycle_pos % self._start_cycle) / (self._start_cycle - 1)
+            self._cycle_pos += 1
+        if start_frac is not None:
+            msg["start_frac"] = float(start_frac)
+        result = self._send(msg)
         self._last_info = result.get("info", {})
         obs = np.array(result["state"][:self.n_state_dims], dtype=np.float32)
         return obs, self._last_info

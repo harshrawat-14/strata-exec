@@ -9,7 +9,8 @@ from environment import StrataExecEnv
 
 
 def make_multi_date_eval_env(mode, adversarial, eval_dates, btc_target,
-                             n_state_dims, no_time_features):
+                             n_state_dims, no_time_features,
+                             episode_steps=None, starts_per_date=5):
     """
     Phase 2R fix (2): a MULTI-date eval env for best-model selection.
 
@@ -21,12 +22,12 @@ def make_multi_date_eval_env(mode, adversarial, eval_dates, btc_target,
     the held-out crash dates), so EvalCallback's mean reward is averaged across
     all regimes and a policy that collapses on crash days is correctly penalized.
 
-    CAVEAT (documented, for the writeup): including the held-out crash dates in
-    best-model SELECTION means their eval numbers are no longer a clean held-out
-    generalization measure for the selected model. Per explicit instruction, crash
-    behavior must count in selection (or the single-trending-date pathology
-    returns); if a pure generalization claim on the crash dates is later needed, a
-    separate untouched test date must be reserved.
+    Which dates are passed is train.py's decision (validation dates under
+    protocol v3; never the held-out test dates).
+
+    Protocol v3 (episode_steps set): each date's env cycles through
+    `starts_per_date` evenly spaced starts, so every evaluation round scores
+    checkpoints on the same spread of episodes.
     """
     def _one(date):
         return lambda: Monitor(StrataExecEnv(
@@ -34,6 +35,8 @@ def make_multi_date_eval_env(mode, adversarial, eval_dates, btc_target,
             btc_target=btc_target, n_state_dims=n_state_dims, seed=9999,
             fixed_steps=True, fixed_size=True,
             no_time_features=no_time_features,
+            episode_steps=episode_steps,
+            start_cycle=starts_per_date if episode_steps else None,
         ))
     return DummyVecEnv([_one(d) for d in eval_dates])
 
@@ -51,6 +54,7 @@ def make_env(
     fixed_size=False,
     no_time_features=False,
     worker_date=None,
+    episode_steps=None,
 ):
     import random
 
@@ -84,6 +88,7 @@ def make_env(
             fixed_steps=fixed_steps,
             fixed_size=fixed_size,
             no_time_features=no_time_features,
+            episode_steps=episode_steps,
         )
         return Monitor(env)
     return _init

@@ -61,8 +61,15 @@ def train(
     resume_mlflow_run_id: str = None,
     force_device: str = None,
     base_lr: float = 3e-4,
+    episode_steps: int = None,
+    eval_dates: list = None,
 ):
     """
+    episode_steps: evaluation protocol v3 (evaluation/protocol.py) -- every
+    training episode is this long, with a fresh random start and order size.
+    eval_dates: dates for best-model selection (protocol v3: the validation
+    dates). Held-out test dates are refused. None keeps the legacy choice.
+
     resume_from: path to a saved checkpoint (e.g. from CheckpointCallback)
     to resume training from, instead of constructing a fresh model. When
     set, `total_timesteps` is interpreted as the REMAINING steps to train
@@ -127,6 +134,8 @@ def train(
                 action_space_version="v6",
                 mode=mode,
                 no_time_features=no_time_features,
+                episode_steps=episode_steps,
+                eval_dates=",".join(eval_dates) if eval_dates else "",
             ))
 
         print("=" * 60)
@@ -160,6 +169,7 @@ def train(
             fixed_steps=False,
             fixed_size=False,
             no_time_features=no_time_features,
+            episode_steps=episode_steps,
         )
 
         # Regression note: this was hardcoded to 8, silently ignoring the
@@ -184,7 +194,8 @@ def train(
 
         if multi_dates:
             env_fns = [
-                make_env(**env_kwargs, worker_date=multi_dates[i % len(multi_dates)])
+                make_env(**env_kwargs, worker_date=multi_dates[i % len(multi_dates)],
+                         seed=42 + i)
                 for i in range(n_envs)
             ]
             from collections import Counter
@@ -199,14 +210,20 @@ def train(
             except ImportError:
                 pass
         else:
-            env_fns = [make_env(**env_kwargs) for _ in range(n_envs)]
+            env_fns = [make_env(**env_kwargs, seed=42 + i) for i in range(n_envs)]
         train_env = SubprocVecEnv(env_fns)
 
         # Phase 2R fix (2): eval across ALL dates (training + held-out crash),
         # not the single trending-up date multi_dates[0]. See
         # make_multi_date_eval_env for the rationale and the held-out-in-selection
         # caveat.
-        if mode == "counterfactual" and multi_dates:
+        if eval_dates:
+            from evaluation.dates import HELD_OUT_DATES_V2
+            leaked = sorted(set(eval_dates) & set(HELD_OUT_DATES_V2))
+            if leaked:
+                raise ValueError(f"eval_dates include held-out test dates: {leaked}")
+            eval_dates = list(dict.fromkeys(eval_dates))
+        elif mode == "counterfactual" and multi_dates:
             # Phase 3 fix: select on the TRAINING dates only, so held-out dates
             # stay genuinely held out.
             #
@@ -259,7 +276,7 @@ def train(
         eval_env = make_multi_date_eval_env(
             mode=mode, adversarial=adversarial, eval_dates=eval_dates,
             btc_target=btc_target, n_state_dims=n_state_dims,
-            no_time_features=no_time_features,
+            no_time_features=no_time_features, episode_steps=episode_steps,
         )
 
         device = force_device if force_device else get_device()
@@ -429,6 +446,14 @@ if __name__ == "__main__":
                    help="Base learning rate the lr-schedule scales. Default 3e-4. "
                         "Set with --lr-schedule constant to hold a fixed LR (e.g. "
                         "the Phase 2R collapse-region isolation test at 1.9e-4).")
+    p.add_argument("--episode-steps", type=int, default=None,
+                   help="Evaluation protocol v3: fixed episode length in steps "
+                        "(1920 = 16h) with a fresh random start per episode. "
+                        "Omit for the legacy protocol.")
+    p.add_argument("--eval-dates", type=str, default=None,
+                   help="Comma-separated dates for best-model selection "
+                        "(protocol v3: the validation dates). Held-out test "
+                        "dates are refused.")
     args = p.parse_args()
     if args.adversarial and args.mode == "counterfactual":
         p.error("--adversarial is not supported with --mode counterfactual "
@@ -463,4 +488,6 @@ if __name__ == "__main__":
         resume_mlflow_run_id=args.resume_mlflow_run_id,
         force_device=args.device,
         base_lr=args.base_lr,
+        episode_steps=args.episode_steps,
+        eval_dates=[d.strip() for d in args.eval_dates.split(",")] if args.eval_dates else None,
     )
