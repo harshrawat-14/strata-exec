@@ -37,7 +37,8 @@ theorising. Invariant test: never trading must not beat competent execution, on 
 **Instances:** RL compared against baselines from a different simulator (07-11) · crash
 test days inside the training set (07-11) · AC's λ, σ and η hard-coded to handicapping
 values (07-11, 07-18) · AC's λ chosen per date with hindsight (07-20) · checkpoint
-selection scored on the held-out crash days (08-13).
+selection scored on the held-out crash days (08-13) · open-loop AC traded at
+the smallest action bucket instead of its schedule (10-18).
 
 **Guard:** every strategy runs through the same environment and seeds; baselines are
 tuned only on training dates (honest-λ protocol); model selection uses training dates
@@ -50,7 +51,7 @@ truncated to 12 dims (07-11) · `n_envs` hard-coded to 8 (07-13) · `sigma_ref` 
 to 0.20 (08-13) · `random.choice` once per worker pinned training to 3 dates (08-16) ·
 MLflow logged 128×2 for a 64×1 LSTM, and zero metrics before 07-11 · the binary ignored
 unknown flags, unknown modes and bad numbers, so `--jump-diffusion` did nothing (10-17) ·
-every runner overwrote `results/comparison.csv` by default (10-17).
+every runner overwrote `results/comparison.csv` by default (10-17) · seedless resets reused one seed, so every training episode was the same episode (10-18).
 
 **Guard:** strict CLI parsing (unknown input exits 2). Kwargs validated against the
 callee's real signature. Logged config is derived from what is actually constructed.
@@ -61,7 +62,8 @@ Training reports which dates and regimes it really sampled.
 **Instances:** the sinh-overflow test held "on average" despite NaN steps (07-11) ·
 `train.py` "passed" for months because it was never run (07-10) · CI's warning gate
 re-ran a cached build that printed nothing (10-17) · a crate-wide `allow(dead_code)`
-(10-17).
+(10-17) · "random horizon and size" training was never random, and no test sampled
+more than one training episode (10-18).
 
 **Guard:** before trusting a test, make it fail once against the bug it targets (every
 regression test added since 07-13 records this). Golden byte-hash guard for refactors,

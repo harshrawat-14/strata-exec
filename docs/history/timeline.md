@@ -332,3 +332,33 @@ July audit (Phase −1/0) went back over it.
 ### 2026-10-18 · PROCESS · README told users to train adversarially in counterfactual mode
 - **Fix / status:** corrected, and the combination is now rejected. `ppo_adversarial_v1`
   has no MLflow record, so whether it was ever adversarial is unknown. **Refs:** `50d6004`.
+
+### 2026-10-18 · BUG (critical) · Every training episode replayed the same seed
+- **What:** `StrataExecEnv.reset(seed=None)` reused the constructor seed (42 for every
+  worker), and SB3 calls `reset()` without a seed after each worker's first episode. The
+  simulator derives start, horizon and order size from the seed, so every training
+  episode began at 00:21 UTC, lasted 853 steps (to ~07:27 UTC) and used a 58.85% order,
+  on every date. The documented "random 200–1,440 horizon, random size" never happened.
+- **Found by:** tracing how start points flow through the code while implementing
+  protocol v3; confirmed with a real SubprocVecEnv seeded like `RecurrentPPO(seed=42)`
+  (55 episodes, one distinct configuration after the first).
+- **Impact:** every model trained since 2026-05-22, including the Step 4 headline
+  checkpoint, saw 16 fixed morning paths and was evaluated on full days. AC numbers are
+  unaffected; RL has been training on far less variety than assumed.
+- **Fix / status:** per-env seed stream (gymnasium semantics), distinct seed per worker,
+  regression test `test_seedless_resets_draw_new_episodes`. M0 must be retrained.
+  **[L4] [L5]**
+
+### 2026-10-18 · METHOD · Open-loop AC baseline traded at the action table's smallest bucket
+- **What:** at honest λ=1e-6, AC's per-step target was below the smallest non-zero action
+  (0.1% of remaining), so its real pace came from rounding, not its schedule. It finished
+  under the legacy 2,880-step horizon by luck; at 1,920 steps it left ~5% to dump.
+- **Found by:** a new protocol-v3 test asserting AC never force-liquidates.
+- **Impact:** legacy AC numbers describe this quantized policy, not textbook AC.
+- **Fix / status:** v3 baselines track their schedule closed-loop (`schedule_target`);
+  legacy path unchanged. The honest λ must be re-selected under v3. **[L3] [L5]**
+
+### 2026-10-18 · DECISION · Evaluation protocol v3
+- Fixed 16-hour episodes for training and eval, starts spread across the valid window,
+  4 validation dates carved from training, held-out dates used once at the end.
+- **Refs:** `docs/methodology/evaluation-protocol-v3.md`.
