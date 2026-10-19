@@ -64,6 +64,7 @@ def train(
     episode_steps: int = None,
     eval_dates: list = None,
     gamma: float = 0.99,
+    action_space: str = "raw",
 ):
     """
     episode_steps: evaluation protocol v3 (evaluation/protocol.py) -- every
@@ -140,6 +141,7 @@ def train(
                 episode_steps=episode_steps,
                 eval_dates=",".join(eval_dates) if eval_dates else "",
                 gamma=gamma,
+                action_space_kind=action_space,
             ))
 
         print("=" * 60)
@@ -174,6 +176,7 @@ def train(
             fixed_size=False,
             no_time_features=no_time_features,
             episode_steps=episode_steps,
+            action_space=action_space,
         )
 
         # Regression note: this was hardcoded to 8, silently ignoring the
@@ -281,6 +284,7 @@ def train(
             mode=mode, adversarial=adversarial, eval_dates=eval_dates,
             btc_target=btc_target, n_state_dims=n_state_dims,
             no_time_features=no_time_features, episode_steps=episode_steps,
+            action_space=action_space,
         )
 
         device = force_device if force_device else get_device()
@@ -457,6 +461,9 @@ if __name__ == "__main__":
                    help="Evaluation protocol v3: fixed episode length in steps "
                         "(1920 = 16h) with a fresh random start per episode. "
                         "Omit for the legacy protocol.")
+    p.add_argument("--action-space", choices=["raw", "residual_ac"], default="raw",
+                   help="raw: choose sell fractions directly. residual_ac: choose an "
+                        "offset ahead of/behind AC's schedule (M2).")
     p.add_argument("--gamma", type=float, default=0.99,
                    help="PPO discount factor (default 0.99).")
     p.add_argument("--eval-dates", type=str, default=None,
@@ -500,4 +507,5 @@ if __name__ == "__main__":
         episode_steps=args.episode_steps,
         eval_dates=[d.strip() for d in args.eval_dates.split(",")] if args.eval_dates else None,
         gamma=args.gamma,
+        action_space=args.action_space,
     )

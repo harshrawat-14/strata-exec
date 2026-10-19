@@ -8,9 +8,21 @@ from stable_baselines3.common.vec_env import DummyVecEnv
 from environment import StrataExecEnv
 
 
+def _wrap_action_space(env, action_space):
+    """'raw': the env's own sell fractions. 'residual_ac': schedule offsets
+    around AC-Optimal (training/residual_env.py, M2)."""
+    if action_space == "raw":
+        return env
+    if action_space == "residual_ac":
+        from training.residual_env import ResidualACActionWrapper
+        return ResidualACActionWrapper(env)
+    raise ValueError(f"unknown action_space {action_space!r}")
+
+
 def make_multi_date_eval_env(mode, adversarial, eval_dates, btc_target,
                              n_state_dims, no_time_features,
-                             episode_steps=None, starts_per_date=5):
+                             episode_steps=None, starts_per_date=5,
+                             action_space="raw"):
     """
     Phase 2R fix (2): a MULTI-date eval env for best-model selection.
 
@@ -30,14 +42,14 @@ def make_multi_date_eval_env(mode, adversarial, eval_dates, btc_target,
     checkpoints on the same spread of episodes.
     """
     def _one(date):
-        return lambda: Monitor(StrataExecEnv(
+        return lambda: Monitor(_wrap_action_space(StrataExecEnv(
             mode=mode, adversarial=adversarial, lob_date=date, agg_date=date,
             btc_target=btc_target, n_state_dims=n_state_dims, seed=9999,
             fixed_steps=True, fixed_size=True,
             no_time_features=no_time_features,
             episode_steps=episode_steps,
             start_cycle=starts_per_date if episode_steps else None,
-        ))
+        ), action_space))
     return DummyVecEnv([_one(d) for d in eval_dates])
 
 
@@ -55,6 +67,7 @@ def make_env(
     no_time_features=False,
     worker_date=None,
     episode_steps=None,
+    action_space="raw",
 ):
     import random
 
@@ -90,5 +103,5 @@ def make_env(
             no_time_features=no_time_features,
             episode_steps=episode_steps,
         )
-        return Monitor(env)
+        return Monitor(_wrap_action_space(env, action_space))
     return _init

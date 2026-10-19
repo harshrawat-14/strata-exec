@@ -23,14 +23,24 @@ import numpy as np
 import pandas as pd
 
 
+def _agent(model_path, action_space):
+    """RL model decoded the protocol-v3 way for its action space."""
+    from evaluation.decoding import MeanFractionDecoder, MeanValueDecoder
+    from evaluation.episode import load_model
+    from evaluation.residual import DELTAS, ResidualACAgent
+    model = load_model(model_path)
+    if action_space == "residual_ac":
+        return ResidualACAgent(MeanValueDecoder(model, DELTAS))
+    return MeanFractionDecoder(model)
+
+
 def _evaluate(args):
-    name, path, date = args
+    name, path, date, action_space = args
     from environment import StrataExecEnv
-    from evaluation.decoding import MeanFractionDecoder
-    from evaluation.episode import _run_episode, load_model
+    from evaluation.episode import _run_episode
     from evaluation.protocol import EPISODE_STEPS, N_EVAL_EPISODES, eval_start_fracs
 
-    model = MeanFractionDecoder(load_model(path))
+    model = _agent(path, action_space)
     env = StrataExecEnv(mode="counterfactual", lob_date=date, agg_date=date, btc_target=50_000.0,
                         n_state_dims=16, fixed_steps=True, fixed_size=True,
                         episode_steps=EPISODE_STEPS)
@@ -46,6 +56,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--run", required=True, help="training run name (train.py --name)")
     ap.add_argument("--workers", type=int, default=8)
+    ap.add_argument("--action-space", choices=["raw", "residual_ac"], default="raw")
     args = ap.parse_args()
 
     from evaluation.dates import VALIDATION_DATES_V3
@@ -60,7 +71,7 @@ def main():
     if not ckpts:
         sys.exit(f"no checkpoints found for run {args.run!r}")
 
-    jobs = [(n, p, d) for n, p in ckpts.items() for d in VALIDATION_DATES_V3]
+    jobs = [(n, p, d, args.action_space) for n, p in ckpts.items() for d in VALIDATION_DATES_V3]
     with Pool(args.workers) as pool:
         rows = [r for rs in pool.map(_evaluate, jobs, chunksize=1) for r in rs]
     df = pd.DataFrame(rows)

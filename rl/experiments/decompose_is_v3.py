@@ -23,18 +23,27 @@ import numpy as np
 import pandas as pd
 
 
-def _run(args):
-    date, who, model_path = args
-    from environment import StrataExecEnv
-    from evaluation.decoding import MeanFractionDecoder
+def _agent(model_path, action_space):
+    """RL model decoded the protocol-v3 way for its action space."""
+    from evaluation.decoding import MeanFractionDecoder, MeanValueDecoder
     from evaluation.episode import load_model
+    from evaluation.residual import DELTAS, ResidualACAgent
+    model = load_model(model_path)
+    if action_space == "residual_ac":
+        return ResidualACAgent(MeanValueDecoder(model, DELTAS))
+    return MeanFractionDecoder(model)
+
+
+def _run(args):
+    date, who, model_path, action_space = args
+    from environment import StrataExecEnv
     from evaluation.policies.almgren_chriss import ACOptimalPolicy
     from evaluation.protocol import AC_LAMBDA, EPISODE_STEPS, eval_start_fracs
 
     env = StrataExecEnv(mode="counterfactual", lob_date=date, agg_date=date, btc_target=50_000.0,
                         n_state_dims=16, fixed_steps=True, fixed_size=True, episode_steps=EPISODE_STEPS)
     policy = (ACOptimalPolicy(16, lam=AC_LAMBDA, track_schedule=True) if who == "AC"
-              else MeanFractionDecoder(load_model(model_path)))
+              else _agent(model_path, action_space))
     rows = []
     try:
         for ep, frac in enumerate(eval_start_fracs(20)):
@@ -70,10 +79,11 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--model", required=True)
     ap.add_argument("--label", required=True)
+    ap.add_argument("--action-space", choices=["raw", "residual_ac"], default="raw")
     args = ap.parse_args()
     from evaluation.dates import VALIDATION_DATES_V3
 
-    jobs = [(d, w, args.model) for d in VALIDATION_DATES_V3 for w in (args.label, "AC")]
+    jobs = [(d, w, args.model, args.action_space) for d in VALIDATION_DATES_V3 for w in (args.label, "AC")]
     with Pool(8) as pool:
         df = pd.DataFrame([r for rs in pool.map(_run, jobs) for r in rs])
     out = f"rl/results/{args.label.lower()}_v3_is_decomposition.csv"

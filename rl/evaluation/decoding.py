@@ -19,12 +19,16 @@ import torch as th
 from .actions import get_action_fractions, nearest_action
 
 
-class MeanFractionDecoder:
-    """Wrap a RecurrentPPO model; predict() plays the nearest action to E[fraction]."""
+class MeanValueDecoder:
+    """Wrap a RecurrentPPO model whose discrete actions stand for ordered values;
+    predict() plays the action whose value is nearest the expected value."""
 
-    def __init__(self, model, n_state_dims: int = 16):
+    def __init__(self, model, values):
         self.model = model
-        self.fractions = np.asarray(get_action_fractions(n_state_dims), dtype=np.float64)
+        self.values = np.asarray(values, dtype=np.float64)
+
+    def _nearest(self, value: float) -> int:
+        return int(np.argmin(np.abs(self.values - value)))
 
     def predict(self, obs, state=None, episode_start=None, deterministic=True):
         policy = self.model.policy
@@ -43,6 +47,17 @@ class MeanFractionDecoder:
             starts = th.tensor(episode_start, dtype=th.float32, device=policy.device)
             dist, new_states = policy.get_distribution(obs_t, lstm_states, starts)
             probs = dist.distribution.probs.cpu().numpy()
-        expected = probs @ self.fractions
-        actions = np.array([nearest_action(float(f), list(self.fractions)) for f in expected])
+        expected = probs @ self.values
+        actions = np.array([self._nearest(float(v)) for v in expected])
         return actions, (new_states[0].cpu().numpy(), new_states[1].cpu().numpy())
+
+
+class MeanFractionDecoder(MeanValueDecoder):
+    """Raw action space: values are the sell fractions; ties resolved as nearest_action does."""
+
+    def __init__(self, model, n_state_dims: int = 16):
+        super().__init__(model, get_action_fractions(n_state_dims))
+        self.fractions = self.values
+
+    def _nearest(self, value: float) -> int:
+        return nearest_action(value, list(self.values))
