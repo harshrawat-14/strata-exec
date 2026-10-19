@@ -391,3 +391,14 @@ July audit (Phase −1/0) went back over it.
 - **Fix / status:** M1 not adopted; M0 remains best. **Lesson:** check a mechanism claim
   against the algorithm's real parameters before spending a training run on it. **[L9]**
 - **Refs:** `docs/experiments/14-m1-discount-result.md`.
+
+### 2026-10-20 · CLAIM · M2 (residual around AC) negative: learned to lag and burst
+- **What:** with AC's execution underneath, RL only had to pick a schedule offset. It
+  learned to fall behind and catch up in bursts (up to 4.9% of the order per trade,
+  ~300 offset switches per episode), losing 0.20–0.29 pp to AC on every validation date
+  (0 of 6 predictions met). Validation got worse with training while training reward
+  improved.
+- **Cause:** lagging is free on the step it happens and costs only at the later catch-up,
+  beyond PPO's ~17-step credit horizon (GAE λ 0.95). The same blind spot explains M0's
+  fixed early selling and M1's failure. **[L2] [L6]**
+- **Refs:** `docs/experiments/15-m2-residual-ac-result.md`.
