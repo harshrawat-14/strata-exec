@@ -105,7 +105,8 @@ held-out set once.
 ## L9 · An issue judged "cosmetic" without measuring it
 
 **Instances:** start-offset bounds called harmless because seeds are small (07-15), which
-hid both the near-duplicate episodes (08-16) and the empty-book dump (10-18) for months.
+hid both the near-duplicate episodes (08-16) and the empty-book dump (10-18) for months. · "γ = 0.99 limits planning to ~100 steps" acted on without checking that GAE's
+λ = 0.95 caps credit at ~20 steps either way (10-19).
 
 **Guard:** a "doesn't matter" verdict needs a number from every policy it could touch,
 including the ones that behave differently from the one you checked.

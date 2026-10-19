@@ -380,3 +380,14 @@ July audit (Phase −1/0) went back over it.
 - Selection rounds compared different episode mixes; the run was stopped and relaunched
   with the fix. The relaunch then lost ~4 h 20 min to the laptop sleeping. **Lesson:** run
   long jobs under `caffeinate -i -w <pid>` on mains power. **[L10]**
+
+### 2026-10-19 · CLAIM · M1 (γ 0.999) negative; its design missed GAE's horizon
+- **What:** M1 raised γ to lengthen the planning horizon, but PPO's credit horizon is set
+  by GAE, ~1/(1−γλ): with λ = 0.95 it moved only from ~17 to ~20 steps, while the value
+  target became a noisier 1,000-step sum. M1 learned slowly and at 1.5M still dumped the
+  order in the first 5% of the episode (validation IS −1.27% vs M0's −0.47%); 1 of 5
+  predictions met, and that one for the wrong reason.
+- **Found by:** the pre-registered comparison, then checking the actual algorithm.
+- **Fix / status:** M1 not adopted; M0 remains best. **Lesson:** check a mechanism claim
+  against the algorithm's real parameters before spending a training run on it. **[L9]**
+- **Refs:** `docs/experiments/14-m1-discount-result.md`.
