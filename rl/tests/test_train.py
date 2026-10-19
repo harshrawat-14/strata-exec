@@ -365,3 +365,32 @@ class TestLoggedArchitectureMatchesModel:
 
         assert logged["lstm_hidden"] == built["lstm_hidden_size"]
         assert logged["lstm_layers"] == built["n_lstm_layers"]
+
+    def test_gamma_reaches_ppo_and_is_logged(self, monkeypatch):
+        import train as train_module
+
+        logged, ppo_kwargs = {}, {}
+
+        class FakeRecurrentPPO:
+            def __init__(self, *args, **kwargs):
+                ppo_kwargs.update(kwargs)
+                raise TestLoggedArchitectureMatchesModel._Stop()
+
+        class FakeRun:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+        monkeypatch.setattr(train_module.mlflow, "start_run", lambda **k: FakeRun())
+        monkeypatch.setattr(train_module.mlflow, "log_params", logged.update)
+        monkeypatch.setattr(train_module, "SubprocVecEnv", lambda fns: object())
+        monkeypatch.setattr(train_module, "make_multi_date_eval_env", lambda *a, **k: object())
+        monkeypatch.setattr(train_module, "RecurrentPPO", FakeRecurrentPPO)
+
+        with pytest.raises(self._Stop):
+            train(mode="synthetic", total_timesteps=1, n_envs=1, force_device="cpu",
+                  run_name="gamma_check", gamma=0.999)
+        assert ppo_kwargs["gamma"] == 0.999
+        assert logged["gamma"] == 0.999

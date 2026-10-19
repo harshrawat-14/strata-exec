@@ -63,12 +63,15 @@ def train(
     base_lr: float = 3e-4,
     episode_steps: int = None,
     eval_dates: list = None,
+    gamma: float = 0.99,
 ):
     """
     episode_steps: evaluation protocol v3 (evaluation/protocol.py) -- every
     training episode is this long, with a fresh random start and order size.
     eval_dates: dates for best-model selection (protocol v3: the validation
     dates). Held-out test dates are refused. None keeps the legacy choice.
+    gamma: PPO discount. 0.99 plans ~100 steps ahead (~50 min), short against
+    a 1,920-step v3 episode; M1 tests 0.999 (docs/experiments/14-*).
 
     resume_from: path to a saved checkpoint (e.g. from CheckpointCallback)
     to resume training from, instead of constructing a fresh model. When
@@ -136,6 +139,7 @@ def train(
                 no_time_features=no_time_features,
                 episode_steps=episode_steps,
                 eval_dates=",".join(eval_dates) if eval_dates else "",
+                gamma=gamma,
             ))
 
         print("=" * 60)
@@ -324,7 +328,7 @@ def train(
                 n_steps=2048,
                 batch_size=256,
                 n_epochs=10,
-                gamma=0.99,
+                gamma=gamma,
                 gae_lambda=0.95,
                 clip_range=0.2,
                 ent_coef=ent_coef,
@@ -453,6 +457,8 @@ if __name__ == "__main__":
                    help="Evaluation protocol v3: fixed episode length in steps "
                         "(1920 = 16h) with a fresh random start per episode. "
                         "Omit for the legacy protocol.")
+    p.add_argument("--gamma", type=float, default=0.99,
+                   help="PPO discount factor (default 0.99).")
     p.add_argument("--eval-dates", type=str, default=None,
                    help="Comma-separated dates for best-model selection "
                         "(protocol v3: the validation dates). Held-out test "
@@ -493,4 +499,5 @@ if __name__ == "__main__":
         base_lr=args.base_lr,
         episode_steps=args.episode_steps,
         eval_dates=[d.strip() for d in args.eval_dates.split(",")] if args.eval_dates else None,
+        gamma=args.gamma,
     )
