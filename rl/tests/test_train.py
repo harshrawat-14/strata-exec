@@ -391,6 +391,8 @@ class TestLoggedArchitectureMatchesModel:
 
         with pytest.raises(self._Stop):
             train(mode="synthetic", total_timesteps=1, n_envs=1, force_device="cpu",
-                  run_name="gamma_check", gamma=0.999)
+                  run_name="gamma_check", gamma=0.999, gae_lambda=0.99)
         assert ppo_kwargs["gamma"] == 0.999
         assert logged["gamma"] == 0.999
+        assert ppo_kwargs["gae_lambda"] == 0.99
+        assert logged["gae_lambda"] == 0.99

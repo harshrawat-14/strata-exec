@@ -65,6 +65,7 @@ def train(
     eval_dates: list = None,
     gamma: float = 0.99,
     action_space: str = "raw",
+    gae_lambda: float = 0.95,
 ):
     """
     episode_steps: evaluation protocol v3 (evaluation/protocol.py) -- every
@@ -73,6 +74,9 @@ def train(
     dates). Held-out test dates are refused. None keeps the legacy choice.
     gamma: PPO discount. 0.99 plans ~100 steps ahead (~50 min), short against
     a 1,920-step v3 episode; M1 tests 0.999 (docs/experiments/14-*).
+    gae_lambda: GAE lambda. PPO's credit horizon is ~1/(1 - gamma*lambda):
+    ~17 steps at the defaults; M3 tests 0.99 with gamma 0.999 (~90 steps,
+    docs/experiments/16-*).
 
     resume_from: path to a saved checkpoint (e.g. from CheckpointCallback)
     to resume training from, instead of constructing a fresh model. When
@@ -141,6 +145,7 @@ def train(
                 episode_steps=episode_steps,
                 eval_dates=",".join(eval_dates) if eval_dates else "",
                 gamma=gamma,
+                gae_lambda=gae_lambda,
                 action_space_kind=action_space,
             ))
 
@@ -333,7 +338,7 @@ def train(
                 batch_size=256,
                 n_epochs=10,
                 gamma=gamma,
-                gae_lambda=0.95,
+                gae_lambda=gae_lambda,
                 clip_range=0.2,
                 ent_coef=ent_coef,
                 policy_kwargs=dict(
@@ -466,6 +471,8 @@ if __name__ == "__main__":
                         "offset ahead of/behind AC's schedule (M2).")
     p.add_argument("--gamma", type=float, default=0.99,
                    help="PPO discount factor (default 0.99).")
+    p.add_argument("--gae-lambda", type=float, default=0.95,
+                   help="GAE lambda (default 0.95). Credit horizon ~1/(1-gamma*lambda).")
     p.add_argument("--eval-dates", type=str, default=None,
                    help="Comma-separated dates for best-model selection "
                         "(protocol v3: the validation dates). Held-out test "
@@ -508,4 +515,5 @@ if __name__ == "__main__":
         eval_dates=[d.strip() for d in args.eval_dates.split(",")] if args.eval_dates else None,
         gamma=args.gamma,
         action_space=args.action_space,
+        gae_lambda=args.gae_lambda,
     )
