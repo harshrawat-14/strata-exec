@@ -56,6 +56,7 @@ findings were retracted and the retractions are preserved deliberately rather th
 | 13 | [m0-protocol-v3-predictions.md](experiments/13-m0-protocol-v3-predictions.md) · [result](experiments/13-m0-protocol-v3-result.md) | M0 under protocol v3: beats AC on the validation crash date, within 0.07–0.35 pp on normal/calm; argmax decoding replaced by mean-fraction decoding |
 | 14 | [m1-discount-predictions.md](experiments/14-m1-discount-predictions.md) · [result](experiments/14-m1-discount-result.md) | **Negative.** γ 0.999 alone barely lengthens PPO's credit horizon (GAE λ sets it) and slows learning |
 | 15 | [m2-residual-ac-predictions.md](experiments/15-m2-residual-ac-predictions.md) · [result](experiments/15-m2-residual-ac-result.md) | **Negative.** RL picking offsets around AC learns to lag and burst; common cause across M0–M2 is PPO's ~17-step credit horizon |
+| 16 | [m3-credit-horizon-predictions.md](experiments/16-m3-credit-horizon-predictions.md) · [result](experiments/16-m3-credit-horizon-result.md) | **Interim.** ~91-step credit horizon learns steadily but not converged at 3M (−0.92%) |
 
 Predictions files are **pre-registered** — written and committed before the corresponding experiment
 was run, so the result cannot be retrofitted to the outcome.

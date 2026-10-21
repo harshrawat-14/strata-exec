@@ -402,3 +402,11 @@ July audit (Phase −1/0) went back over it.
   beyond PPO's ~17-step credit horizon (GAE λ 0.95). The same blind spot explains M0's
   fixed early selling and M1's failure. **[L2] [L6]**
 - **Refs:** `docs/experiments/15-m2-residual-ac-result.md`.
+
+### 2026-10-21 · CLAIM · M3 (γ 0.999, λ 0.99) not converged at 3M; 0 of 5 predictions met
+- **What:** the ~91-step credit horizon learns steadily (validation IS −2.23% → −0.92%,
+  steepest at the end) but at 3M still sells the order in the first ~8% of the episode,
+  like M0 at ~0.5M. Predictions assumed it would pass M0 within the budget.
+- **Lesson:** the training cost of a longer credit horizon was underestimated twice (M1,
+  M3); budget runs from the observed learning curve, not from the base recipe. **[L8]**
+- **Refs:** `docs/experiments/16-m3-credit-horizon-result.md`.
