@@ -53,3 +53,24 @@ Resumed from the 3M checkpoint with no setting changed, to 6M total steps. **Sto
 rule, fixed now:** if no checkpoint up to 6M beats M0's −0.4651% mean validation IS
 (selected the same way), the credit-horizon line is closed and the next experiment is
 potential-based shaping that charges the cost of falling behind immediately.
+
+## Final result at 6M — line closed by the pre-registered rule
+
+Resumed from 3M with every setting carried over (verified: γ 0.999, λ 0.99, `ent_coef`
+0.01), 70 min, no errors. Re-selection over all 60 checkpoints picks **6M at −0.634%**
+mean validation IS. The curve flattened between 3M and 4.5M (−0.82% to −1.12%), then
+improved to −0.63% by 6M: doubling the training bought ~0.3 pp.
+
+6M checkpoint vs AC (`rl/results/m3_6m_v3_is_decomposition.csv`, pp):
+
+| date | regime | IS | execution | timing | avg sell time (AC 0.45) | largest trade |
+|---|---|---:|---:|---:|---:|---:|
+| 01-15 | calm | −0.65 | −0.52 | −0.12 | 0.11 | 9.8% |
+| 02-20 | normal | −0.42 | −0.28 | −0.13 | 0.14 | 6.7% |
+| 04-15 | crash | +0.48 | −0.25 | +0.76 | 0.17 | 3.0% |
+| 09-15 | calm | −0.17 | −0.29 | +0.14 | 0.10 | 7.8% |
+
+**−0.634% does not beat M0's −0.4651%, so the credit-horizon line is closed.** At 6M M3
+has M0's profile — crash-day win by early selling, worse execution than AC everywhere —
+only weaker on calm days. A ~5× longer credit horizon did not teach PPO AC-quality
+execution within a feasible budget.

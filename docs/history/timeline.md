@@ -410,3 +410,8 @@ July audit (Phase −1/0) went back over it.
 - **Lesson:** the training cost of a longer credit horizon was underestimated twice (M1,
   M3); budget runs from the observed learning curve, not from the base recipe. **[L8]**
 - **Refs:** `docs/experiments/16-m3-credit-horizon-result.md`.
+
+### 2026-10-21 · DECISION · Credit-horizon line closed at 6M
+- M3 continued to 6M under a stopping rule fixed before resuming. Best −0.634% (M0
+  −0.465%): rule triggered, line closed. At 6M M3 matches M0's profile (crash win from
+  early selling, worse execution than AC everywhere). **Refs:** doc 16.
