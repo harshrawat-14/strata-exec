@@ -46,3 +46,10 @@ far more training than budgeted: by sample count M3 at 3M is roughly where M0 wa
 ## Status
 
 Interim. M0 remains the best RL model; AC leads the validation mean.
+
+## Continuation to 6M (decided 2026-10-21, before resuming)
+
+Resumed from the 3M checkpoint with no setting changed, to 6M total steps. **Stopping
+rule, fixed now:** if no checkpoint up to 6M beats M0's −0.4651% mean validation IS
+(selected the same way), the credit-horizon line is closed and the next experiment is
+potential-based shaping that charges the cost of falling behind immediately.
