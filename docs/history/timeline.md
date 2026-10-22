@@ -431,3 +431,12 @@ July audit (Phase −1/0) went back over it.
   returns of the decoded deterministic policy and read corr 0.13 as "bad critic". PPO's
   own explained variance (0.70–0.93 throughout training) shows the critic was fine.
 - **Fix / status:** caught before acting on it; recorded in doc 18. **[L2]**
+
+### 2026-10-22 · METHOD · M4's best validation score is mostly selection, not skill
+- **What:** M4's selected 200k checkpoint (−0.311%) beat AC and M0, but a constant 1.5×
+  pace scores −0.245% on the same episodes. The selected checkpoint is near its random
+  start (fast seller); picking the best of 16 checkpoints on four falling validation
+  dates favours speed. Later checkpoints degrade into pausing and forced dumps.
+- **Lesson:** always compare a learned policy with the simple fixed baselines its action
+  space makes available, before reading a gain as learned. **[L3] [L8]**
+- **Refs:** `docs/experiments/19-m4-rate-actions-result.md`.
