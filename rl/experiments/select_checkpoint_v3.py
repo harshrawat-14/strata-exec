@@ -27,10 +27,13 @@ def _agent(model_path, action_space):
     """RL model decoded the protocol-v3 way for its action space."""
     from evaluation.decoding import MeanFractionDecoder, MeanValueDecoder
     from evaluation.episode import load_model
+    from evaluation.rate import RATES, RateAgent
     from evaluation.residual import DELTAS, ResidualACAgent
     model = load_model(model_path)
     if action_space == "residual_ac":
         return ResidualACAgent(MeanValueDecoder(model, DELTAS))
+    if action_space == "rate":
+        return RateAgent(MeanValueDecoder(model, RATES))
     return MeanFractionDecoder(model)
 
 
@@ -56,7 +59,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--run", required=True, help="training run name (train.py --name)")
     ap.add_argument("--workers", type=int, default=8)
-    ap.add_argument("--action-space", choices=["raw", "residual_ac"], default="raw")
+    ap.add_argument("--action-space", choices=["raw", "residual_ac", "rate"], default="raw")
     args = ap.parse_args()
 
     from evaluation.dates import VALIDATION_DATES_V3

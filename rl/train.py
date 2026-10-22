@@ -466,9 +466,10 @@ if __name__ == "__main__":
                    help="Evaluation protocol v3: fixed episode length in steps "
                         "(1920 = 16h) with a fresh random start per episode. "
                         "Omit for the legacy protocol.")
-    p.add_argument("--action-space", choices=["raw", "residual_ac"], default="raw",
+    p.add_argument("--action-space", choices=["raw", "residual_ac", "rate"], default="raw",
                    help="raw: choose sell fractions directly. residual_ac: choose an "
-                        "offset ahead of/behind AC's schedule (M2).")
+                        "offset ahead of/behind AC's schedule (M2). rate: multiples "
+                        "of the steady selling rate (M4).")
     p.add_argument("--gamma", type=float, default=0.99,
                    help="PPO discount factor (default 0.99).")
     p.add_argument("--gae-lambda", type=float, default=0.95,

@@ -10,12 +10,16 @@ from environment import StrataExecEnv
 
 def _wrap_action_space(env, action_space):
     """'raw': the env's own sell fractions. 'residual_ac': schedule offsets
-    around AC-Optimal (training/residual_env.py, M2)."""
+    around AC-Optimal (training/residual_env.py, M2). 'rate': multiples of
+    the steady selling rate (training/rate_env.py, M4)."""
     if action_space == "raw":
         return env
     if action_space == "residual_ac":
         from training.residual_env import ResidualACActionWrapper
         return ResidualACActionWrapper(env)
+    if action_space == "rate":
+        from training.rate_env import RateActionWrapper
+        return RateActionWrapper(env)
     raise ValueError(f"unknown action_space {action_space!r}")
 
 
