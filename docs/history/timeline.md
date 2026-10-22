@@ -415,3 +415,13 @@ July audit (Phase −1/0) went back over it.
 - M3 continued to 6M under a stopping rule fixed before resuming. Best −0.634% (M0
   −0.465%): rule triggered, line closed. At 6M M3 matches M0's profile (crash win from
   early selling, worse execution than AC everywhere). **Refs:** doc 16.
+
+### 2026-10-22 · CLAIM · "RL can't see its own delayed impact cost" — withdrawn by M4's pre-check
+- **What:** after M3, RL's execution gap was explained as delayed impact cost beyond PPO's
+  credit reach, and presented to the user with confidence before being measured. M4's
+  pre-check (fixed rule: impact must predict cost-to-go at |t| > 5) found t = −0.27 over
+  36,449 training-date observations; remaining inventory alone explains R² 0.79.
+- **Fix / status:** M4 not trained; explanation withdrawn; the execution gap is open.
+- **Lesson:** a plausible mechanism is a hypothesis until a cheap test supports it — say
+  so when explaining it. The pre-check rule worked as intended. **[L9]**
+- **Refs:** `docs/experiments/17-m4-impact-shaping-precheck.md`.
