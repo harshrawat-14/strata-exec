@@ -58,6 +58,7 @@ findings were retracted and the retractions are preserved deliberately rather th
 | 15 | [m2-residual-ac-predictions.md](experiments/15-m2-residual-ac-predictions.md) · [result](experiments/15-m2-residual-ac-result.md) | **Negative.** RL picking offsets around AC learns to lag and burst; common cause across M0–M2 is PPO's ~17-step credit horizon |
 | 16 | [m3-credit-horizon-predictions.md](experiments/16-m3-credit-horizon-predictions.md) · [result](experiments/16-m3-credit-horizon-result.md) | **Negative, line closed.** ~91-step credit horizon: −0.92% at 3M, −0.63% at 6M; never beats M0 |
 | 17 | [m4-impact-shaping-precheck.md](experiments/17-m4-impact-shaping-precheck.md) | **Stopped by pre-check.** Impact level does not predict future cost (t = −0.27); delayed-impact explanation withdrawn |
+| 18 | [execution-gap-diagnostics.md](experiments/18-execution-gap-diagnostics.md) | Constant 'sell 0.3%' beats M0; AC needs 837 action switches/episode; trades > 0.3% of the order cost 2.7× per unit |
 
 Predictions files are **pre-registered** — written and committed before the corresponding experiment
 was run, so the result cannot be retrofitted to the outcome.

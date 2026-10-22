@@ -425,3 +425,9 @@ July audit (Phase −1/0) went back over it.
 - **Lesson:** a plausible mechanism is a hypothesis until a cheap test supports it — say
   so when explaining it. The pre-check rule worked as intended. **[L9]**
 - **Refs:** `docs/experiments/17-m4-impact-shaping-precheck.md`.
+
+### 2026-10-22 · METHOD · Value-function diagnostic compared the critic with the wrong policy
+- **What:** diagnostic B compared M0's critic (trained on the sampling policy) with
+  returns of the decoded deterministic policy and read corr 0.13 as "bad critic". PPO's
+  own explained variance (0.70–0.93 throughout training) shows the critic was fine.
+- **Fix / status:** caught before acting on it; recorded in doc 18. **[L2]**
