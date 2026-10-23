@@ -145,6 +145,7 @@ class StrataExecEnv(gym.Env):
         lob_dates: Optional[list] = None,
         episode_steps: Optional[int] = None,
         start_cycle: Optional[int] = None,
+        order_share_adv: Optional[float] = None,
     ):
         # episode_steps: evaluation protocol v3 (`--episode-steps`). Every
         #   episode is exactly this many steps and may start anywhere in the
@@ -152,6 +153,9 @@ class StrataExecEnv(gym.Env):
         # start_cycle: v3 only. Seedless resets step through `start_cycle`
         #   evenly spaced start positions in order, so a selection eval env sees
         #   the same spread of starts every evaluation round.
+        # order_share_adv: protocol v3.1 -- size the order as this share of the
+        #   date's 20-day trailing ADV (evaluation/liquidity.py), overriding
+        #   btc_target, so the order is the same relative task on every date.
         import os
         # Per-episode date resampling. When `lob_dates` is given, this env
         # re-draws a date on every reset() instead of being permanently bound
@@ -184,6 +188,12 @@ class StrataExecEnv(gym.Env):
                 raise FileNotFoundError(f"Historical AggTrades data file not found for date: {agg_date} (path: {agg_path})")
 
         super().__init__()
+        self.order_share_adv = order_share_adv
+        if order_share_adv is not None:
+            if mode == "synthetic" or not lob_date:
+                raise ValueError("order_share_adv needs a replay mode and a date")
+            from evaluation.liquidity import order_btc
+            btc_target = order_btc(lob_date, order_share_adv)
 
 
         self.cmd = [
@@ -299,6 +309,10 @@ class StrataExecEnv(gym.Env):
             elif tok.startswith("TradeData/AggTrades/"):
                 self.cmd[i] = f"TradeData/AggTrades/BTCUSDT-aggTrades-{date}.csv"
         self._current_date = date
+        if self.order_share_adv is not None:
+            from evaluation.liquidity import order_btc
+            i = self.cmd.index("--btc-target")
+            self.cmd[i + 1] = str(order_btc(date, self.order_share_adv))
         # Drop the running process; _send respawns from the updated cmd.
         if self.process and self.process.poll() is None:
             self.process.terminate()

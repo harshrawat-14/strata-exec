@@ -440,3 +440,16 @@ July audit (Phase −1/0) went back over it.
 - **Lesson:** always compare a learned policy with the simple fixed baselines its action
   space makes available, before reading a gain as learned. **[L3] [L8]**
 - **Refs:** `docs/experiments/19-m4-rate-actions-result.md`.
+
+### 2026-10-23 · BUG (critical) · The simulated order book has a ~45 bp cost floor
+- **What:** Binance `bookDepth` gives cumulative depth in ±1..5% bands, not an order book.
+  The simulator treats the 1% band as the best level, so every sale pays ~43–51 bp below
+  mid (simulated spread 86–103 bp vs ~0.02 bp real), and IS is identical for orders of
+  500 to 50,000 BTC. Every strategy's ~0.46% "execution" cost is this floor.
+- **Found by:** v3.1 baselines giving identical results at 0.5%, 1% and 2% of ADV.
+- **Impact:** all execution-cost comparisons since the counterfactual simulator was built;
+  strategy differences reduce mostly to timing. Doc 06 had flagged `half_spread()` as a
+  weak proxy for this format without drawing the consequence. **[L9]**
+- **Also:** an earlier claim that the fixed 240k ADV overstated impact up to 5× was wrong
+  (calibration absorbs it exactly) — caught by testing before acting.
+- **Status:** OPEN. **Refs:** `docs/experiments/20-order-book-floor.md`.

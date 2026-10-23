@@ -66,6 +66,7 @@ def train(
     gamma: float = 0.99,
     action_space: str = "raw",
     gae_lambda: float = 0.95,
+    order_share_adv: float = None,
 ):
     """
     episode_steps: evaluation protocol v3 (evaluation/protocol.py) -- every
@@ -147,6 +148,7 @@ def train(
                 gamma=gamma,
                 gae_lambda=gae_lambda,
                 action_space_kind=action_space,
+                order_share_adv=order_share_adv if order_share_adv is not None else "",
             ))
 
         print("=" * 60)
@@ -182,6 +184,7 @@ def train(
             no_time_features=no_time_features,
             episode_steps=episode_steps,
             action_space=action_space,
+            order_share_adv=order_share_adv,
         )
 
         # Regression note: this was hardcoded to 8, silently ignoring the
@@ -289,7 +292,7 @@ def train(
             mode=mode, adversarial=adversarial, eval_dates=eval_dates,
             btc_target=btc_target, n_state_dims=n_state_dims,
             no_time_features=no_time_features, episode_steps=episode_steps,
-            action_space=action_space,
+            action_space=action_space, order_share_adv=order_share_adv,
         )
 
         device = force_device if force_device else get_device()
@@ -472,6 +475,9 @@ if __name__ == "__main__":
                         "of the steady selling rate (M4).")
     p.add_argument("--gamma", type=float, default=0.99,
                    help="PPO discount factor (default 0.99).")
+    p.add_argument("--order-share-adv", type=float, default=None,
+                   help="Protocol v3.1: order size as a share of the date's 20-day "
+                        "trailing ADV (e.g. 0.01), overriding --btc-target.")
     p.add_argument("--gae-lambda", type=float, default=0.95,
                    help="GAE lambda (default 0.95). Credit horizon ~1/(1-gamma*lambda).")
     p.add_argument("--eval-dates", type=str, default=None,
@@ -517,4 +523,5 @@ if __name__ == "__main__":
         gamma=args.gamma,
         action_space=args.action_space,
         gae_lambda=args.gae_lambda,
+        order_share_adv=args.order_share_adv,
     )

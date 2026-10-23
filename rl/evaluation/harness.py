@@ -171,6 +171,7 @@ def evaluate_all_strategies_on_date(
     sqrt_impact_maxiter: int = 25,
     episode_steps: int = None,
     adaptive_ac_lambda: float = None,
+    order_share_adv: float = None,
 ) -> dict:
     """
     Evaluate all 5 (or 6, with include_sqrt_impact_optimal) strategies on
@@ -210,6 +211,10 @@ def evaluate_all_strategies_on_date(
     carries its own bootstrap CI rather than being presented as a clean
     point estimate.
 
+    order_share_adv: protocol v3.1 -- order sized as this share of the date's
+    20-day trailing ADV (evaluation/liquidity.py), overriding btc_target.
+    Not supported together with include_sqrt_impact_optimal.
+
     adaptive_ac_lambda: Adaptive-AC's own risk aversion; defaults to ac_lambda.
     Under protocol v3 the honest values differ (AC 1e-6, Adaptive-AC 1e-9;
     rl/results/v3_lambda_grid.csv).
@@ -244,6 +249,8 @@ def evaluate_all_strategies_on_date(
         "rl_agent":    "RL Agent",
     }
 
+    if include_sqrt_impact_optimal and order_share_adv is not None:
+        raise ValueError("sqrt-impact baseline does not support order_share_adv yet")
     if include_sqrt_impact_optimal:
         sqrt_policy = SqrtImpactOptimalPolicy(
             date, n_eval_episodes=n_episodes,
@@ -272,6 +279,7 @@ def evaluate_all_strategies_on_date(
             fixed_size=fixed_size,
             no_time_features=n_state_dims < 16,
             episode_steps=episode_steps,
+            order_share_adv=order_share_adv,
         )
         if mode == "counterfactual":
             env_kwargs["btc_target"] = btc_target
