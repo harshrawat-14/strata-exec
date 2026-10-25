@@ -6,6 +6,8 @@ import random
 import numpy as np
 from typing import Optional
 
+from market_data import book_path, trades_path
+
 #: Path to the compiled environment binary. Overridable via
 #: STRATAEXEC_RL_ENV_BIN so a caller can point at a binary built from an older
 #: commit without swapping files in `target/`.
@@ -179,11 +181,11 @@ class StrataExecEnv(gym.Env):
             agg_date = lob_date
         if lob_date:
 
-            lob_path = f"TradeData/BookDepth/BTCUSDT-bookDepth-{lob_date}.csv"
+            lob_path = book_path(lob_date)
             if not os.path.exists(lob_path):
                 raise FileNotFoundError(f"Historical LOB data file not found for date: {lob_date} (path: {lob_path})")
         if agg_date:
-            agg_path = f"TradeData/AggTrades/BTCUSDT-aggTrades-{agg_date}.csv"
+            agg_path = trades_path(agg_date)
             if not os.path.exists(agg_path):
                 raise FileNotFoundError(f"Historical AggTrades data file not found for date: {agg_date} (path: {agg_path})")
 
@@ -210,25 +212,25 @@ class StrataExecEnv(gym.Env):
         if lob_date and mode != "counterfactual":
             self.cmd.extend([
                 "--lob-data",
-                f"TradeData/BookDepth/BTCUSDT-bookDepth-{lob_date}.csv",
+                book_path(lob_date),
                 "--btc-target", str(btc_target),
             ])
         if mode == "counterfactual":
             assert lob_date is not None, "counterfactual mode requires lob_date"
             self.cmd.extend([
                 "--lob-data",
-                f"TradeData/BookDepth/BTCUSDT-bookDepth-{lob_date}.csv",
+                book_path(lob_date),
                 "--btc-target", str(btc_target),
             ])
             if agg_date:
                 self.cmd.extend([
                     "--agg-trades",
-                    f"TradeData/AggTrades/BTCUSDT-aggTrades-{agg_date}.csv",
+                    trades_path(agg_date),
                 ])
         elif agg_date:
             self.cmd.extend([
                 "--agg-trades",
-                f"TradeData/AggTrades/BTCUSDT-aggTrades-{agg_date}.csv"
+                trades_path(agg_date)
             ])
 
         if total_steps is not None:
@@ -303,11 +305,9 @@ class StrataExecEnv(gym.Env):
         """
         if date == self._current_date:
             return  # already bound; keep the live process
-        for i, tok in enumerate(self.cmd):
-            if tok.startswith("TradeData/BookDepth/"):
-                self.cmd[i] = f"TradeData/BookDepth/BTCUSDT-bookDepth-{date}.csv"
-            elif tok.startswith("TradeData/AggTrades/"):
-                self.cmd[i] = f"TradeData/AggTrades/BTCUSDT-aggTrades-{date}.csv"
+        for flag, path in (("--lob-data", book_path(date)), ("--agg-trades", trades_path(date))):
+            if flag in self.cmd:
+                self.cmd[self.cmd.index(flag) + 1] = path
         self._current_date = date
         if self.order_share_adv is not None:
             from evaluation.liquidity import order_btc

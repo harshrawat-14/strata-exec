@@ -18,6 +18,18 @@ from typing import Any, AsyncIterator, Callable
 
 from web.config import get_settings
 
+
+def _market_data():
+    """rl/market_data.py: the active dataset's file paths (same pattern as model_cache)."""
+    import sys
+
+    rl_dir = str(Path(get_settings().rust_binary_path).parent.parent / "rl")
+    if rl_dir not in sys.path:
+        sys.path.insert(0, rl_dir)
+    import market_data
+
+    return market_data
+
 settings = get_settings()
 
 
@@ -283,14 +295,14 @@ class RustRunner:
         if lob_date and mode in ("historical", "counterfactual"):
             cmd.extend([
                 "--lob-data",
-                f"TradeData/BookDepth/BTCUSDT-bookDepth-{lob_date}.csv",
+                _market_data().book_path(lob_date),
                 "--btc-target", str(btc_target),
             ])
 
         if agg_date and mode in ("historical", "counterfactual"):
             cmd.extend([
                 "--agg-trades",
-                f"TradeData/AggTrades/BTCUSDT-aggTrades-{agg_date}.csv",
+                _market_data().trades_path(agg_date),
             ])
 
         if fixed_steps:

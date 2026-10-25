@@ -26,6 +26,7 @@ import pyarrow as pa
 import pyarrow.ipc as ipc
 
 from environment import RL_ENV_BIN
+from market_data import book_path, trades_path
 
 
 class BatchedStrataExecEnv:
@@ -63,11 +64,11 @@ class BatchedStrataExecEnv:
         self.n_state_dims = 12 if no_time_features else 16
 
         if lob_date:
-            lob_path = f"TradeData/BookDepth/BTCUSDT-bookDepth-{lob_date}.csv"
+            lob_path = book_path(lob_date)
             if not os.path.exists(lob_path):
                 raise FileNotFoundError(f"Historical LOB data file not found: {lob_path}")
         if agg_date:
-            agg_path = f"TradeData/AggTrades/BTCUSDT-aggTrades-{agg_date}.csv"
+            agg_path = trades_path(agg_date)
             if not os.path.exists(agg_path):
                 raise FileNotFoundError(f"AggTrades data file not found: {agg_path}")
 
@@ -86,9 +87,9 @@ class BatchedStrataExecEnv:
             "--btc-target", str(btc_target),
         ]
         if lob_date:
-            cmd += ["--lob-data", f"TradeData/BookDepth/BTCUSDT-bookDepth-{lob_date}.csv"]
+            cmd += ["--lob-data", book_path(lob_date)]
         if agg_date:
-            cmd += ["--agg-trades", f"TradeData/AggTrades/BTCUSDT-aggTrades-{agg_date}.csv"]
+            cmd += ["--agg-trades", trades_path(agg_date)]
         if fixed_steps:
             cmd.append("--fixed-steps")
         if fixed_size:

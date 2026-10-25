@@ -9,6 +9,7 @@ from scipy.optimize import minimize as scipy_minimize
 from scipy.special import betainc
 import numpy as np
 
+from market_data import book_path, trades_path
 from environment import RL_ENV_BIN, StrataExecEnv
 from ..actions import schedule_target, get_action_fractions, nearest_action
 from ..episode import _run_episode
@@ -31,8 +32,8 @@ def query_calibration(date: str, agg_date: str = None, btc_target: float = 50_00
     result = subprocess.run(
         [
             RL_ENV_BIN, "--rl-mode", "counterfactual",
-            "--lob-data", f"TradeData/BookDepth/BTCUSDT-bookDepth-{date}.csv",
-            "--agg-trades", f"TradeData/AggTrades/BTCUSDT-aggTrades-{agg_date}.csv",
+            "--lob-data", book_path(date),
+            "--agg-trades", trades_path(agg_date),
             "--btc-target", str(btc_target),
             "--print-calibration",
         ],

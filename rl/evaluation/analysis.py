@@ -2,6 +2,8 @@
 End-to-end analysis driver behind `python rl/evaluate.py`.
 """
 
+from market_data import book_path
+
 import os
 
 import pandas as pd
@@ -250,8 +252,7 @@ def run_full_analysis(
 
         test_results = []
         for date, regime in TEST_DATES.items():
-            lob_path = (f"TradeData/BookDepth/"
-                        f"BTCUSDT-bookDepth-{date}.csv")
+            lob_path = book_path(date)
             if not os.path.exists(lob_path):
                 print(f"  SKIPPING {date} -- file not found")
                 continue
@@ -310,13 +311,12 @@ def run_full_analysis(
             dates_to_evaluate += [
                 d for d in TEST_DATES
                 if os.path.exists(
-                    f"TradeData/BookDepth/BTCUSDT-bookDepth-{d}.csv"
+                    book_path(d)
                 )
             ]
 
         for date in dates_to_evaluate:
-            lob_path = (f"TradeData/BookDepth/"
-                        f"BTCUSDT-bookDepth-{date}.csv")
+            lob_path = book_path(date)
             if not os.path.exists(lob_path):
                 print(f"  SKIPPING {date} — LOB file not found")
                 continue
