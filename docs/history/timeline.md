@@ -453,3 +453,9 @@ July audit (Phase −1/0) went back over it.
 - **Also:** an earlier claim that the fixed 240k ADV overstated impact up to 5× was wrong
   (calibration absorbs it exactly) — caught by testing before acting.
 - **Status:** OPEN. **Refs:** `docs/experiments/20-order-book-floor.md`.
+
+### 2026-10-26 · DECISION · Era 1 closed; simulator moves to Bybit's real order book
+- Binance `bookDepth` bands could not represent institutional execution (doc 20). The era is
+  summarised in [era-1-binance-bookdepth.md](era-1-binance-bookdepth.md) and tagged
+  `era-1-binance-bookdepth`; its raw data was deleted to free space (re-downloadable).
+  Era 2 uses Bybit's free 500-level L2 book and Bybit trades, one venue end to end.

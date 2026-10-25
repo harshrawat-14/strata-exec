@@ -91,6 +91,7 @@ was run, so the result cannot be retrofitted to the outcome.
 |---|---|
 | [timeline.md](history/timeline.md) | Every bug, retracted claim, methodology error and key decision, in date order |
 | [lessons.md](history/lessons.md) | The ten recurring patterns behind them, and the check that now guards each |
+| [era-1-binance-bookdepth.md](history/era-1-binance-bookdepth.md) | Era 1 closed: dates, regimes, best results, dead end, why the data source changed |
 
 ---
 

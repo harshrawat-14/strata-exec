@@ -9,6 +9,7 @@ state of the code that produced it.
 |---|---|
 | [timeline.md](timeline.md) | Every entry in date order |
 | [lessons.md](lessons.md) | The recurring patterns behind the entries, with the checks that now guard against each |
+| [era-1-binance-bookdepth.md](era-1-binance-bookdepth.md) | Era 1 (May–Oct 2026): the 25 dates, their regimes and significance, best results, the dead end, and why the simulator's data source changed |
 
 ## Entry types
 
