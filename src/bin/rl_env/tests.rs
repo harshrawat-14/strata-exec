@@ -1600,3 +1600,47 @@ mod protocol_v3 {
         );
     }
 }
+
+mod book_continuation {
+    use crate::env::*;
+    use strata_exec::market::order_book::{OrderBook, PriceLevel};
+
+    fn book() -> OrderBook {
+        let bids = vec![
+            PriceLevel {
+                price: 100.0,
+                quantity: 1.0,
+            },
+            PriceLevel {
+                price: 99.0,
+                quantity: 1.0,
+            },
+        ];
+        let asks = vec![PriceLevel {
+            price: 100.1,
+            quantity: 1.0,
+        }];
+        OrderBook::new(asks, bids)
+    }
+
+    #[test]
+    fn residual_sells_below_the_book_at_its_visible_density() {
+        // 2 units over 1 price unit -> density 2. Dumping 4 fills 2 against the
+        // book; the other 2 need a further 1 price unit, averaging 99 - 0.5.
+        let mut b = book();
+        let liq = ForcedLiquidation::price(Some(&mut b), 4.0, 100.05, 0.05);
+        assert!((liq.filled_qty - 2.0).abs() < 1e-12);
+        assert!((liq.residual_qty - 2.0).abs() < 1e-12);
+        assert!(
+            (liq.punitive_notional - 2.0 * 98.5).abs() < 1e-9,
+            "{}",
+            liq.punitive_notional
+        );
+    }
+
+    #[test]
+    fn deeper_residuals_cost_more_per_unit() {
+        let c = BookContinuation::of(&book()).expect("usable book");
+        assert!(c.average_price_for(10.0) < c.average_price_for(1.0));
+    }
+}

@@ -459,3 +459,24 @@ July audit (Phase −1/0) went back over it.
   summarised in [era-1-binance-bookdepth.md](era-1-binance-bookdepth.md) and tagged
   `era-1-binance-bookdepth`; its raw data was deleted to free space (re-downloadable).
   Era 2 uses Bybit's free 500-level L2 book and Bybit trades, one venue end to end.
+
+### 2026-10-26 · BUG · Final sliver of every order was never sold
+- **What:** an episode ended as "done" once ≤0.1% of the order remained, but that remainder
+  was neither sold nor charged — IS counted it as received at zero.
+- **Found by:** first AC run on the real Bybit book: a 100-BTC order showed 0.078% of IS
+  that was neither execution nor timing.
+- **Impact:** every era-1 result for strategies that finished early (AC, TWAP, fixed
+  schedules, most RL episodes) was too pessimistic by up to 0.1 pp; episodes ending by
+  the time limit were force-liquidated and unaffected. Small against era 1's ~45 bp floor
+  and mostly common to all strategies; era-1 numbers are not re-run (data retired).
+- **Fix / status:** FIXED — the sliver is sold into the current book and reported as
+  `dust_liquidated_qty`.
+
+### 2026-10-26 · METHOD · Forced dump beyond the visible book priced at a flat penalty
+- **What:** quantity a forced liquidation could not fill against the visible book was
+  priced at a fixed 5 × spread below the average fill — with a 0.02 bp real spread, deep
+  sales would have looked nearly free.
+- **Fix / status:** the book is now assumed to continue below its last visible level at
+  the visible book's own depth per unit of price, so larger residuals sell progressively
+  deeper (unit tests in `rl_env` `book_continuation`). The flat penalty remains only for
+  a book with no usable depth.

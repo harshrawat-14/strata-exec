@@ -45,14 +45,45 @@ impl Fill {
 /// never-trading must not be reward-superior to competent execution -- the
 /// old flat penalty was cheap enough that the agent learned to always wait.
 pub(crate) struct ForcedLiquidation {
-    qty: f64,
+    pub(crate) qty: f64,
     /// Quantity absorbed by real (impact-adjusted) depth.
-    filled_qty: f64,
+    pub(crate) filled_qty: f64,
     /// Quantity the book could not absorb.
-    residual_qty: f64,
-    filled_notional: f64,
+    pub(crate) residual_qty: f64,
+    pub(crate) filled_notional: f64,
     /// Notional of `residual_qty`, priced punitively below the worst level hit.
-    punitive_notional: f64,
+    pub(crate) punitive_notional: f64,
+}
+
+/// The bid side's depth profile, used to extend a book past its visible levels.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct BookContinuation {
+    /// Price of the last (deepest) visible bid level.
+    last_price: f64,
+    /// Visible quantity per unit of price between the best and last bid.
+    density: f64,
+}
+
+impl BookContinuation {
+    pub(crate) fn of(book: &OrderBook) -> Option<Self> {
+        let levels = book.bid_levels();
+        let (first, last) = (levels.first()?, levels.last()?);
+        let reach = first.price - last.price;
+        let depth = book.total_bid_depth();
+        if levels.len() < 2 || reach <= 1e-12 || depth <= 1e-12 {
+            return None;
+        }
+        Some(Self {
+            last_price: last.price,
+            density: depth / reach,
+        })
+    }
+
+    /// Average price for selling `qty` below the last visible level, at the
+    /// visible density: the price falls by qty / density across the sale.
+    pub(crate) fn average_price_for(&self, qty: f64) -> f64 {
+        self.last_price - 0.5 * qty / self.density
+    }
 }
 
 impl ForcedLiquidation {
@@ -67,17 +98,25 @@ impl ForcedLiquidation {
                 punitive_notional: 0.0,
             };
         };
+        let continuation = BookContinuation::of(book);
         let fr = book.fill_market_sell(qty);
-        // Depth exhausted before absorbing the full size: price the residual
-        // worse than the worst level actually consumed, never at mid.
+        // Depth exhausted before absorbing the full size: the book is assumed
+        // to continue below its last visible level at the visible book's own
+        // depth per unit of price, so the residual sells progressively deeper.
+        // Falls back to a fixed penalty only for a book with no usable depth.
         let punitive_notional = if fr.residual_qty > 1e-9 {
-            let worst_price = if fr.filled_qty > 1e-12 {
-                fr.avg_fill_price
-            } else {
-                mid
+            let price = match continuation {
+                Some(c) => c.average_price_for(fr.residual_qty),
+                None => {
+                    let worst = if fr.filled_qty > 1e-12 {
+                        fr.avg_fill_price
+                    } else {
+                        mid
+                    };
+                    worst - spread_ref.max(1e-6) * 5.0
+                }
             };
-            let punitive_price = (worst_price - spread_ref.max(1e-6) * 5.0).max(1e-6);
-            fr.residual_qty * punitive_price
+            fr.residual_qty * price.max(1e-6)
         } else {
             0.0
         };
@@ -174,6 +213,25 @@ impl RlEnv {
             forced = Some(liq);
             done = true;
         }
+        // The order is finished once at most 0.1% remains; that last sliver
+        // must still be sold, or IS counts it as lost (it was 0.08% of IS on
+        // the real Bybit book, more than the execution cost itself).
+        let mut dust: Option<f64> = None;
+        if forced.is_none() && inv_done && self.remaining > 1e-12 {
+            let mid = self
+                .current_book
+                .as_ref()
+                .and_then(|b| b.mid_price())
+                .unwrap_or(self.arrival_price);
+            let liq = ForcedLiquidation::price(
+                self.current_book.as_mut(),
+                self.remaining,
+                mid,
+                self.spread_ref,
+            );
+            total_reward_adj -= self.settle_forced_liquidation(&liq, mid);
+            dust = Some(liq.qty);
+        }
 
         let mut info = json!({
             "step": self.step_idx,
@@ -210,7 +268,7 @@ impl RlEnv {
         }
 
         if done {
-            self.insert_episode_summary(&mut info, forced.as_ref());
+            self.insert_episode_summary(&mut info, forced.as_ref(), dust);
         }
 
         let state = self.build_state();
@@ -303,7 +361,7 @@ impl RlEnv {
             // remainder would be priced by the punitive fallback. Dump into the
             // last real book instead: this step's, after our own fill.
             let mut book = if cf_exhausted {
-                Some(adjusted_book)
+                Some(adjusted_book.clone())
             } else {
                 self.cf_lob.as_ref().map(|cf| cf.current_adjusted_book())
             };
@@ -311,6 +369,19 @@ impl RlEnv {
             total_reward_adj -= self.settle_forced_liquidation(&liq, mid);
             forced = Some(liq);
             done = true;
+        }
+        // Sell the final sliver once the order is finished (see step()).
+        let mut dust: Option<f64> = None;
+        if forced.is_none() && inv_done && self.remaining > 1e-12 {
+            let mid = self.current_mid.max(1e-12);
+            let mut book = if cf_exhausted {
+                Some(adjusted_book)
+            } else {
+                self.cf_lob.as_ref().map(|cf| cf.current_adjusted_book())
+            };
+            let liq = ForcedLiquidation::price(book.as_mut(), self.remaining, mid, self.spread_ref);
+            total_reward_adj -= self.settle_forced_liquidation(&liq, mid);
+            dust = Some(liq.qty);
         }
 
         let depth_reduction_pct = self
@@ -349,7 +420,7 @@ impl RlEnv {
         });
 
         if done {
-            self.insert_episode_summary(&mut info, forced.as_ref());
+            self.insert_episode_summary(&mut info, forced.as_ref(), dust);
         }
 
         let state = self.build_state();
@@ -368,6 +439,7 @@ impl RlEnv {
         &self,
         info: &mut Value,
         forced: Option<&ForcedLiquidation>,
+        dust: Option<f64>,
     ) {
         let ideal = self.arrival_price * self.cfg.total_inventory;
         let is_dollar = ideal - self.total_notional_received;
@@ -381,6 +453,9 @@ impl RlEnv {
         };
         obj.insert("total_IS_pct".to_string(), json!(is_pct));
         obj.insert("total_is_dollar".to_string(), json!(is_dollar));
+        if let Some(q) = dust {
+            obj.insert("dust_liquidated_qty".to_string(), json!(q));
+        }
         if let Some(liq) = forced {
             obj.insert("forced_liquidation_qty".to_string(), json!(liq.qty));
             obj.insert("forced_liq_filled_qty".to_string(), json!(liq.filled_qty));

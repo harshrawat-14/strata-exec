@@ -2,6 +2,8 @@
 //! adversarial-agent state it carries.
 
 mod execution;
+#[cfg(test)]
+pub(crate) use execution::{BookContinuation, ForcedLiquidation};
 mod reset;
 mod state;
 
