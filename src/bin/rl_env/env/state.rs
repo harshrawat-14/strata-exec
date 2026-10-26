@@ -156,8 +156,9 @@ impl RlEnv {
         state.push(s6);
         state.push(s7);
         if let Some(cf) = &self.cf_lob {
-            let s8 = (cf.permanent_impact() / 0.5).tanh();
-            let s9 = (cf.temporary_impact_total() / 0.3).tanh();
+            // Price impact, scaled so 1% of price reads ~0.76.
+            let s8 = (cf.permanent_impact() / 0.01).tanh();
+            let s9 = (cf.temporary_impact_total() / 0.01).tanh();
             state.push(s8);
             state.push(s9);
         } else {

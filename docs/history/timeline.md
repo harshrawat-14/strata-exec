@@ -480,3 +480,13 @@ July audit (Phase −1/0) went back over it.
   the visible book's own depth per unit of price, so larger residuals sell progressively
   deeper (unit tests in `rl_env` `book_continuation`). The flat penalty remains only for
   a book with no usable depth.
+
+### 2026-10-26 · BUG · Our own selling never moved the price
+- **What:** the counterfactual impact model reduced bid depth rather than shifting prices; its Y was
+  fitted by attributing every 30 s move to every trade (Y = 7–11, a volatility measure); and per-slice
+  square roots were summed.
+- **Found by:** AC's mid path was identical at 100 and 20,000 BTC on the real Bybit book.
+- **Impact:** in era 1 the effect of our own impact on the price was missing. Pace-vs-impact trade-offs
+  (the core of AC) could not show, which adds to the timing-only findings of doc 20.
+- **Fix / status:** FIXED. Square-root metaorder impact on the decayed accumulated quantity, applied as
+  a price shift; Y = 1.07 fitted on signed flow (doc 21).

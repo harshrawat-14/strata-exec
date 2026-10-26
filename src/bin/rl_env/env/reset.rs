@@ -106,11 +106,7 @@ impl RlEnv {
         }
         if let Some(cf) = &self.cf_lob {
             let btc_scale = self.cfg.btc_target / self.cfg.total_inventory.max(1.0);
-            let adv_btc = if self.cfg.adv_btc > 0.0 {
-                self.cfg.adv_btc
-            } else {
-                240_000.0
-            };
+            let adv_btc = cf.config().adv_btc;
             if let Some(obj) = info.as_object_mut() {
                 obj.insert("btc_scale".to_string(), json!(btc_scale));
                 obj.insert("adv_btc".to_string(), json!(adv_btc));
@@ -317,28 +313,17 @@ impl RlEnv {
             self.cfg.total_steps = n;
         }
 
-        let adv_btc = if self.cfg.adv_btc > 0.0 {
-            self.cfg.adv_btc
-        } else {
-            240_000.0
-        };
         let btc_scale = self.cfg.btc_target / self.cfg.total_inventory;
 
         // Print startup diagnostics (once per reset — only informative on first call).
         let cf_config = CounterfactualLobConfig {
             btc_scale,
-            adv_btc,
             ..CounterfactualLobConfig::default()
         };
 
         eprintln!("Mode: counterfactual LOB");
         eprintln!("  BTC target:    {} BTC", self.cfg.btc_target);
         eprintln!("  Scale factor:  {} BTC per unit", btc_scale);
-        eprintln!("  ADV:           {} BTC", adv_btc);
-        eprintln!(
-            "  Impact at 1%:  {:.2}% depth reduction",
-            (0.01_f64).sqrt() * 0.1 * 100.0
-        );
         eprintln!("  Rho (recovery):{}", cf_config.rho);
         eprintln!(
             "  Half-life:     {:.0} steps ({:.0} minutes)",
@@ -445,29 +430,23 @@ impl RlEnv {
             // is available. Falls back to the defaults (unchanged prior
             // behavior) if aggTrades were not supplied or calibration yields no
             // valid trades (e.g. none bracket the snapshot window).
-            let cf_config = if let Some(agg) = self.agg_trades.as_ref() {
-                let all_timestamps = cf_replay.snapshot_timestamps();
-                let all_mids: Vec<f64> = cf_replay
-                    .snapshots_arc()
-                    .iter()
-                    .map(|s| s.to_order_book().mid_price().unwrap_or(0.0))
-                    .collect();
-                let daily_volume_btc = adv_btc; // same denominator the sim will use
-                let calibrated = CounterfactualLobConfig::calibrated(
-                    cf_config,
-                    agg,
-                    &all_timestamps,
-                    &all_mids,
-                    daily_volume_btc,
-                );
-                eprintln!(
-                    "  Calibrated impact: Y={:.4} (default 0.1), sigma={:.4} (default 1.0)",
-                    calibrated.impact_coefficient, calibrated.sigma
-                );
-                calibrated
-            } else {
-                cf_config
-            };
+            let all_mids: Vec<f64> = cf_replay
+                .snapshots_arc()
+                .iter()
+                .map(|s| s.to_order_book().mid_price().unwrap_or(0.0))
+                .collect();
+            let mut cf_config = CounterfactualLobConfig::calibrated(
+                cf_config,
+                self.agg_trades.as_deref(),
+                &all_mids,
+            );
+            if self.cfg.adv_btc > 0.0 {
+                cf_config.adv_btc = self.cfg.adv_btc; // explicit override
+            }
+            eprintln!(
+                "  Impact: Y={:.4}, daily sigma={:.4}, daily volume={:.0} BTC",
+                cf_config.impact_coefficient, cf_config.sigma, cf_config.adv_btc
+            );
             self.cf_lob = Some(CounterfactualLob::new(cf_replay, cf_config));
         }
         let cf = self.cf_lob.as_mut().unwrap();

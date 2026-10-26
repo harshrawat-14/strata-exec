@@ -1,26 +1,23 @@
-// CounterfactualLob — real Binance LOB snapshots adjusted for your own market impact.
+// CounterfactualLob — a real order book replayed, adjusted for our own market impact.
 //
-// Glues together LobReplay (real snapshots) + a transient-impact model:
-//   - TEMPORAL STRUCTURE is Obizhaeva-Wang-style (2013): a permanent fraction
-//     that never recovers (30%) plus a temporary fraction that decays
-//     exponentially (70%, half-life ~3.3 hours at rho=5). This part IS
-//     genuine OW decay dynamics -- verified during the Phase 2R audit by
-//     reading total_residual_impact(): each trade's temporary contribution is
-//     tracked with its own timestamp and decayed individually, not just a
-//     single aggregate number.
-//   - MAGNITUDE is NOT Obizhaeva-Wang, which is a LINEAR impact law. This
-//     model uses a SQUARE-ROOT instantaneous magnitude (sqrt(participation) *
-//     a hardcoded constant, see record_trade_and_advance) -- square-root
-//     impact is a separate, well-supported empirical literature (distinct
-//     from OW), but calling the whole model "Obizhaeva-Wang" mislabels the
-//     magnitude half. Correct name: a transient-impact model with an
-//     OW-style permanent/temporary decay structure and a square-root
-//     instantaneous-impact magnitude.
-//   - The magnitude constant (0.1) is currently HARDCODED, not calibrated:
-//     there is a CalibrationEngine (calibration/impact_fit.rs) that fits this
-//     exact functional form (impact = Y * sigma * sqrt(Q/V)) to real trade
-//     data, but it is not wired into this struct -- the sigma term is also
-//     absent here. See docs/experiments/02-reward-objective-audit.md Task 2.
+// The real book is replayed snapshot by snapshot; our selling shifts the WHOLE
+// book's prices down by the impact I_t, leaving its depth as recorded:
+//
+//     I_t = Y * sigma_d * sqrt(D_t / V)
+//     D_t = pi * Q_t + (1 - pi) * sum_s q_s * exp(-rho * (t - s))
+//
+// Q_t is everything sold so far, q_s each sale; pi (0.3) is the share of impact
+// that never recovers, the rest decays at rho (half-life ~400 steps at 30 s).
+// sigma_d is the date's daily volatility and V its daily volume. Impact is a
+// concave function of the accumulated (decayed) quantity -- the square-root law
+// for a metaorder -- not a sum of per-slice square roots, which would make
+// slicing an order into many pieces absurdly expensive.
+//
+// Y is fitted on real signed order flow (rl/experiments/impact_fit_signed_flow.py:
+// 30 s mid returns regressed on sign(Q) * sigma_d * sqrt(|Q| / V)), frozen at the
+// training-date median like lambda. Era 1 instead (a) fitted Y by attributing
+// every 30 s price move to every trade -- a volatility measure, not impact -- and
+// (b) applied it as a cut in bid DEPTH, so our selling never moved the price.
 //
 // LobReplay is owned and advanced here; do not advance it externally.
 
@@ -42,18 +39,13 @@ pub struct CounterfactualLobConfig {
     pub dt: f64,
     /// Simulation units → BTC conversion (e.g. 50_000 BTC / 1_000_000 units = 0.05).
     pub btc_scale: f64,
-    /// Average daily volume in BTC. Controls participation-rate denominator.
-    /// NOTE: like impact_coefficient/sigma below, this is an uncalibrated
-    /// default (240_000.0) unless overridden by a per-date calibration.
+    /// Daily volume V in BTC (the impact law's denominator). Set per date by
+    /// `calibrated()` from the date's trades; 240k is a placeholder.
     pub adv_btc: f64,
-    /// Impact-magnitude coefficient Y in `impact = Y * sigma * sqrt(participation)`.
-    /// Default 0.1 reproduces the ORIGINAL hardcoded behavior exactly (an
-    /// uncalibrated guess). Use `calibrated()` to fit this to real trade data
-    /// via `calibration::impact_fit::CalibrationEngine` instead.
+    /// Impact coefficient Y in `I = Y * sigma * sqrt(D / V)`.
     pub impact_coefficient: f64,
-    /// Volatility term sigma in the same formula. Default 1.0 reproduces the
-    /// ORIGINAL behavior (this term was silently absent -- multiplying by 1.0
-    /// is a no-op, which is exactly what "missing" meant in practice).
+    /// Daily volatility sigma_d (a fraction, not annualised). Set per date by
+    /// `calibrated()`; 0.02 is a placeholder.
     pub sigma: f64,
 }
 
@@ -66,49 +58,53 @@ impl Default for CounterfactualLobConfig {
             dt: 1.0 / 2880.0,
             btc_scale: 0.05,
             adv_btc: 240_000.0,
-            impact_coefficient: 0.1,
-            sigma: 1.0,
+            impact_coefficient: CALIBRATED_IMPACT_Y,
+            sigma: 0.02,
         }
     }
 }
 
+/// Impact coefficient Y: median over the 12 v3 training dates of the
+/// signed-flow fit at 30 s (range 0.91-1.14; all 25 dates 0.91-1.33), on
+/// Bybit BTCUSDT 2024 (rl/results/impact_fit_signed_flow.csv). Frozen.
+pub const CALIBRATED_IMPACT_Y: f64 = 1.0715;
+
 impl CounterfactualLobConfig {
-    /// A config with `impact_coefficient` and `sigma` fit to real trade data,
-    /// closing the Phase 2R Task 2 gap (the calibration engine existed but was
-    /// never wired into the RL training path). `adv_btc` is left as-is (or set
-    /// by the caller) -- this only calibrates the impact MAGNITUDE terms.
-    ///
-    /// `daily_volume_btc` is used both as the calibration engine's volume
-    /// normalizer and should match whatever `adv_btc` this config will use, so
-    /// the fitted Y is consistent with the participation-rate denominator
-    /// actually used at simulation time.
+    /// The base config with the date's own daily volatility (from the
+    /// snapshot mids) and daily volume (from its trades). Y stays at the
+    /// base value: it is fitted once, across training dates, not per date.
     pub fn calibrated(
         base: CounterfactualLobConfig,
-        agg: &crate::market::agg_trades::AggTradesDay,
-        snapshot_timestamps: &[u64],
+        agg: Option<&crate::market::agg_trades::AggTradesDay>,
         snapshot_mids: &[f64],
-        daily_volume_btc: f64,
     ) -> Self {
-        let sigma = crate::calibration::impact_fit::realized_volatility(
-            snapshot_mids,
-            snapshot_timestamps.len() as f64,
-        );
-        let trades = crate::calibration::impact_fit::build_calibration_trades(
-            agg,
-            snapshot_timestamps,
-            snapshot_mids,
-        );
-        let engine = crate::calibration::impact_fit::CalibrationEngine::new(
-            daily_volume_btc,
-            sigma.max(1e-6),
-        );
-        let y = engine.calibrate(&trades);
+        let sigma = daily_volatility(snapshot_mids);
+        let volume: f64 = agg
+            .map(|a| a.trades.iter().map(|t| t.quantity_btc).sum())
+            .unwrap_or(0.0);
         CounterfactualLobConfig {
-            impact_coefficient: y.unwrap_or(base.impact_coefficient),
             sigma: if sigma > 1e-9 { sigma } else { base.sigma },
+            adv_btc: if volume > 0.0 { volume } else { base.adv_btc },
             ..base
         }
     }
+}
+
+/// Daily volatility from one day's snapshot mids: stdev of consecutive log
+/// returns times sqrt(number of returns).
+pub fn daily_volatility(mids: &[f64]) -> f64 {
+    let r: Vec<f64> = mids
+        .windows(2)
+        .filter(|w| w[0] > 1e-9 && w[1] > 1e-9)
+        .map(|w| (w[1] / w[0]).ln())
+        .collect();
+    if r.len() < 2 {
+        return 0.0;
+    }
+    let n = r.len() as f64;
+    let mean = r.iter().sum::<f64>() / n;
+    let var = r.iter().map(|x| (x - mean).powi(2)).sum::<f64>() / (n - 1.0);
+    (var * n).sqrt()
 }
 
 // ---------------------------------------------------------------------------
@@ -119,10 +115,10 @@ pub struct CounterfactualLob {
     replay: LobReplay,
     config: CounterfactualLobConfig,
 
-    /// Accumulated permanent depth reduction (never decays), capped at 0.95.
-    pub(crate) permanent_depth_reduction: f64,
+    /// Total BTC sold so far this episode (its permanent share never decays).
+    pub(crate) sold_btc: f64,
 
-    /// (time_when_traded, impact_fraction) — used to compute decayed residual.
+    /// (time_when_traded, btc) for each sale, decayed for the temporary share.
     temporary_impacts: Vec<(f64, f64)>,
 
     current_step: usize,
@@ -184,7 +180,7 @@ impl CounterfactualLob {
         Self {
             replay,
             config,
-            permanent_depth_reduction: 0.0,
+            sold_btc: 0.0,
             temporary_impacts: Vec::new(),
             current_step: 0,
             depth_ref,
@@ -204,8 +200,8 @@ impl CounterfactualLob {
         simulation_mid_price / real_mid.max(1e-9)
     }
 
-    /// Adjusted book at the current step: real Binance snapshot rescaled to
-    /// simulation coordinates, then depth-reduced by accumulated impact.
+    /// Adjusted book at the current step: the real snapshot rescaled to
+    /// simulation coordinates, then shifted down by our accumulated impact.
     pub fn current_adjusted_book(&self) -> OrderBook {
         let raw_book = match self.current_book.clone() {
             Some(b) => b,
@@ -216,37 +212,19 @@ impl CounterfactualLob {
         self.apply_impact_to_book(scaled_book, residual)
     }
 
-    /// Record that `trade_qty_units` simulation units were traded, then advance snapshot.
+    /// Record that `trade_qty_units` simulation units were sold, then advance snapshot.
     pub fn record_trade_and_advance(&mut self, trade_qty_units: f64) {
-        let trade_btc = trade_qty_units * self.config.btc_scale;
-        let participation = trade_btc / self.config.adv_btc;
-        // Square-root instantaneous magnitude: Y * sigma * sqrt(participation).
-        // NOT Obizhaeva-Wang (which is linear in size) -- this is a separate,
-        // empirically-supported square-root impact law paired with OW's
-        // permanent/temporary decay structure (see module doc comment at top
-        // of this file). impact_coefficient (Y) and sigma default to 0.1/1.0
-        // (the original hardcoded, uncalibrated behavior) unless this config
-        // was built via `CounterfactualLobConfig::calibrated(..)`, which fits
-        // both from real trade data (Phase 2R Task 2).
-        let impact_fraction =
-            participation.sqrt() * self.config.sigma * self.config.impact_coefficient;
-
-        let perm = impact_fraction * self.config.permanent_fraction;
-        let temp = impact_fraction * self.config.temporary_fraction;
-
-        self.permanent_depth_reduction = (self.permanent_depth_reduction + perm).min(0.95);
-
-        if temp > 1e-8 {
+        let trade_btc = trade_qty_units.max(0.0) * self.config.btc_scale;
+        if trade_btc > 0.0 {
+            self.sold_btc += trade_btc;
             let t = self.current_step as f64 * self.config.dt;
-            self.temporary_impacts.push((t, temp));
+            self.temporary_impacts.push((t, trade_btc));
         }
-
-        // Prune impacts whose residual has decayed below 1e-6.
-        // (1e-3 was too large for realistic ADV values where impact < 0.1%.)
+        // Drop sales whose temporary weight has decayed to nothing.
         let now = self.current_step as f64 * self.config.dt;
         let rho = self.config.rho;
         self.temporary_impacts
-            .retain(|(t, impact)| impact * (-rho * (now - t)).exp() > 1e-6);
+            .retain(|(t, _)| (-rho * (now - t)).exp() > 1e-12);
 
         self.current_book = self.replay.next_snapshot();
         self.current_step += 1;
@@ -266,7 +244,7 @@ impl CounterfactualLob {
     /// Reset to the beginning of the replay, clearing all accumulated impact.
     pub fn reset(&mut self) {
         self.replay.reset();
-        self.permanent_depth_reduction = 0.0;
+        self.sold_btc = 0.0;
         self.temporary_impacts.clear();
         self.current_step = 0;
         self.current_book = self.replay.next_snapshot();
@@ -274,10 +252,7 @@ impl CounterfactualLob {
         // Task 3) so real drift over the episode is preserved relative to its
         // own arrival, not silently flattened every step.
         self.price_factor = Self::price_factor_for(&self.current_book, self.simulation_mid_price);
-        debug_assert_eq!(
-            self.permanent_depth_reduction, 0.0,
-            "reset() must clear permanent_depth_reduction"
-        );
+        debug_assert_eq!(self.sold_btc, 0.0, "reset() must clear sold_btc");
         debug_assert!(
             self.temporary_impacts.is_empty(),
             "reset() must clear temporary_impacts"
@@ -289,17 +264,14 @@ impl CounterfactualLob {
     /// Clamps to the last valid index. Sets current_book to the snapshot at offset.
     pub fn seek(&mut self, offset: usize) {
         self.replay.seek(offset);
-        self.permanent_depth_reduction = 0.0;
+        self.sold_btc = 0.0;
         self.temporary_impacts.clear();
         self.current_step = 0;
         self.current_book = self.replay.next_snapshot();
         // Re-anchor price_factor to THIS episode's arrival snapshot (Phase 2R
         // Task 3) -- each episode's own start_offset is its own arrival point.
         self.price_factor = Self::price_factor_for(&self.current_book, self.simulation_mid_price);
-        debug_assert_eq!(
-            self.permanent_depth_reduction, 0.0,
-            "seek() must clear permanent_depth_reduction"
-        );
+        debug_assert_eq!(self.sold_btc, 0.0, "seek() must clear sold_btc");
         debug_assert!(
             self.temporary_impacts.is_empty(),
             "seek() must clear temporary_impacts"
@@ -321,31 +293,41 @@ impl CounterfactualLob {
         self.replay.len()
     }
 
-    /// Total residual impact fraction at the current step (permanent + decayed temporary).
-    pub fn total_residual_impact(&self) -> f64 {
+    /// Price impact (fraction of price) of an effective sold quantity in BTC.
+    fn impact_of(&self, btc: f64) -> f64 {
+        if btc <= 0.0 {
+            return 0.0;
+        }
+        let c = &self.config;
+        (c.impact_coefficient * c.sigma * (btc / c.adv_btc.max(1e-9)).sqrt()).min(0.95)
+    }
+
+    /// Effective sold quantity D_t: the permanent share of everything sold
+    /// plus the decayed temporary share of each sale.
+    fn effective_sold_btc(&self) -> f64 {
         let now = self.current_step as f64 * self.config.dt;
         let rho = self.config.rho;
-        let temporary_total: f64 = self
+        let decayed: f64 = self
             .temporary_impacts
             .iter()
-            .map(|(t, impact)| impact * (-rho * (now - t)).exp())
+            .map(|(t, btc)| btc * (-rho * (now - t)).exp())
             .sum();
-        (self.permanent_depth_reduction + temporary_total).min(0.95)
+        self.config.permanent_fraction * self.sold_btc + self.config.temporary_fraction * decayed
     }
 
-    /// Permanent impact fraction (never decays).
+    /// Current price impact I_t (fraction of price, at most 0.95).
+    pub fn total_residual_impact(&self) -> f64 {
+        self.impact_of(self.effective_sold_btc())
+    }
+
+    /// The part of the impact that never recovers.
     pub fn permanent_impact(&self) -> f64 {
-        self.permanent_depth_reduction
+        self.impact_of(self.config.permanent_fraction * self.sold_btc)
     }
 
-    /// Temporary-only residual at the current step.
+    /// The part of the impact that will still recover.
     pub fn temporary_impact_total(&self) -> f64 {
-        let now = self.current_step as f64 * self.config.dt;
-        let rho = self.config.rho;
-        self.temporary_impacts
-            .iter()
-            .map(|(t, impact)| impact * (-rho * (now - t)).exp())
-            .sum()
+        (self.total_residual_impact() - self.permanent_impact()).max(0.0)
     }
 
     /// Total bid depth of the current snapshot in simulation units (pre-impact).
@@ -374,12 +356,12 @@ impl CounterfactualLob {
         raw_book.rescale_full(self.price_factor, qty_factor)
     }
 
-    fn apply_impact_to_book(&self, mut book: OrderBook, impact_fraction: f64) -> OrderBook {
-        if impact_fraction < 1e-6 {
+    /// Shift every price down by the impact; depth stays as recorded.
+    fn apply_impact_to_book(&self, book: OrderBook, impact_fraction: f64) -> OrderBook {
+        if impact_fraction <= 0.0 {
             return book;
         }
-        book.scale_bid_depth(1.0 - impact_fraction);
-        book
+        book.rescale_full(1.0 - impact_fraction, 1.0)
     }
 }
 
@@ -392,13 +374,15 @@ mod tests {
     use super::*;
     use crate::market::lob_replay::tests::{write_fixture, FIXTURE_CSV};
 
-    /// Small ADV makes impact numerically visible at unit-test trade sizes.
-    /// With adv=20 and constant=0.1:
-    ///   - 1 000 units × 0.0005 = 0.5 BTC  → impact ≈ 1.6% (< 5%)
-    ///   - 200 000 units × 0.0005 = 100 BTC → impact ≈ 22%  (> 15%)
+    /// Small volume makes impact numerically visible at unit-test trade sizes.
+    /// With V=20, Y=1, sigma=0.2:
+    ///   - 1 000 units × 0.0005 = 0.5 BTC  → impact ≈ 3.2% (< 5%)
+    ///   - 200 000 units × 0.0005 = 100 BTC → impact ≈ 45% (> 15%)
     fn test_config() -> CounterfactualLobConfig {
         CounterfactualLobConfig {
             adv_btc: 20.0,
+            impact_coefficient: 1.0,
+            sigma: 0.2,
             btc_scale: 0.0005, // pin so test numeric thresholds stay valid
             ..Default::default()
         }
@@ -545,16 +529,16 @@ timestamp,b0_p,b0_q,b1_p,b1_q,a0_p,a0_q,a1_p,a1_q
     fn permanent_impact_does_not_decay() {
         let mut cf = make_cf_lob();
         cf.record_trade_and_advance(100_000.0);
-        let perm_initial = cf.permanent_depth_reduction;
+        let perm_initial = cf.permanent_impact();
 
         for _ in 0..2000 {
             cf.advance_without_trade();
         }
         assert!(
-            (cf.permanent_depth_reduction - perm_initial).abs() < 1e-12,
+            (cf.permanent_impact() - perm_initial).abs() < 1e-12,
             "permanent impact must not decay: initial={perm_initial}, \
              after 2000 steps={}",
-            cf.permanent_depth_reduction
+            cf.permanent_impact()
         );
     }
 
@@ -577,82 +561,92 @@ timestamp,b0_p,b0_q,b1_p,b1_q,a0_p,a0_q,a1_p,a1_q
         );
     }
 
-    // ── CounterfactualLobConfig::calibrated (Phase 2R Task 2) ──────────────
+    // ── CounterfactualLobConfig::calibrated ─────────────────────────────────
 
-    #[test]
-    fn calibrated_config_overrides_defaults_with_fitted_values() {
+    fn agg_with(quantities: &[f64]) -> crate::market::agg_trades::AggTradesDay {
         use crate::market::agg_trades::{AggTrade, AggTradesDay};
-
-        // A trade of 100 BTC bracketed by snapshots 100.0 -> 101.0 (1% move) --
-        // deliberately a much larger empirical slippage than the default Y=0.1
-        // would predict at realistic ADV, so calibration should pull Y well away
-        // from the 0.1 default (not just perturb it).
-        let agg = AggTradesDay {
-            trades: vec![AggTrade {
-                timestamp_ms: 1_500,
-                price: 100.5,
-                quantity_btc: 100.0,
-                is_sell_aggressor: true,
-            }],
+        AggTradesDay {
+            trades: quantities
+                .iter()
+                .enumerate()
+                .map(|(i, &q)| AggTrade {
+                    timestamp_ms: 1_000 + i as u64,
+                    price: 100.0,
+                    quantity_btc: q,
+                    is_sell_aggressor: i % 2 == 0,
+                })
+                .collect(),
             date: "2024-01-15".to_string(),
             skipped_rows: 0,
-        };
-        let snapshot_timestamps = vec![1_000u64, 2_000, 3_000];
-        let snapshot_mids = vec![100.0, 101.0, 101.5]; // moving, so sigma > 0 too
-
-        let base = CounterfactualLobConfig::default();
-        assert_eq!(base.impact_coefficient, 0.1);
-        assert_eq!(base.sigma, 1.0);
-
-        let calibrated = CounterfactualLobConfig::calibrated(
-            base,
-            &agg,
-            &snapshot_timestamps,
-            &snapshot_mids,
-            240_000.0,
-        );
-
-        assert_ne!(
-            calibrated.impact_coefficient, 0.1,
-            "calibrated Y must differ from the hardcoded default given real slippage data"
-        );
-        assert_ne!(
-            calibrated.sigma, 1.0,
-            "calibrated sigma must differ from the hardcoded 1.0 given a moving price series"
-        );
-        assert!(calibrated.impact_coefficient.is_finite() && calibrated.impact_coefficient > 0.0);
-        assert!(calibrated.sigma.is_finite() && calibrated.sigma > 0.0);
+        }
     }
 
     #[test]
-    fn calibrated_config_falls_back_to_base_when_no_trades_bracket() {
-        use crate::market::agg_trades::AggTradesDay;
+    fn calibrated_config_takes_the_dates_volume_and_volatility_but_not_y() {
+        let mids = vec![100.0, 101.0, 100.5, 101.5];
+        let agg = agg_with(&[2.0, 3.0, 5.0]);
+        let c = CounterfactualLobConfig::calibrated(
+            CounterfactualLobConfig::default(),
+            Some(&agg),
+            &mids,
+        );
+        assert_eq!(c.adv_btc, 10.0, "V must be the date's traded volume");
+        assert!((c.sigma - daily_volatility(&mids)).abs() < 1e-15);
+        assert!(c.sigma > 0.0);
+        assert_eq!(
+            c.impact_coefficient, CALIBRATED_IMPACT_Y,
+            "Y is frozen, not per date"
+        );
+    }
 
-        // No trades at all -> calibrate() returns None -> must fall back to base,
-        // not panic or silently zero out the impact model.
-        let agg = AggTradesDay {
-            trades: vec![],
-            date: "2024-01-15".to_string(),
-            skipped_rows: 0,
-        };
-        let snapshot_timestamps = vec![1_000u64, 2_000, 3_000];
-        let snapshot_mids = vec![100.0, 100.0, 100.0]; // flat -> sigma = 0 too
-
+    #[test]
+    fn calibrated_config_falls_back_to_base_without_trades_or_movement() {
         let base = CounterfactualLobConfig::default();
-        let calibrated = CounterfactualLobConfig::calibrated(
-            base,
-            &agg,
-            &snapshot_timestamps,
-            &snapshot_mids,
-            240_000.0,
+        let c = CounterfactualLobConfig::calibrated(
+            CounterfactualLobConfig::default(),
+            None,
+            &[100.0, 100.0, 100.0],
         );
-        assert_eq!(
-            calibrated.impact_coefficient, 0.1,
-            "must fall back to base Y with no trades"
-        );
-        assert_eq!(
-            calibrated.sigma, 1.0,
-            "must fall back to base sigma when realized vol is 0"
+        assert_eq!(c.adv_btc, base.adv_btc);
+        assert_eq!(c.sigma, base.sigma);
+    }
+
+    #[test]
+    fn daily_volatility_scales_per_step_volatility_by_sqrt_steps() {
+        // Returns +u, -u, +u, -u (u = ln 1.01): mean 0, sample stdev u*sqrt(4/3),
+        // times sqrt(4 returns).
+        let mids = vec![100.0, 101.0, 100.0, 101.0, 100.0];
+        let u = 1.01f64.ln();
+        let expected = u * (4.0f64 / 3.0).sqrt() * 2.0;
+        assert!((daily_volatility(&mids) - expected).abs() < 1e-12);
+    }
+
+    #[test]
+    fn impact_is_concave_in_the_amount_sold() {
+        // Square-root law on the accumulated quantity: 4x the size -> 2x impact.
+        let mut a = make_cf_lob();
+        a.record_trade_and_advance(10_000.0);
+        let mut b = make_cf_lob();
+        b.record_trade_and_advance(40_000.0);
+        let ratio = b.total_residual_impact() / a.total_residual_impact();
+        assert!((ratio - 2.0).abs() < 1e-3, "ratio {ratio}");
+    }
+
+    #[test]
+    fn slicing_an_order_does_not_multiply_its_impact() {
+        // Selling 40k units in 40 back-to-back slices must cost about the same
+        // impact as one 40k sale (the temporary part decays a little between
+        // slices), never ~sqrt(40) times more.
+        let mut one = make_cf_lob();
+        one.record_trade_and_advance(40_000.0);
+        let mut sliced = make_cf_lob();
+        for _ in 0..40 {
+            sliced.record_trade_and_advance(1_000.0);
+        }
+        let (i1, i40) = (one.total_residual_impact(), sliced.total_residual_impact());
+        assert!(
+            i40 <= i1 * 1.0001 && i40 > 0.95 * i1,
+            "one={i1} sliced={i40}"
         );
     }
 
@@ -679,7 +673,7 @@ timestamp,b0_p,b0_q,b1_p,b1_q,a0_p,a0_q,a1_p,a1_q
 
         assert!(
             impacted_fill <= unimpacted_fill,
-            "a sell against an impacted (depth-reduced) book must fill at or below the \
+            "a sell against an impacted (price-shifted) book must fill at or below the \
              unimpacted price, never above: unimpacted={unimpacted_fill:.4}, impacted={impacted_fill:.4}"
         );
     }
@@ -736,8 +730,8 @@ timestamp,b0_p,b0_q,b1_p,b1_q,a0_p,a0_q,a1_p,a1_q
     fn impact_never_improves_a_sell_price_no_free_lunch() {
         // "No-arbitrage: a constructed round-trip trade cannot be profitable."
         // NOTE: this simulator's impact model is sell-only (record_trade_and_advance
-        // always reduces BID depth via scale_bid_depth; there is no corresponding
-        // ask-side/buy mechanism), so a literal sell-then-buy-back round trip is
+        // only ever pushes prices down; there is no buy-side mechanism), so a
+        // literal sell-then-buy-back round trip is
         // not constructible with the current API -- there is nothing to buy back
         // INTO. The meaningful, testable form of "no free lunch" here is: a LARGER
         // self-trade must never leave a subsequent sell better off than a SMALLER
@@ -784,7 +778,7 @@ timestamp,b0_p,b0_q,b1_p,b1_q,a0_p,a0_q,a1_p,a1_q
     /// WHAT: After running episodes that accumulate impact, reset() must restore
     ///       the LOB to a pristine state — no permanent reduction, no temporary
     ///       impacts queued, and the first fill matches the un-impacted mid price.
-    /// WHY: A known prior bug allowed permanent_depth_reduction to bleed across
+    /// WHY: A known prior bug allowed permanent impact to bleed across
     ///      episodes, silently degrading every subsequent fill price. This test
     ///      pins reset() against that regression.
     #[test]
@@ -796,7 +790,7 @@ timestamp,b0_p,b0_q,b1_p,b1_q,a0_p,a0_q,a1_p,a1_q
             cf.record_trade_and_advance(200_000.0);
         }
         assert!(
-            cf.permanent_depth_reduction > 0.0,
+            cf.sold_btc > 0.0,
             "preconditions: impact should have accumulated after 50 large trades"
         );
 
@@ -810,10 +804,7 @@ timestamp,b0_p,b0_q,b1_p,b1_q,a0_p,a0_q,a1_p,a1_q
 
         // Reset and re-verify the canonical preconditions hold.
         cf.reset();
-        assert_eq!(
-            cf.permanent_depth_reduction, 0.0,
-            "after reset, permanent_depth_reduction must be 0"
-        );
+        assert_eq!(cf.sold_btc, 0.0, "after reset, sold_btc must be 0");
         assert!(
             cf.temporary_impacts.is_empty(),
             "after reset, temporary_impacts must be empty"
@@ -836,15 +827,15 @@ timestamp,b0_p,b0_q,b1_p,b1_q,a0_p,a0_q,a1_p,a1_q
     }
 
     #[test]
-    fn adjusted_book_has_less_depth_than_real_book() {
+    fn impact_shifts_prices_down_and_leaves_depth_as_recorded() {
         let mut cf = make_cf_lob();
-        cf.record_trade_and_advance(200_000.0); // 100 BTC — large impact
-        let real_depth = cf.real_total_bid_depth();
-        let adjusted_depth = cf.current_adjusted_book().total_bid_depth();
-        assert!(
-            adjusted_depth < real_depth,
-            "adjusted book depth must be less than real: \
-             real={real_depth:.4}, adjusted={adjusted_depth:.4}"
-        );
+        let mut free = make_cf_lob();
+        cf.record_trade_and_advance(200_000.0); // 100 BTC -- large impact
+        free.advance_without_trade(); // same real snapshot, no impact
+        let (hit, clean) = (cf.current_adjusted_book(), free.current_adjusted_book());
+        let i = cf.total_residual_impact();
+        assert!(i > 0.1);
+        assert!((hit.mid_price().unwrap() - clean.mid_price().unwrap() * (1.0 - i)).abs() < 1e-9);
+        assert!((hit.total_bid_depth() - clean.total_bid_depth()).abs() < 1e-9);
     }
 }
