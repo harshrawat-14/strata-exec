@@ -22,12 +22,21 @@ class Dataset:
     root: str
     book_pattern: str
     trades_pattern: str
+    # Daily volume per calendar day (date, volume_btc), for ADV-relative sizing.
+    daily_volume_file: str = "daily-volume.csv"
 
     def book_path(self, date: str) -> str:
         return os.path.join(self.root, self.book_pattern.format(date=date))
 
     def trades_path(self, date: str) -> str:
         return os.path.join(self.root, self.trades_pattern.format(date=date))
+
+    def daily_volume_path(self) -> str:
+        return os.path.join(self.root, self.daily_volume_file)
+
+    def adv_table_path(self) -> str:
+        """Committed 20-day ADV table for the research dates (no raw data needed)."""
+        return f"rl/results/adv20_{self.name}.csv"
 
 
 DATASETS = {

@@ -99,7 +99,7 @@ one venue end to end.
 ```
 https://data.binance.vision/data/futures/um/daily/bookDepth/BTCUSDT/BTCUSDT-bookDepth-<date>.zip
 https://data.binance.vision/data/futures/um/daily/aggTrades/BTCUSDT/BTCUSDT-aggTrades-<date>.zip
-python rl/experiments/fetch_daily_klines.py        # daily candles + ADV table
+git show era-1-binance-bookdepth:rl/experiments/fetch_daily_klines.py  # candles + ADV
 ```
 Unzip into `TradeData/BookDepth/` and `TradeData/AggTrades/`. Era-1 results also need the
 era-1 binary: build at the commit tagged `era-1-binance-bookdepth`.
