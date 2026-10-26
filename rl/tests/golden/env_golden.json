@@ -2,7 +2,7 @@
  "batched": {
   "counterfactual_crash": {
    "n_steps": 400,
-   "sha256": "fe8c80451dd710bb44df0d00ceeaad471ad5ec04c33bb8b5a4883763195c46f6"
+   "sha256": "9ebbf09bb5bef195550c520ad5ff23bb225b15d9695a434fd4af4c423fbb0a56"
   },
   "synthetic": {
    "n_steps": 400,
@@ -34,8 +34,8 @@
      "total_is_dollar": 9059535.718064472
     },
     "n_steps": 119,
-    "sha256": "9bbce35becb1b5db9039effc3c44061a9bbb945f3761a31081929bbc30a697c7",
-    "total_reward": -0.0009134519331945817
+    "sha256": "b78098ba9bffd724d936b517675d1faf1a0652c16d83a7a47d58398e86257fb2",
+    "total_reward": -0.09877853733182389
    },
    "all_max/seed17": {
     "final_info": {
@@ -58,8 +58,8 @@
      "total_is_dollar": 9106220.068234533
     },
     "n_steps": 119,
-    "sha256": "b15b66bd8109d836a95aa293fcf6847ac54f4076a393efc1a621a65ee951b3ae",
-    "total_reward": -0.0009142353074481648
+    "sha256": "4e5b21a980c522d1155c0c5877da5c2a0a699153dca483ad3c4fc66ade1c88c4",
+    "total_reward": -0.09868939366825373
    },
    "all_wait/seed0": {
     "final_info": {
@@ -141,8 +141,8 @@
      "total_is_dollar": 4826298.23011075
     },
     "n_steps": 176,
-    "sha256": "7c0f80e5cda876d1e9485c4c80700be4d69409eb121767809eeefc2061de4ce4",
-    "total_reward": -0.0009001862782608592
+    "sha256": "be8b8bc2aa4b52c0c26d142adf0b4d51cd81eb0cea2343f738b7f3c56e5cf58d",
+    "total_reward": -0.057311715968491585
    },
    "random/seed17": {
     "final_info": {
@@ -166,8 +166,8 @@
      "total_is_dollar": 4189892.308062449
     },
     "n_steps": 164,
-    "sha256": "a3432cebe17a6085673c924da2bfd4b2328c9a224ec85d5046509df1e01d2911",
-    "total_reward": -0.0009596556392613762
+    "sha256": "f676509b938eb7cdf392639e619dd8da2e7c430e10994600dad51f698873d889",
+    "total_reward": -0.049719569919559226
    }
   },
   "counterfactual_crash_12d_random_horizon": {
@@ -192,8 +192,8 @@
      "total_is_dollar": 11603628.680375129
     },
     "n_steps": 140,
-    "sha256": "465c67b65cdb7d512145ba30bf6729b5a321e5e560ecb8016374cefc70022a17",
-    "total_reward": -0.000736483369623351
+    "sha256": "2e206dfc90b41ee69c30a2844e8816205841b495b649193272aab17ca5daeb4e",
+    "total_reward": -0.14720335744193078
    },
    "all_max/seed17": {
     "final_info": {
@@ -217,8 +217,8 @@
      "total_is_dollar": 12775861.801035836
     },
     "n_steps": 140,
-    "sha256": "b90c2f0317a9d8ab1495bb8c3231043bd7dc12720145e17e2ddd34b53f94ef13",
-    "total_reward": -0.0007203670806336733
+    "sha256": "cf0c7d2b7e7877f303447cf243c1363a6659a7746adaddc28fcc21df35a6174e",
+    "total_reward": -0.1471008043260494
    },
    "all_wait/seed0": {
     "final_info": {
@@ -299,8 +299,8 @@
      "total_is_dollar": 6537065.264945179
     },
     "n_steps": 193,
-    "sha256": "ece369e5bb6bbae464a9b76a55690209ca9b93047c72df8c7f51b65c34cd197a",
-    "total_reward": -0.0007444852897903267
+    "sha256": "6b5feb0e829c7f69913f0ccb0baae7e2f3ea43801d13305a52c559f9d093cdcd",
+    "total_reward": -0.0833916110069847
    },
    "random/seed17": {
     "final_info": {
@@ -324,8 +324,8 @@
      "total_is_dollar": 6362758.083491236
     },
     "n_steps": 184,
-    "sha256": "bdf7216532a5fa17cdc932d78c8f4cfbe9795e0c87518de6b5376e82af3f42d0",
-    "total_reward": -0.0008379409953801365
+    "sha256": "9841ec021feebab6f44ac4d7c29851b96ff83324897e5f664bf0263c2310622f",
+    "total_reward": -0.07359762936101659
    }
   },
   "counterfactual_crash_16d_fixed": {
@@ -350,8 +350,8 @@
      "total_is_dollar": 14575332.50522703
     },
     "n_steps": 140,
-    "sha256": "9b142f8da826fe86650bef11ced24a86799e8130dd76b73a312b4d31c3c444b6",
-    "total_reward": -0.0007364833696226869
+    "sha256": "8ff993cd83202998d519390805d1578792a82614b6021978116d517a90466867",
+    "total_reward": -0.14720335744193
    },
    "all_max/seed17": {
     "final_info": {
@@ -374,8 +374,8 @@
      "total_is_dollar": 14538629.802356794
     },
     "n_steps": 140,
-    "sha256": "7bbeaf5c461f4aa3f565b2e13c3b51b1d1ca5394f9c8573392204ec6e141f5c2",
-    "total_reward": -0.0007203670806327931
+    "sha256": "29a492015f49df600bc6c8dc5f108655c579fcc2bc334f64e43a9df42bf1d955",
+    "total_reward": -0.1471008043260486
    },
    "all_wait/seed0": {
     "final_info": {
@@ -456,8 +456,8 @@
      "total_is_dollar": 8211215.859232798
     },
     "n_steps": 193,
-    "sha256": "1b92d51697239007d32277862bc710dcce06900528fe26a252ef9c0e1a189039",
-    "total_reward": -0.0007444852897896373
+    "sha256": "57fe47efa3fb6bba74f5914d55cc3d2bcb59dc4325fef5819888df025eb31e17",
+    "total_reward": -0.08339161100698401
    },
    "random/seed17": {
     "final_info": {
@@ -481,8 +481,8 @@
      "total_is_dollar": 7240668.82833159
     },
     "n_steps": 184,
-    "sha256": "09421cd87321c6fe35a91294d06bafde0fbc86c95788b4a9754990398f71eb29",
-    "total_reward": -0.0008379409953794318
+    "sha256": "e1c5f927b51d79f3770cf84069df65631cb51dc71cfb5705d06a59fc4050662b",
+    "total_reward": -0.07359762936101587
    }
   },
   "counterfactual_v3_crash": {
@@ -508,8 +508,8 @@
      "total_is_dollar": 14090480.12557669
     },
     "n_steps": 132,
-    "sha256": "151fe787fac8eee2f5922b526a4d1c2fdc42cd80cfbce659592c23e744d29f38",
-    "total_reward": -0.0007156701316523621
+    "sha256": "bdc279b2065384d8ea737b5d06635751ac6ba8f7a6302c7ad4ece7e0465fb560",
+    "total_reward": -0.14273262405856413
    },
    "all_max/seed17": {
     "final_info": {
@@ -532,8 +532,8 @@
      "total_is_dollar": 15882194.05255562
     },
     "n_steps": 141,
-    "sha256": "0cebf583b99f9fb4691496c52ebd4305c731aae3ac1ae8833b7927919d7c11b9",
-    "total_reward": -0.0008148652382680702
+    "sha256": "14983b7872991d7dccc9aaa2190f7e88a30c8ff5d835072ffab1186fbcc37681",
+    "total_reward": -0.14329461279974556
    },
    "all_wait/seed0": {
     "final_info": {
@@ -615,8 +615,8 @@
      "total_is_dollar": 8007390.089909285
     },
     "n_steps": 184,
-    "sha256": "c6981f405655c5a67a436204173ddf940baddbcb98cf0beecfb31006b6dd6716",
-    "total_reward": -0.000731718529885882
+    "sha256": "09afbb3a87a37493eafe9cfb70f5d4b902ddce73ea44c9e229a238e1fa138f2d",
+    "total_reward": -0.08080275608831324
    },
    "random/seed17": {
     "final_info": {
@@ -640,8 +640,8 @@
      "total_is_dollar": 8912285.368137285
     },
     "n_steps": 184,
-    "sha256": "45426b5b2fa93e140c3b435ad8db560063817af885078f11b23663be5f90a9fe",
-    "total_reward": -0.0009660427020551868
+    "sha256": "3264796e0dfec3e812798f767a3ef4368b73f2a5ac402136c8c76f4098303e48",
+    "total_reward": -0.07211659002854451
    }
   },
   "historical_calm": {

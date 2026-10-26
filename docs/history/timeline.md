@@ -496,3 +496,24 @@ July audit (Phase −1/0) went back over it.
   The target becomes "beat TWAP in every regime". The ladder runs at 5% of Bybit ADV, with 1%
   and 10% as sensitivity checks. The best per-date pace in hindsight is worth +0.37 pp mean
   (crash +0.76), which makes a regime-conditioned pace the most promising rung.
+
+### 2026-10-27 · BUG · Counterfactual reward did not charge our own impact (mirror of 10-26)
+- **What:** the step reward, forced-liquidation and dust settlements were charged against the
+  mid of the impact-shifted book. Once impact moved prices (10-26), the price drop caused by
+  our own selling disappeared from the reward; only spread and depth (~0.06%) remained.
+- **Found by:** M0-e2 (doc 23) lost to TWAP on every regime with a near-constant −0.6% to −1.2%
+  IS. Cost split: execution −0.06%, the rest our own impact; the policy finished in ~60 of
+  1,920 steps.
+- **Impact:** the M0-e2 run is invalid as a test of the recipe. Evaluation IS, fills and
+  prices were never affected (golden IS bit-identical); only counterfactual rewards changed.
+- **Fix / status:** FIXED. Rewards are charged against the undisturbed mid (the real snapshot
+  without our impact), which keeps market drift out of the reward, as before. Regression test
+  `counterfactual_reward_charges_our_own_impact` fails without the fix. Golden regenerated
+  (counterfactual rewards only). Lesson: the 10-26 impact fix should have triggered a grep of
+  every place that reads the book mid — the mirror-bug pattern, fourth occurrence.
+
+### 2026-10-27 · BUG · Rust data tests silently skipped since era-1 data was deleted
+- **What:** 12 `rl_env` tests still pointed at deleted `TradeData/BookDepth/...` files and
+  returned early with "skipping", which counts as passed.
+- **Fix / status:** FIXED. Pointed at the Bybit files; all run and pass. Python data tests had
+  been moved to the dataset registry on 10-26; the Rust copies were missed (mirror pattern).

@@ -184,7 +184,7 @@ impl RlEnv {
         self.record_fill(&fill);
         // Scored before the market advances: the variance penalty uses this
         // step's volatility estimate.
-        let (reward, is_contribution) = self.step_reward(&fill, book_mid);
+        let (reward, is_contribution) = self.step_reward(&fill, book_mid, book_mid);
 
         // Advance time.
         self.step_idx += 1;
@@ -209,7 +209,7 @@ impl RlEnv {
                 mid,
                 self.spread_ref,
             );
-            total_reward_adj -= self.settle_forced_liquidation(&liq, mid);
+            total_reward_adj -= self.settle_forced_liquidation(&liq, mid, mid);
             forced = Some(liq);
             done = true;
         }
@@ -229,7 +229,7 @@ impl RlEnv {
                 mid,
                 self.spread_ref,
             );
-            total_reward_adj -= self.settle_forced_liquidation(&liq, mid);
+            total_reward_adj -= self.settle_forced_liquidation(&liq, mid, mid);
             dust = Some(liq.qty);
         }
 
@@ -301,6 +301,12 @@ impl RlEnv {
             });
 
         let book_mid = adjusted_book.mid_price().unwrap_or(self.current_mid);
+        // Reward reference: this snapshot's mid without our impact.
+        let undisturbed_mid = self
+            .cf_lob
+            .as_ref()
+            .and_then(|cf| cf.current_undisturbed_mid())
+            .unwrap_or(book_mid);
         let real_depth = self
             .cf_lob
             .as_ref()
@@ -340,7 +346,7 @@ impl RlEnv {
 
         // Scored after the book advances: the variance penalty uses the
         // post-trade volatility estimate (differs from historical mode).
-        let (reward, is_contribution) = self.step_reward(&fill, book_mid);
+        let (reward, is_contribution) = self.step_reward(&fill, book_mid, undisturbed_mid);
 
         // Termination.
         let inv_done = self.remaining <= 0.001 * self.cfg.total_inventory;
@@ -366,7 +372,8 @@ impl RlEnv {
                 self.cf_lob.as_ref().map(|cf| cf.current_adjusted_book())
             };
             let liq = ForcedLiquidation::price(book.as_mut(), self.remaining, mid, self.spread_ref);
-            total_reward_adj -= self.settle_forced_liquidation(&liq, mid);
+            let reference = self.dump_reference_mid(cf_exhausted, undisturbed_mid);
+            total_reward_adj -= self.settle_forced_liquidation(&liq, mid, reference);
             forced = Some(liq);
             done = true;
         }
@@ -380,7 +387,8 @@ impl RlEnv {
                 self.cf_lob.as_ref().map(|cf| cf.current_adjusted_book())
             };
             let liq = ForcedLiquidation::price(book.as_mut(), self.remaining, mid, self.spread_ref);
-            total_reward_adj -= self.settle_forced_liquidation(&liq, mid);
+            let reference = self.dump_reference_mid(cf_exhausted, undisturbed_mid);
+            total_reward_adj -= self.settle_forced_liquidation(&liq, mid, reference);
             dust = Some(liq.qty);
         }
 
@@ -474,6 +482,18 @@ impl RlEnv {
         }
     }
 
+    /// Undisturbed mid for an end-of-episode dump: the book the dump hits is
+    /// this step's when the replay is exhausted, otherwise the next snapshot.
+    fn dump_reference_mid(&self, cf_exhausted: bool, this_step: f64) -> f64 {
+        if cf_exhausted {
+            return this_step;
+        }
+        self.cf_lob
+            .as_ref()
+            .and_then(|cf| cf.current_undisturbed_mid())
+            .unwrap_or(this_step)
+    }
+
     /// Apply a voluntary fill to inventory and episode totals.
     pub(crate) fn record_fill(&mut self, fill: &Fill) {
         self.remaining = (self.remaining - fill.qty).max(0.0);
@@ -484,10 +504,13 @@ impl RlEnv {
 
     /// Dimensionless IS-normalised step reward and the step's IS contribution.
     ///
-    /// Fill step: signed slippage × fill fraction (negative when sell < mid).
+    /// Fill step: signed slippage against `reference_mid` × fill fraction
+    /// (negative when sell < mid). `reference_mid` is the mid without our own
+    /// impact (counterfactual) or the book mid (historical, where we have none);
+    /// charging against the impacted mid hid our impact from the agent (doc 24).
     /// Wait step: small penalty for remaining exposure (keeps wait rewards tiny).
     /// Must be called after `record_fill`, since it reads the updated inventory.
-    pub(crate) fn step_reward(&self, fill: &Fill, book_mid: f64) -> (f64, f64) {
+    pub(crate) fn step_reward(&self, fill: &Fill, book_mid: f64, reference_mid: f64) -> (f64, f64) {
         let total = self.cfg.total_inventory.max(1.0);
         let q_frac = self.remaining / total;
         let sigma_ref = self.cfg.sigma_ref.max(1e-9);
@@ -503,7 +526,7 @@ impl RlEnv {
         let inv_pressure = 0.0002 * q_frac.powi(2);
 
         let reward = if fill.qty > 1e-9 {
-            (fill.price - book_mid) * fill.qty / (self.arrival_price.max(1e-12) * total)
+            (fill.price - reference_mid) * fill.qty / (self.arrival_price.max(1e-12) * total)
         } else {
             -(var_penalty + inv_pressure) * 0.0001
         };
@@ -513,7 +536,13 @@ impl RlEnv {
     /// Book a forced liquidation into the episode totals, zero the inventory,
     /// and return its reward cost (>= 0): the same slippage formula as a normal
     /// fill plus the permanent-impact term on the full dumped quantity.
-    pub(crate) fn settle_forced_liquidation(&mut self, liq: &ForcedLiquidation, mid: f64) -> f64 {
+    /// Slippage is charged against `reference_mid`, as in `step_reward`.
+    pub(crate) fn settle_forced_liquidation(
+        &mut self,
+        liq: &ForcedLiquidation,
+        mid: f64,
+        reference_mid: f64,
+    ) -> f64 {
         let total = self.cfg.total_inventory.max(1.0);
         let notional = liq.notional();
         let liquidated_at = if liq.qty > 1e-12 {
@@ -527,7 +556,7 @@ impl RlEnv {
         self.remaining = 0.0;
 
         let slippage_cost =
-            (mid - liquidated_at) * liq.qty / (self.arrival_price.max(1e-12) * total);
+            (reference_mid - liquidated_at) * liq.qty / (self.arrival_price.max(1e-12) * total);
         let forced_perm = self.cfg.gamma * (liq.qty / total);
         slippage_cost + forced_perm
     }

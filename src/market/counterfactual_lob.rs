@@ -212,6 +212,14 @@ impl CounterfactualLob {
         self.apply_impact_to_book(scaled_book, residual)
     }
 
+    /// Mid of the current snapshot without our impact: the price the market
+    /// would show had we not traded. Reward is charged against it, so our own
+    /// impact is a cost the agent sees while market drift stays out.
+    pub fn current_undisturbed_mid(&self) -> Option<f64> {
+        let raw_book = self.current_book.clone()?;
+        self.rescale_book(raw_book).mid_price()
+    }
+
     /// Record that `trade_qty_units` simulation units were sold, then advance snapshot.
     pub fn record_trade_and_advance(&mut self, trade_qty_units: f64) {
         let trade_btc = trade_qty_units.max(0.0) * self.config.btc_scale;
