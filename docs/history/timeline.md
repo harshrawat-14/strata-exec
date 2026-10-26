@@ -490,3 +490,9 @@ July audit (Phase −1/0) went back over it.
   (the core of AC) could not show, which adds to the timing-only findings of doc 20.
 - **Fix / status:** FIXED. Square-root metaorder impact on the decayed accumulated quantity, applied as
   a price shift; Y = 1.07 fitted on signed flow (doc 21).
+
+### 2026-10-26 · DECISION · Era-2 baseline: AC = TWAP; ladder sized at 5% of ADV
+- Under price-moving impact, honest-λ AC selects λ → 0 on training dates, which is TWAP (doc 22).
+  The target becomes "beat TWAP in every regime". The ladder runs at 5% of Bybit ADV, with 1%
+  and 10% as sensitivity checks. The best per-date pace in hindsight is worth +0.37 pp mean
+  (crash +0.76), which makes a regime-conditioned pace the most promising rung.

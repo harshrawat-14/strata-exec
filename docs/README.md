@@ -61,6 +61,8 @@ findings were retracted and the retractions are preserved deliberately rather th
 | 18 | [execution-gap-diagnostics.md](experiments/18-execution-gap-diagnostics.md) | Constant 'sell 0.3%' beats M0; AC needs 837 action switches/episode; trades > 0.3% of the order cost 2.7× per unit |
 | 19 | [m4-rate-actions-predictions.md](experiments/19-m4-rate-actions-predictions.md) · [result](experiments/19-m4-rate-actions-result.md) | Best validation number (−0.31%) but a constant 1.5× pace does better; gain is action design + faster selling on falling dates, not learned pacing |
 | 20 | [order-book-floor.md](experiments/20-order-book-floor.md) | **Critical.** bookDepth bands give a ~45 bp cost floor on every trade; order size barely matters below ~2 days' volume |
+| 21 | [era2-impact-model.md](experiments/21-era2-impact-model.md) | Era 2: our selling now moves the price (square-root metaorder impact); Y = 1.07 fitted on Bybit signed flow |
+| 22 | [era2-baselines.md](experiments/22-era2-baselines.md) | Era 2 baselines: honest AC = TWAP; no constant pace wins every regime; best pace in hindsight is worth ~0.37 pp at 5% ADV |
 
 Predictions files are **pre-registered** — written and committed before the corresponding experiment
 was run, so the result cannot be retrofitted to the outcome.
