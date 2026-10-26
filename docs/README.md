@@ -64,6 +64,7 @@ findings were retracted and the retractions are preserved deliberately rather th
 | 21 | [era2-impact-model.md](experiments/21-era2-impact-model.md) | Era 2: our selling now moves the price (square-root metaorder impact); Y = 1.07 fitted on Bybit signed flow |
 | 22 | [era2-baselines.md](experiments/22-era2-baselines.md) | Era 2 baselines: honest AC = TWAP; no constant pace wins every regime; best pace in hindsight is worth ~0.37 pp at 5% ADV |
 | 23 | [m0-era2-predictions.md](experiments/23-m0-era2-predictions.md) | M0 retrained on Bybit at 5% ADV: pre-registered predictions against TWAP |
+| 23 | [m0-era2-result.md](experiments/23-m0-era2-result.md) | M0-e2b (fixed reward): beats TWAP on validation (+0.09 pp), crash +0.49 pp, calm −0.67 pp; fast seller, not regime-aware; 6/6 predictions met |
 | 24 | [m0-era2-reward-bug.md](experiments/24-m0-era2-reward-bug.md) | M0-e2 first run invalid: the counterfactual reward did not charge our own impact; fixed |
 
 Predictions files are **pre-registered** — written and committed before the corresponding experiment
