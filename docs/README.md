@@ -63,6 +63,7 @@ findings were retracted and the retractions are preserved deliberately rather th
 | 20 | [order-book-floor.md](experiments/20-order-book-floor.md) | **Critical.** bookDepth bands give a ~45 bp cost floor on every trade; order size barely matters below ~2 days' volume |
 | 21 | [era2-impact-model.md](experiments/21-era2-impact-model.md) | Era 2: our selling now moves the price (square-root metaorder impact); Y = 1.07 fitted on Bybit signed flow |
 | 22 | [era2-baselines.md](experiments/22-era2-baselines.md) | Era 2 baselines: honest AC = TWAP; no constant pace wins every regime; best pace in hindsight is worth ~0.37 pp at 5% ADV |
+| 23 | [m0-era2-predictions.md](experiments/23-m0-era2-predictions.md) | M0 retrained on Bybit at 5% ADV: pre-registered predictions against TWAP |
 
 Predictions files are **pre-registered** — written and committed before the corresponding experiment
 was run, so the result cannot be retrofitted to the outcome.

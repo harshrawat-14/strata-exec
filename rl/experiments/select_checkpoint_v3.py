@@ -38,13 +38,14 @@ def _agent(model_path, action_space):
 
 
 def _evaluate(args):
-    name, path, date, action_space = args
+    name, path, date, action_space, share = args
     from environment import StrataExecEnv
     from evaluation.episode import _run_episode
     from evaluation.protocol import EPISODE_STEPS, N_EVAL_EPISODES, eval_start_fracs
 
     model = _agent(path, action_space)
-    env = StrataExecEnv(mode="counterfactual", lob_date=date, agg_date=date, btc_target=50_000.0,
+    size = dict(order_share_adv=share) if share is not None else dict(btc_target=50_000.0)
+    env = StrataExecEnv(mode="counterfactual", lob_date=date, agg_date=date, **size,
                         n_state_dims=16, fixed_steps=True, fixed_size=True,
                         episode_steps=EPISODE_STEPS)
     try:
@@ -60,6 +61,8 @@ def main():
     ap.add_argument("--run", required=True, help="training run name (train.py --name)")
     ap.add_argument("--workers", type=int, default=8)
     ap.add_argument("--action-space", choices=["raw", "residual_ac", "rate"], default="raw")
+    ap.add_argument("--order-share-adv", type=float, default=None,
+                    help="evaluate at this share of ADV (era 2: 0.05); omit for the era-1 50k BTC order")
     args = ap.parse_args()
 
     from evaluation.dates import VALIDATION_DATES_V3
@@ -74,7 +77,7 @@ def main():
     if not ckpts:
         sys.exit(f"no checkpoints found for run {args.run!r}")
 
-    jobs = [(n, p, d, args.action_space) for n, p in ckpts.items() for d in VALIDATION_DATES_V3]
+    jobs = [(n, p, d, args.action_space, args.order_share_adv) for n, p in ckpts.items() for d in VALIDATION_DATES_V3]
     with Pool(args.workers) as pool:
         rows = [r for rs in pool.map(_evaluate, jobs, chunksize=1) for r in rs]
     df = pd.DataFrame(rows)
