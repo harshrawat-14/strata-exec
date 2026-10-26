@@ -23,8 +23,8 @@ from environment import RL_ENV_BIN  # noqa: E402
 # binary); skip cleanly where they are absent, e.g. CI.
 _REQUIRED = [
     RL_ENV_BIN,
-    f"TradeData/BookDepth/BTCUSDT-bookDepth-{golden_lib.CALM_DATE}.csv",
-    f"TradeData/BookDepth/BTCUSDT-bookDepth-{golden_lib.CRASH_DATE}.csv",
+    golden_lib._book(golden_lib.CALM_DATE),
+    golden_lib._book(golden_lib.CRASH_DATE),
     f"{golden_lib.EVAL_MODEL}.zip",
 ]
 pytestmark = pytest.mark.skipif(

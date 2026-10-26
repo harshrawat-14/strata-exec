@@ -6,8 +6,8 @@ it (Global Rule 10).
 TestSharedCostModel is a fast unit test (StrataExecEnv is mocked out --
 no subprocess, no data files). TestBitIdenticalPath and TestPolicyInvariance
 are integration tests: they spawn the real `./target/release/rl-env`
-subprocess against real historical data (TradeData/BookDepth /
-TradeData/AggTrades for 2024-01-15) and must run from the repo root.
+subprocess against real historical data (the active dataset's book and
+trades for 2024-01-15) and must run from the repo root.
 """
 from __future__ import annotations
 
@@ -25,12 +25,13 @@ from evaluate import (
     evaluate_all_strategies_on_date,
 )
 from environment import StrataExecEnv
+from market_data import book_path
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 _HAS_REAL_DATA = os.path.exists(
     os.path.join(REPO_ROOT, "target", "release", "rl-env")
 ) and os.path.exists(
-    os.path.join(REPO_ROOT, "TradeData", "BookDepth", "BTCUSDT-bookDepth-2024-01-15.csv")
+    os.path.join(REPO_ROOT, book_path("2024-01-15"))
 )
 
 requires_real_env = pytest.mark.skipif(

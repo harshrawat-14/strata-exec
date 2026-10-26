@@ -18,11 +18,12 @@ from evaluation.dates import (
     VALIDATION_DATES_V3,
 )
 from evaluation.protocol import EPISODE_STEPS, eval_start_fracs, fit_start_fracs
+from market_data import book_path
 
 DATE = "2024-01-15"
 needs_env = pytest.mark.skipif(
     not (os.path.exists(RL_ENV_BIN)
-         and os.path.exists(f"TradeData/BookDepth/BTCUSDT-bookDepth-{DATE}.csv")),
+         and os.path.exists(book_path(DATE))),
     reason="requires the rl-env binary and TradeData/",
 )
 

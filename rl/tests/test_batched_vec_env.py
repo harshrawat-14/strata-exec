@@ -25,6 +25,7 @@ import pytest
 
 from batched_vec_env import BatchedStrataExecVecEnv
 from environment import StrataExecEnv
+from market_data import book_path
 
 DATE = "2024-01-15"
 BATCH_SIZE = 4
@@ -40,7 +41,7 @@ def _action_at(global_step: int) -> int:
 
 
 @pytest.mark.skipif(
-    not __import__("os").path.exists(f"TradeData/BookDepth/BTCUSDT-bookDepth-{DATE}.csv"),
+    not __import__("os").path.exists(book_path(DATE)),
     reason="requires TradeData/ fixtures",
 )
 def test_batched_vec_env_matches_single_instance_json_path():

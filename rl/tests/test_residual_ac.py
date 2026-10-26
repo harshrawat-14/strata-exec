@@ -14,11 +14,12 @@ from evaluation.episode import _run_episode
 from evaluation.policies.almgren_chriss import ACOptimalPolicy
 from evaluation.protocol import AC_LAMBDA, EPISODE_STEPS
 from evaluation.residual import DELTAS, ResidualACAgent
+from market_data import book_path
 
 DATE = "2024-07-05"
 pytestmark = pytest.mark.skipif(
     not (os.path.exists(RL_ENV_BIN)
-         and os.path.exists(f"TradeData/BookDepth/BTCUSDT-bookDepth-{DATE}.csv")),
+         and os.path.exists(book_path(DATE))),
     reason="requires the rl-env binary and TradeData/",
 )
 

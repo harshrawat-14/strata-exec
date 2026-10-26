@@ -419,7 +419,7 @@ class TestAdaptiveACVolatilityInversion:
             env.close()
 
     def _require_data(self, date):
-        path = f"TradeData/BookDepth/BTCUSDT-bookDepth-{date}.csv"
+        path = book_path(date)
         if not os.path.exists(path):
             pytest.skip(f"{path} not present in this checkout")
 
@@ -548,12 +548,13 @@ class TestSqrtImpactOptimalSchedule:
 
 
 import os
+from market_data import book_path
 
 _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 _HAS_REAL_ENV = os.path.exists(
     os.path.join(_REPO_ROOT, "target", "release", "rl-env")
 ) and os.path.exists(
-    os.path.join(_REPO_ROOT, "TradeData", "BookDepth", "BTCUSDT-bookDepth-2024-03-05.csv")
+    os.path.join(_REPO_ROOT, book_path("2024-03-05"))
 )
 
 requires_real_env_for_sqrt_impact = pytest.mark.skipif(

@@ -14,6 +14,8 @@ Three layers are captured:
      dates, compared exactly.
 
 Only TRAINING_DATES_V2 are used. HELD_OUT_DATES_V2 are never touched here.
+Data comes from the active dataset (rl/market_data.py); fixtures were last
+generated on bybit_btcusdt_perp (era 2).
 
 Regenerate fixtures ONLY on a commit whose behaviour is known-good:
     python rl/tests/golden/generate.py
@@ -38,11 +40,13 @@ CRASH_DATE = "2024-07-05"
 
 
 def _book(date: str) -> str:
-    return f"TradeData/BookDepth/BTCUSDT-bookDepth-{date}.csv"
+    from market_data import book_path
+    return book_path(date)
 
 
 def _agg(date: str) -> str:
-    return f"TradeData/AggTrades/BTCUSDT-aggTrades-{date}.csv"
+    from market_data import trades_path
+    return trades_path(date)
 
 
 # name -> extra CLI args. Chosen so every RlMode, the adversarial path, the

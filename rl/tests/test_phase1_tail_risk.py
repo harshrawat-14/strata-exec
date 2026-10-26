@@ -11,12 +11,13 @@ import os
 import pytest
 
 from evaluate import evaluate_ac_lambda_grid, AC_LAMBDA_GRID, AC_DEFAULT_LAMBDA
+from market_data import book_path
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 _HAS_REAL_DATA = os.path.exists(
     os.path.join(REPO_ROOT, "target", "release", "rl-env")
 ) and os.path.exists(
-    os.path.join(REPO_ROOT, "TradeData", "BookDepth", "BTCUSDT-bookDepth-2024-01-15.csv")
+    os.path.join(REPO_ROOT, book_path("2024-01-15"))
 )
 
 requires_real_env = pytest.mark.skipif(
