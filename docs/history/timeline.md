@@ -520,6 +520,6 @@ July audit (Phase −1/0) went back over it.
 
 ### 2026-10-27 · RESULT · Era-2 RL baseline (M0-e2b): wins crashes, loses calm, sells fast
 - M0's recipe on Bybit at 5% ADV, with the reward fixed: validation −0.207% vs TWAP −0.299%;
-  by regime vs TWAP, crash +0.49 pp, normal +0.01, calm −0.67 (doc 23). Finishes in 1–4.5 h
+  by regime vs TWAP, crash +0.49 pp, normal +0.01, calm −0.67 (doc 23). Finishes in 3.8–7.4 h (median start)
   of 16 h on every date, so the gain is front-loading on falling days, not regime-aware pacing.
   Still improving at 1.5M steps. Next rung: TWAP-relative reward (M1).

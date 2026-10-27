@@ -48,7 +48,7 @@ def main():
     base = pd.read_csv("rl/results/era2_baselines.csv")
     base = base[(base.share == SHARE) & (base.kind == "pace")]
     paces = base.pivot_table(index="date", columns="param", values="IS").add_prefix("pace ")
-    model = rl.groupby("date").agg(IS=("IS", "mean"), forced=("forced", "mean"))
+    model = rl.groupby("date").agg(IS=("IS", "mean"), forced=("forced", "mean"), steps=("steps", "median"))
     t = model.join(paces)
     t["regime"] = t.index.map(lambda d: SEVERITY_RANK_V2[d][1])
     t["split"] = np.where(t.index.isin(TRAINING_DATES_V3), "train", "validation")
@@ -56,7 +56,7 @@ def main():
     t["vs best pace"] = t.IS - t[[c for c in t.columns if c.startswith("pace ")]].max(axis=1)
     print(t.sort_values(["split", "regime"]).round(3).to_string())
     print("\nmeans by split:")
-    print(t.groupby("split")[["IS", "pace 1.0", "pace 1.5", "pace 2.0", "vs TWAP", "forced"]].mean().round(4))
+    print(t.groupby("split")[["IS", "pace 1.0", "pace 1.5", "pace 2.0", "vs TWAP", "forced", "steps"]].mean().round(4))
     print("\nmeans by regime (all dates):")
     print(t.groupby("regime")[["IS", "pace 1.0", "vs TWAP"]].mean().round(4))
     print(f"\nSaved {out}")

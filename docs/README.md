@@ -66,6 +66,7 @@ findings were retracted and the retractions are preserved deliberately rather th
 | 23 | [m0-era2-predictions.md](experiments/23-m0-era2-predictions.md) | M0 retrained on Bybit at 5% ADV: pre-registered predictions against TWAP |
 | 23 | [m0-era2-result.md](experiments/23-m0-era2-result.md) | M0-e2b (fixed reward): beats TWAP on validation (+0.09 pp), crash +0.49 pp, calm −0.67 pp; fast seller, not regime-aware; 6/6 predictions met |
 | 24 | [m0-era2-reward-bug.md](experiments/24-m0-era2-reward-bug.md) | M0-e2 first run invalid: the counterfactual reward did not charge our own impact; fixed |
+| 25 | [m1-twap-relative-reward-predictions.md](experiments/25-m1-twap-relative-reward-predictions.md) | M1: reward charged against arrival minus TWAP's market-move gain on the same path; pre-registered predictions |
 
 Predictions files are **pre-registered** — written and committed before the corresponding experiment
 was run, so the result cannot be retrofitted to the outcome.

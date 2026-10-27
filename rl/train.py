@@ -67,6 +67,7 @@ def train(
     action_space: str = "raw",
     gae_lambda: float = 0.95,
     order_share_adv: float = None,
+    reward_baseline: str = "mid",
 ):
     """
     episode_steps: evaluation protocol v3 (evaluation/protocol.py) -- every
@@ -149,6 +150,7 @@ def train(
                 gae_lambda=gae_lambda,
                 action_space_kind=action_space,
                 order_share_adv=order_share_adv if order_share_adv is not None else "",
+                reward_baseline=reward_baseline,
             ))
 
         print("=" * 60)
@@ -185,6 +187,7 @@ def train(
             episode_steps=episode_steps,
             action_space=action_space,
             order_share_adv=order_share_adv,
+            reward_baseline=reward_baseline,
         )
 
         # Regression note: this was hardcoded to 8, silently ignoring the
@@ -293,6 +296,7 @@ def train(
             btc_target=btc_target, n_state_dims=n_state_dims,
             no_time_features=no_time_features, episode_steps=episode_steps,
             action_space=action_space, order_share_adv=order_share_adv,
+            reward_baseline=reward_baseline,
         )
 
         device = force_device if force_device else get_device()
@@ -478,6 +482,10 @@ if __name__ == "__main__":
     p.add_argument("--order-share-adv", type=float, default=None,
                    help="Protocol v3.1: order size as a share of the date's 20-day "
                         "trailing ADV (e.g. 0.01), overriding --btc-target.")
+    p.add_argument("--reward-baseline", choices=["mid", "twap"], default="mid",
+                   help="Counterfactual reward reference. mid: the mid without our impact "
+                        "(market moves left out). twap: the arrival price minus TWAP's "
+                        "market-move gain on the same path (M1, doc 25).")
     p.add_argument("--gae-lambda", type=float, default=0.95,
                    help="GAE lambda (default 0.95). Credit horizon ~1/(1-gamma*lambda).")
     p.add_argument("--eval-dates", type=str, default=None,
@@ -524,4 +532,5 @@ if __name__ == "__main__":
         action_space=args.action_space,
         gae_lambda=args.gae_lambda,
         order_share_adv=args.order_share_adv,
+        reward_baseline=args.reward_baseline,
     )

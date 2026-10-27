@@ -15,8 +15,8 @@ improving when training stopped: episode length rose from ~47 to ~840 steps.
   (−0.20 pp).
 - **By regime** (all 16 dates): crash **+0.49 pp** vs TWAP, normal +0.01, calm **−0.67**.
 - Era 1 had the same shape: RL wins crashes and loses calm days.
-- It is a **fast seller, not a regime-aware one**. It finishes in 109–540 of 1,920 steps
-  (1–4.5 h instead of 16 h), and its pace does not track regime.
+- It is a **fast seller, not a regime-aware one**. On the median start it finishes in
+  454–886 of 1,920 steps (3.8–7.4 h instead of 16 h), and its pace does not track regime.
 
 ## Result (mean IS %, 20 starts per date, 5% of ADV)
 
@@ -41,18 +41,19 @@ improving when training stopped: episode length rose from ~47 to ~840 steps.
 On two training crash dates (07-04, 07-07), M0-e2b beats every constant pace. On 09-15 it
 beats the best constant pace by 0.03 pp.
 
-## How it sells (5 starts per date)
+## How it sells
 
-| date | regime | steps to finish (of 1,920) | largest slice (share of order) | execution % |
-|---|---|---:|---:|---:|
-| 2024-11-06 | calm | 109 | 4.5% | −0.054 |
-| 2024-07-04 | crash | 141 | 6.5% | −0.046 |
-| 2024-04-15 | crash | 312 | 3.9% | −0.039 |
-| 2024-07-07 | crash | 346 | 3.2% | −0.019 |
-| 2024-07-06 | calm | 382 | 3.4% | −0.024 |
-| 2024-01-15 | calm | 470 | 1.3% | −0.014 |
-| 2024-09-15 | calm | 506 | 1.0% | −0.006 |
-| 2024-02-20 | normal | 540 | 1.4% | −0.008 |
+Median steps to finish (of 1,920), all 20 starts, from `rl/results/m0_e2b_era2_eval.csv`:
+
+| regime | dates: median steps |
+|---|---|
+| crash | 07-05: 485 · 04-15: 520 · 07-04: 523 · 07-07: 848 |
+| calm | 09-15: 454 · 07-08: 455 · 11-06: 520 · 07-06: 710 · 07-09: 829 · 01-15: 850 |
+| normal | 06-10: 491 · 04-14: 658 · 02-20: 765 · 04-12: 807 · 10-15: 820 · 04-13: 886 |
+
+A first pass on only 5 starts per date gave 109–540 steps, with the largest slice at 1.0–6.5%
+of the order and execution at −0.006% to −0.054%. That understated the steps; it was
+corrected the same day, before M1 ran.
 
 TWAP takes 1,918 steps, with 0.15% slices and about −0.003% execution. M0-e2b front-loads
 on every date. This wins when prices fall, i.e. crashes, and loses when they rise, i.e.

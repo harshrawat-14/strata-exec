@@ -114,6 +114,7 @@ fn step_allocation_time_share_of_wall_time() {
         fixed_size: true,
         no_time_features: true,
         episode_steps: None,
+        reward_baseline: RewardBaseline::Mid,
     };
     let mut env = RlEnv::new(cfg);
 
@@ -211,6 +212,7 @@ fn historical_lob_episode_hash_identical_across_20_runs_same_seed() {
             fixed_size: true,
             no_time_features: true,
             episode_steps: None,
+            reward_baseline: RewardBaseline::Mid,
         };
         RlEnv::new(cfg)
     };
@@ -261,6 +263,7 @@ fn make_env() -> RlEnv {
         fixed_size: false,
         no_time_features: true,
         episode_steps: None,
+        reward_baseline: RewardBaseline::Mid,
     };
     RlEnv::new(cfg)
 }
@@ -300,6 +303,7 @@ fn reset_on_missing_lob_file_terminates_episode_gracefully_instead_of_panicking(
         fixed_size: true,
         no_time_features: true,
         episode_steps: None,
+        reward_baseline: RewardBaseline::Mid,
     };
     let mut env = RlEnv::new(cfg);
     let r = env.reset(Some(1));
@@ -363,6 +367,7 @@ fn reset_on_lob_file_with_zero_valid_snapshots_terminates_gracefully() {
         fixed_size: true,
         no_time_features: true,
         episode_steps: None,
+        reward_baseline: RewardBaseline::Mid,
     };
     let mut env = RlEnv::new(cfg);
     let r = env.reset(Some(1));
@@ -440,6 +445,7 @@ fn rl_env_done_when_steps_exhausted() {
         fixed_size: false,
         no_time_features: true,
         episode_steps: None,
+        reward_baseline: RewardBaseline::Mid,
     };
     let mut env = RlEnv::new(cfg);
     env.reset(None);
@@ -514,6 +520,7 @@ fn counterfactual_spread_ref_is_rescaled_not_raw_btc_dollar_scale() {
         fixed_size: true,
         no_time_features: true,
         episode_steps: None,
+        reward_baseline: RewardBaseline::Mid,
     };
     let mut env = RlEnv::new(cfg);
     env.reset(Some(1));
@@ -570,6 +577,7 @@ fn counterfactual_reward_charges_our_own_impact() {
         fixed_size: true,
         no_time_features: true,
         episode_steps: None,
+        reward_baseline: RewardBaseline::Mid,
     };
     let mut env = RlEnv::new(cfg);
     let start = env.reset(Some(1));
@@ -639,6 +647,7 @@ fn regime_dims_separate_crash_from_calm_in_first_100_steps() {
             fixed_size: true,
             no_time_features: true,
             episode_steps: None,
+            reward_baseline: RewardBaseline::Mid,
         };
         let mut env = RlEnv::new(cfg);
         env.reset(Some(0));
@@ -709,6 +718,7 @@ fn training_horizon_episode_fits_within_day_no_stale_tail() {
         fixed_size: true,
         no_time_features: true,
         episode_steps: None,
+        reward_baseline: RewardBaseline::Mid,
     };
     let mut env = RlEnv::new(cfg);
     env.reset(Some(900));
@@ -864,6 +874,7 @@ fn make_env_with_time_features() -> RlEnv {
         fixed_size: false,
         no_time_features: false,
         episode_steps: None,
+        reward_baseline: RewardBaseline::Mid,
     };
     RlEnv::new(cfg)
 }
@@ -984,6 +995,7 @@ fn synthetic_cfg_template() -> EnvConfig {
         fixed_size: true,
         no_time_features: true,
         episode_steps: None,
+        reward_baseline: RewardBaseline::Mid,
     }
 }
 
@@ -1248,6 +1260,7 @@ fn forced_liquidation_is_not_reward_superior_to_trading() {
         fixed_size: true,
         no_time_features: true,
         episode_steps: None,
+        reward_baseline: RewardBaseline::Mid,
     };
 
     // Never-trade policy: action 0 every step, forced-liquidated at the horizon.
@@ -1316,6 +1329,7 @@ fn historical_price_factor_is_fixed_at_episode_start_not_recomputed_per_step() {
         fixed_size: true,
         no_time_features: true,
         episode_steps: None,
+        reward_baseline: RewardBaseline::Mid,
     };
     let mut env = RlEnv::new(cfg);
     env.reset(Some(42));
@@ -1376,6 +1390,7 @@ fn forced_liquidation_is_pct_reflects_real_execution_not_pinned_zero() {
         fixed_size: true,
         no_time_features: true,
         episode_steps: None,
+        reward_baseline: RewardBaseline::Mid,
     };
     let mut env = RlEnv::new(cfg);
     env.reset(Some(42));
@@ -1701,5 +1716,86 @@ mod book_continuation {
     fn deeper_residuals_cost_more_per_unit() {
         let c = BookContinuation::of(&book()).expect("usable book");
         assert!(c.average_price_for(10.0) < c.average_price_for(1.0));
+    }
+}
+
+mod twap_baseline {
+    use crate::config::*;
+    use crate::env::*;
+
+    const LOB: &str = "TradeData/Bybit/BTCUSDT/book-2024-04-15.csv";
+
+    fn env(baseline: &str) -> Option<RlEnv> {
+        if !std::path::Path::new(LOB).exists() {
+            eprintln!("skipping: {LOB} not present in this checkout");
+            return None;
+        }
+        let args: Vec<String> = [
+            "--rl-mode", "counterfactual", "--lob-data", LOB, "--btc-target", "6000",
+            "--fixed-size", "--episode-steps", "1920", "--reward-baseline", baseline,
+        ]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+        Some(RlEnv::new(parse_args(&args).expect("valid arguments")))
+    }
+
+    /// Sum of rewards and the final IS (fraction) of a steady-selling episode.
+    fn run(env: &mut RlEnv) -> (f64, f64, f64) {
+        let start = env.reset_at(Some(0), Some(0.3));
+        let baseline = start.info["twap_drift_baseline"].as_f64().unwrap_or(0.0);
+        let mut total = 0.0;
+        loop {
+            let r = env.step(3); // 0.5% of what remains
+            total += r.reward;
+            if r.done {
+                let is = r.info["total_IS_pct"].as_f64().unwrap() / 100.0;
+                return (total, is, baseline);
+            }
+        }
+    }
+
+    #[test]
+    fn drift_gain_is_mean_relative_move_over_the_horizon() {
+        let mids = [100.0, 101.0, 99.0, 104.0, 50.0];
+        // Horizon 3 from index 1: (101, 99, 104) / 101 - 1.
+        let expected = (0.0 + (99.0 / 101.0 - 1.0) + (104.0 / 101.0 - 1.0)) / 3.0;
+        assert!((twap_drift_gain(&mids, 1, 3) - expected).abs() < 1e-15);
+        // Past the end of the day: only the snapshots that exist.
+        assert!((twap_drift_gain(&mids, 3, 10) - (0.0 + (50.0 / 104.0 - 1.0)) / 2.0).abs() < 1e-15);
+        assert_eq!(twap_drift_gain(&mids, 9, 3), 0.0);
+    }
+
+    #[test]
+    fn episode_reward_is_minus_is_minus_twap_drift_gain() {
+        // Under the TWAP baseline every fill is charged against the arrival
+        // price and TWAP's market-move gain is charged once, so the return is
+        // exactly -IS - B (up to the tiny dust penalty). The mid baseline must
+        // differ on this crash day: its reward leaves market moves out.
+        let (Some(mut twap), Some(mut mid)) = (env("twap"), env("mid")) else { return };
+        let (reward, is, b) = run(&mut twap);
+        assert!(b.abs() > 1e-4, "04-15 moves; the baseline must be non-trivial (B={b})");
+        assert!(
+            (reward - (-is - b)).abs() < 1e-5,
+            "return {reward} must equal -IS - B = {}",
+            -is - b
+        );
+        let (mid_reward, mid_is, _) = run(&mut mid);
+        assert!((mid_is - is).abs() < 1e-12, "the baseline must not change execution");
+        assert!((mid_reward - reward).abs() > 1e-4, "mid baseline must leave market moves out");
+    }
+
+    #[test]
+    fn twap_baseline_is_counterfactual_only() {
+        let args: Vec<String> = ["--rl-mode", "historical", "--reward-baseline", "twap"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        assert!(parse_args(&args).unwrap_err().contains("counterfactual"));
+        let bad: Vec<String> = ["--rl-mode", "counterfactual", "--reward-baseline", "vwap"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        assert!(parse_args(&bad).is_err());
     }
 }

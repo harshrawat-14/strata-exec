@@ -56,6 +56,7 @@ impl RlEnv {
         self.total_notional_received = 0.0;
         self.total_filled = 0.0;
         self.current_sigma = self.cfg.sigma_ref;
+        self.pending_baseline = 0.0;
 
         let ingestion_result = match self.cfg.mode {
             RlMode::Synthetic => {
@@ -103,6 +104,11 @@ impl RlEnv {
         if let (Some((start, max_start)), Some(obj)) = (self.episode_start, info.as_object_mut()) {
             obj.insert("start_offset".to_string(), json!(start));
             obj.insert("max_start".to_string(), json!(max_start));
+        }
+        if self.cfg.reward_baseline == RewardBaseline::Twap {
+            if let Some(obj) = info.as_object_mut() {
+                obj.insert("twap_drift_baseline".to_string(), json!(self.pending_baseline));
+            }
         }
         if let Some(cf) = &self.cf_lob {
             let btc_scale = self.cfg.btc_target / self.cfg.total_inventory.max(1.0);
@@ -435,6 +441,7 @@ impl RlEnv {
                 .iter()
                 .map(|s| s.to_order_book().mid_price().unwrap_or(0.0))
                 .collect();
+            self.day_mids = all_mids.clone();
             let mut cf_config = CounterfactualLobConfig::calibrated(
                 cf_config,
                 self.agg_trades.as_deref(),
@@ -455,6 +462,25 @@ impl RlEnv {
         // so the impact model converts trade-units → BTC with the right ratio.
         cf.set_btc_scale(btc_scale);
         cf.seek(start_offset);
+        if self.cfg.reward_baseline == RewardBaseline::Twap {
+            self.pending_baseline =
+                twap_drift_gain(&self.day_mids, start_offset, self.cfg.total_steps);
+        }
         Ok(())
     }
+}
+
+/// TWAP's gain from market moves over an episode, as a fraction of the
+/// arrival price: TWAP sells an equal share at each of the `horizon`
+/// snapshots from `start`, so its gain is the mean of mid_k / mid_start - 1.
+/// Snapshots past the end of the day are left out.
+pub(crate) fn twap_drift_gain(mids: &[f64], start: usize, horizon: usize) -> f64 {
+    let Some(&arrival) = mids.get(start) else {
+        return 0.0;
+    };
+    if arrival <= 0.0 || horizon == 0 {
+        return 0.0;
+    }
+    let window = &mids[start..(start + horizon).min(mids.len())];
+    window.iter().map(|m| m / arrival - 1.0).sum::<f64>() / window.len() as f64
 }

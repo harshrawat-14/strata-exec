@@ -301,12 +301,17 @@ impl RlEnv {
             });
 
         let book_mid = adjusted_book.mid_price().unwrap_or(self.current_mid);
-        // Reward reference: this snapshot's mid without our impact.
+        // Reward reference: this snapshot's mid without our impact, or the
+        // arrival price under the TWAP baseline (market moves then count).
         let undisturbed_mid = self
             .cf_lob
             .as_ref()
             .and_then(|cf| cf.current_undisturbed_mid())
             .unwrap_or(book_mid);
+        let undisturbed_mid = match self.cfg.reward_baseline {
+            RewardBaseline::Mid => undisturbed_mid,
+            RewardBaseline::Twap => self.arrival_price,
+        };
         let real_depth = self
             .cf_lob
             .as_ref()
@@ -346,7 +351,9 @@ impl RlEnv {
 
         // Scored after the book advances: the variance penalty uses the
         // post-trade volatility estimate (differs from historical mode).
-        let (reward, is_contribution) = self.step_reward(&fill, book_mid, undisturbed_mid);
+        let (mut reward, is_contribution) = self.step_reward(&fill, book_mid, undisturbed_mid);
+        // TWAP baseline: charged once, on the first step, whatever the action.
+        reward -= std::mem::take(&mut self.pending_baseline);
 
         // Termination.
         let inv_done = self.remaining <= 0.001 * self.cfg.total_inventory;
@@ -485,7 +492,7 @@ impl RlEnv {
     /// Undisturbed mid for an end-of-episode dump: the book the dump hits is
     /// this step's when the replay is exhausted, otherwise the next snapshot.
     fn dump_reference_mid(&self, cf_exhausted: bool, this_step: f64) -> f64 {
-        if cf_exhausted {
+        if cf_exhausted || self.cfg.reward_baseline == RewardBaseline::Twap {
             return this_step;
         }
         self.cf_lob

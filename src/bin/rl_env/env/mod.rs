@@ -5,6 +5,8 @@ mod execution;
 #[cfg(test)]
 pub(crate) use execution::{BookContinuation, ForcedLiquidation};
 mod reset;
+#[cfg(test)]
+pub(crate) use reset::twap_drift_gain;
 mod state;
 
 use std::cell::RefCell;
@@ -87,6 +89,11 @@ pub struct RlEnv {
 
     /// Counterfactual LOB (real Binance snapshots + self-impact model).
     pub(crate) cf_lob: Option<CounterfactualLob>,
+    /// Real mid of every snapshot of the counterfactual day (TWAP baseline).
+    day_mids: Vec<f64>,
+    /// TWAP's market-move gain for this episode, charged on the first step
+    /// (`--reward-baseline twap`; 0 otherwise).
+    pending_baseline: f64,
 
     /// Loaded aggTrades for OFI computation (historical/counterfactual modes).
     agg_trades: Option<Arc<AggTradesDay>>,
@@ -195,6 +202,8 @@ impl RlEnv {
             return_buffer: VecDeque::with_capacity(64),
             adversarial,
             cf_lob: None,
+            day_mids: Vec::new(),
+            pending_baseline: 0.0,
             agg_trades: None,
             ofi_series: Vec::new(),
             ofi_start: 0,

@@ -26,7 +26,8 @@ def _wrap_action_space(env, action_space):
 def make_multi_date_eval_env(mode, adversarial, eval_dates, btc_target,
                              n_state_dims, no_time_features,
                              episode_steps=None, starts_per_date=5,
-                             action_space="raw", order_share_adv=None):
+                             action_space="raw", order_share_adv=None,
+                             reward_baseline="mid"):
     """
     Phase 2R fix (2): a MULTI-date eval env for best-model selection.
 
@@ -54,6 +55,7 @@ def make_multi_date_eval_env(mode, adversarial, eval_dates, btc_target,
             episode_steps=episode_steps,
             start_cycle=starts_per_date if episode_steps else None,
             order_share_adv=order_share_adv,
+            reward_baseline=reward_baseline,
         ), action_space))
     return DummyVecEnv([_one(d) for d in eval_dates])
 
@@ -74,6 +76,7 @@ def make_env(
     episode_steps=None,
     action_space="raw",
     order_share_adv=None,
+    reward_baseline="mid",
 ):
     import random
 
@@ -109,6 +112,7 @@ def make_env(
             no_time_features=no_time_features,
             episode_steps=episode_steps,
             order_share_adv=order_share_adv,
+            reward_baseline=reward_baseline,
         )
         return Monitor(_wrap_action_space(env, action_space))
     return _init

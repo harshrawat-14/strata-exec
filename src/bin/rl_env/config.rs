@@ -90,6 +90,17 @@ pub enum RlMode {
     Counterfactual,
 }
 
+/// What a counterfactual fill's reward is charged against (doc 25).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum RewardBaseline {
+    /// The mid without our impact: execution and own-impact cost only;
+    /// market moves stay out of the reward.
+    Mid,
+    /// The arrival price (full IS), minus TWAP's gain from market moves on
+    /// the same price path, so the episode return is about IS minus TWAP's IS.
+    Twap,
+}
+
 #[derive(Clone, Debug)]
 pub struct EnvConfig {
     pub mode: RlMode,
@@ -122,6 +133,8 @@ pub struct EnvConfig {
     /// `None` keeps the legacy protocol (horizon = day length or random,
     /// start = seed % (day/3)) byte-for-byte.
     pub episode_steps: Option<usize>,
+    /// `--reward-baseline mid|twap` (counterfactual only; default mid).
+    pub reward_baseline: RewardBaseline,
 }
 
 impl Default for EnvConfig {
@@ -142,6 +155,7 @@ impl Default for EnvConfig {
             fixed_size: false,
             no_time_features: false,
             episode_steps: None,
+            reward_baseline: RewardBaseline::Mid,
         }
     }
 }
@@ -208,6 +222,14 @@ pub(crate) fn parse_args(args: &[String]) -> Result<EnvConfig, String> {
             "--total-steps" => {
                 cfg.total_steps = parse_num(flag_value(args, i, flag)?, flag)?;
                 total_steps_explicit = true;
+                i += 1;
+            }
+            "--reward-baseline" => {
+                cfg.reward_baseline = match flag_value(args, i, flag)? {
+                    "mid" => RewardBaseline::Mid,
+                    "twap" => RewardBaseline::Twap,
+                    other => return Err(format!("--reward-baseline must be mid or twap, got {other:?}")),
+                };
                 i += 1;
             }
             "--episode-steps" => {
@@ -280,6 +302,10 @@ pub(crate) fn parse_args(args: &[String]) -> Result<EnvConfig, String> {
         return Err("--adversarial is not supported in counterfactual mode \
                     (adversarial agents exist only in historical and synthetic modes)"
             .to_string());
+    }
+
+    if cfg.reward_baseline == RewardBaseline::Twap && !matches!(cfg.mode, RlMode::Counterfactual) {
+        return Err("--reward-baseline twap applies to counterfactual mode only".to_string());
     }
 
     // Adjust default step count by mode.

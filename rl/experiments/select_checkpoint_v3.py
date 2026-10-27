@@ -53,7 +53,7 @@ def _evaluate(args):
                for ep, f in enumerate(eval_start_fracs(N_EVAL_EPISODES))]
     finally:
         env.close()
-    return [dict(checkpoint=name, date=date, IS=o[0], forced=o[2]) for o in out]
+    return [dict(checkpoint=name, date=date, IS=o[0], forced=o[2], steps=len(o[3])) for o in out]
 
 
 def main():

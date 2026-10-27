@@ -148,6 +148,7 @@ class StrataExecEnv(gym.Env):
         episode_steps: Optional[int] = None,
         start_cycle: Optional[int] = None,
         order_share_adv: Optional[float] = None,
+        reward_baseline: str = "mid",
     ):
         # episode_steps: evaluation protocol v3 (`--episode-steps`). Every
         #   episode is exactly this many steps and may start anywhere in the
@@ -235,6 +236,10 @@ class StrataExecEnv(gym.Env):
 
         if total_steps is not None:
             self.cmd.extend(["--total-steps", str(total_steps)])
+        # reward_baseline: "mid" (default) charges fills against the mid without
+        #   our impact; "twap" against arrival minus TWAP's market-move gain (doc 25).
+        if reward_baseline != "mid":
+            self.cmd.extend(["--reward-baseline", reward_baseline])
         if episode_steps is not None:
             self.cmd.extend(["--episode-steps", str(episode_steps)])
         if start_cycle is not None and (episode_steps is None or start_cycle < 2):
