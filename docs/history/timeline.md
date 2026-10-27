@@ -523,3 +523,13 @@ July audit (Phase −1/0) went back over it.
   by regime vs TWAP, crash +0.49 pp, normal +0.01, calm −0.67 (doc 23). Finishes in 3.8–7.4 h (median start)
   of 16 h on every date, so the gain is front-loading on falling days, not regime-aware pacing.
   Still improving at 1.5M steps. Next rung: TWAP-relative reward (M1).
+
+### 2026-10-28 · RESULT · M1 (TWAP-relative reward) negative: market moves drown the pacing signal
+- Charging fills against arrival minus TWAP's market-move gain (doc 25) made the agent sell
+  faster (median 281 vs 647 steps), with calm −0.81 pp vs TWAP, and training stalled at
+  −0.43% validation from 400k steps. Measured cause: on training dates, the per-episode
+  advantage of TWAP's pace over 3× is +0.14 pp mean against 0.92 pp sd (mean/sd 0.15).
+  The drift-free mid reward stays the default; M0-e2b remains the best era-2 model.
+- **Lesson:** a reward that is right in expectation can still be unlearnable at the sample
+  budget. Check the signal-to-noise of a proposed reward from baseline data before training
+  (minutes), not after (an hour).
