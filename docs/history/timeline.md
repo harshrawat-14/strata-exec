@@ -533,3 +533,14 @@ July audit (Phase −1/0) went back over it.
 - **Lesson:** a reward that is right in expectation can still be unlearnable at the sample
   budget. Check the signal-to-noise of a proposed reward from baseline data before training
   (minutes), not after (an hour).
+
+### 2026-10-28 · DECISION · Regime belief head not trained: state cannot predict regime or drift
+- Before training, fit the belief head's targets offline (ridge / boosting, 12 training dates →
+  4 validation dates, doc 26). Forward drift: validation R² −0.21 to −0.67, worse than
+  predicting zero (−0.11). Regime class: 0.13–0.16 balanced accuracy, below chance (0.33),
+  against 0.84–0.95 on the training dates. The head would memorise days, not read regimes.
+- Found on the way: state dim 4 (depth within 1%) is saturated at 1.0 and dim 6 (10-step
+  drift) has sd ≤ 0.004 in era 2, so the only trend input is dead.
+- **Lesson:** the doc-25 lesson paid off. A ~20-minute offline fit replaced a training run
+  whose result it predicts. "Regime" is a hindsight label (did the price fall), so
+  "regime-aware" means forecasting direction.
