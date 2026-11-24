@@ -22,7 +22,7 @@ def day_stats(date: str) -> dict:
     lr = np.log(mid / mid[0])
     r = np.diff(np.log(mid))
     drift = lr.mean() * 100
-    return dict(date=date, drift_pct=drift, return_pct=lr[-1] * 100,
+    return dict(date=date, n_snapshots=len(mid), drift_pct=drift, return_pct=lr[-1] * 100,
                 sigma_pct=r.std(ddof=1) * np.sqrt(len(r)) * 100, regime=regime_v4(drift))
 
 

@@ -613,3 +613,21 @@ July audit (Phase −1/0) went back over it.
 - Considered and rejected: training RL on the year in sequential chunks (risks forgetting the
   earlier chunks' regimes; disk no longer requires it); a paid historical API (each day is
   replayed thousands of times, so one download is cheaper).
+
+### 2026-11-24 · MISTAKE · Downloader treated a cleanly closed connection as a finished file
+- **What:** `fetch_bybit.py` had no retry, so 2 days failed on Bybit connection resets. The
+  first fix resumed partial downloads, but a connection that closed without an error mid-file
+  was taken as complete: two book zips were saved at half length.
+- **Impact:** none on the data. Truncated zip and gzip files cannot be read, so both failed at
+  conversion and nothing incomplete was written.
+- **Fix / status:** FIXED. Downloads resume until the size matches the server's
+  (Content-Length / Content-Range); the 4 days were fetched again in full.
+- **Lesson:** a download is complete only when its size has been checked, not when the stream
+  ends.
+
+### 2026-11-24 · RESULT · Full-year 2024 pool downloaded; all 4 predictions met (doc 30)
+- 343/343 days complete (2,879–2,880 snapshots each). Labels by the pre-registered drift rule:
+  54 crash, 180 normal, 109 calm (predicted crash 10–20%, calm 30–45%). Crash days are
+  more frequent in Apr–Sep (18.8% vs 12.7%), and the pool's median volatility is 27% below the
+  event-picked V3 days'.
+- Training crash days go from 3 (V3) to 44; validation has 10 crash, 47 normal, 30 calm days.

@@ -76,6 +76,7 @@ findings were retracted and the retractions are preserved deliberately rather th
 | 29 | [impact-decay-predictions.md](experiments/29-impact-decay-predictions.md) | Pre-registered propagator fit: how fast does impact fade, and does it depend on trailing volatility? |
 | 29 | [impact-decay-result.md](experiments/29-impact-decay-result.md) | ~25% reverts within 1–2 min (sim assumes none); long-run decay unmeasurable on 12 days; no regime dependence established |
 | 30 | [full-year-data-predictions.md](experiments/30-full-year-data-predictions.md) | Full-year 2024 pool (256 train / 87 validation, out of time), Jan–Mar 2025 future held-out, drift-based regime rule fixed before download |
+| 30 | [full-year-data-result.md](experiments/30-full-year-data-result.md) | All 343 days complete; 54 crash / 180 normal / 109 calm; all 4 predictions met; training crash days 3 → 44 |
 
 Predictions files are **pre-registered** — written and committed before the corresponding experiment
 was run, so the result cannot be retrofitted to the outcome.

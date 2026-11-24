@@ -16,6 +16,8 @@ import gzip
 import io
 import os
 import sys
+import time
+import urllib.error
 import urllib.request
 import zipfile
 from datetime import datetime, timezone
@@ -32,14 +34,34 @@ INTERVAL_MS = 30_000
 RAW_DIR = Path("TradeData/BybitRaw")
 
 
-def _download(url: str, target: Path) -> Path:
-    if not target.exists():
-        target.parent.mkdir(parents=True, exist_ok=True)
-        tmp = target.with_suffix(target.suffix + ".part")
-        with urllib.request.urlopen(url, timeout=600) as r, open(tmp, "wb") as f:
-            while chunk := r.read(1 << 20):
-                f.write(chunk)
-        tmp.rename(target)
+def _download(url: str, target: Path, attempts: int = 6) -> Path:
+    """Download to target, resuming a partial .part file after a dropped connection."""
+    if target.exists():
+        return target
+    target.parent.mkdir(parents=True, exist_ok=True)
+    tmp = target.with_suffix(target.suffix + ".part")
+    for attempt in range(attempts):
+        have = tmp.stat().st_size if tmp.exists() else 0
+        req = urllib.request.Request(url, headers={"Range": f"bytes={have}-"} if have else {})
+        try:
+            with urllib.request.urlopen(req, timeout=600) as r:
+                resumed = have and r.status == 206  # 200: server ignored Range
+                # full size: Content-Range "bytes a-b/total" on 206, Content-Length on 200
+                total = int(r.headers["Content-Range"].rsplit("/", 1)[1]) if resumed \
+                    else int(r.headers["Content-Length"])
+                with open(tmp, "ab" if resumed else "wb") as f:
+                    while chunk := r.read(1 << 20):
+                        f.write(chunk)
+            # a connection can also close cleanly mid-file; only the full size counts as done
+            if tmp.stat().st_size != total:
+                raise OSError(f"incomplete: {tmp.stat().st_size} of {total} bytes")
+            tmp.rename(target)
+            return target
+        except (OSError, urllib.error.URLError) as e:
+            if attempt == attempts - 1:
+                raise
+            print(f"retry {attempt + 1} for {url}: {e}", flush=True)
+            time.sleep(10 * (attempt + 1))
     return target
 
 
