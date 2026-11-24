@@ -249,3 +249,43 @@ HELD_OUT_DATES_V3 = list(HELD_OUT_DATES_V2)
 assert set(VALIDATION_DATES_V3) <= set(TRAINING_DATES_V2)
 assert not (set(TRAINING_DATES_V3) & set(VALIDATION_DATES_V3))
 assert not (set(TRAINING_DATES_V3 + VALIDATION_DATES_V3) & set(HELD_OUT_DATES_V3))
+
+# ── V4: full-year 2024 pool (docs/experiments/30-full-year-data-predictions.md) ──
+# Every 2024 day except the V3 held-out dates and a +-2 day buffer around each
+# (the day before a crash resembles the crash). Days already in the V2 pool
+# keep their place, so the buffer only removes days that were never read.
+# Split out of time: January-September trains, October-December validates.
+# January-March 2025 is a new held-out set from a later period: not downloaded
+# or read until the final evaluation.
+# V3 results stay comparable on V3; V4 is a separate, additive split.
+from datetime import date as _date, timedelta as _td
+
+
+def _days(start, end):
+    d0, d1 = _date.fromisoformat(start), _date.fromisoformat(end)
+    return [(d0 + _td(n)).isoformat() for n in range((d1 - d0).days + 1)]
+
+
+EXCLUDED_BUFFER_V4 = sorted(
+    {(_date.fromisoformat(h) + _td(k)).isoformat() for h in HELD_OUT_DATES_V3 for k in (-2, -1, 1, 2)}
+    - set(SEVERITY_RANK_V2))
+_POOL_V4 = [d for d in _days("2024-01-01", "2024-12-31")
+            if d not in HELD_OUT_DATES_V3 and d not in EXCLUDED_BUFFER_V4]
+TRAINING_DATES_V4 = [d for d in _POOL_V4 if d < "2024-10-01"]
+VALIDATION_DATES_V4 = [d for d in _POOL_V4 if d >= "2024-10-01"]
+HELD_OUT_FUTURE_V4 = _days("2025-01-01", "2025-03-31")
+
+assert not (set(_POOL_V4) & (set(HELD_OUT_DATES_V3) | set(EXCLUDED_BUFFER_V4)))
+assert set(TRAINING_DATES_V3 + VALIDATION_DATES_V3) <= set(_POOL_V4)
+
+# Day regime label, fixed before any new day was downloaded (doc 30). drift =
+# the day's mean of ln(mid_t / mid_open), in %, i.e. roughly a full-day TWAP
+# seller's shortfall. Rank correlation 0.955 with SEVERITY_RANK_V2's AC-cost
+# ranking on its 25 days; the cuts reproduce 14 of the 16 V3 train+validation
+# labels. "calm" means favourable for a seller, strong up days included.
+REGIME_DRIFT_CUTS_V4 = (-1.0, 0.55)
+
+
+def regime_v4(drift_pct: float) -> str:
+    lo, hi = REGIME_DRIFT_CUTS_V4
+    return "crash" if drift_pct <= lo else "calm" if drift_pct >= hi else "normal"

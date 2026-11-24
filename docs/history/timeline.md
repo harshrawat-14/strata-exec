@@ -601,3 +601,15 @@ July audit (Phase −1/0) went back over it.
   [−0.34, +0.97], so criterion B fails. Decay joins docs 26–28 as unproven on 16 days.
 - **Lesson:** four pre-checks in a row ended with intervals too wide to decide. Sample size
   (12 training days) is now the binding limit for every route to a regime-aware edge.
+
+### 2026-11-24 · DECISION · Full-year 2024 data, out-of-time split, gzip storage (doc 30)
+- 12 training days had become the limit for every pre-check, so the pool grows to every 2024
+  day: 256 training (Jan–Sep), 87 validation (Oct–Dec). The 9 V3 held-out dates stay, plus a
+  ±2 day buffer that is never downloaded. Jan–Mar 2025 is a new future held-out set,
+  downloaded only for the final evaluation.
+- New days get a regime label from a fixed rule: the day's mean log-price relative to the open
+  (crash ≤ −1.0%, calm ≥ +0.55%). The rule was chosen on the 16 V3 days before any download.
+- Data is stored as gzip CSV (6× smaller; golden fixtures unchanged), so a year is ~7 GB.
+- Considered and rejected: training RL on the year in sequential chunks (risks forgetting the
+  earlier chunks' regimes; disk no longer requires it); a paid historical API (each day is
+  replayed thousands of times, so one download is cheaper).
