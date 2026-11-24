@@ -73,6 +73,8 @@ findings were retracted and the retractions are preserved deliberately rather th
 | 27 | [book-regime-features-result.md](experiments/27-book-regime-features-result.md) | Fails: no out-of-sample 2 h return skill; fall-event AUC 0.62 on validation but 0.44 in leave-one-date-out; no belief head |
 | 28 | [local-liquidity-impact-predictions.md](experiments/28-local-liquidity-impact-predictions.md) | Pre-registered fit: does impact scale with trailing-hour volume / volatility instead of the day's? |
 | 28 | [local-liquidity-impact-result.md](experiments/28-local-liquidity-impact-result.md) | No: local volume fits worse (R² 0.365 vs 0.441); σ/√V nearly constant within a day (log sd 0.16); daily model stays |
+| 29 | [impact-decay-predictions.md](experiments/29-impact-decay-predictions.md) | Pre-registered propagator fit: how fast does impact fade, and does it depend on trailing volatility? |
+| 29 | [impact-decay-result.md](experiments/29-impact-decay-result.md) | ~25% reverts within 1–2 min (sim assumes none); long-run decay unmeasurable on 12 days; no regime dependence established |
 
 Predictions files are **pre-registered** — written and committed before the corresponding experiment
 was run, so the result cannot be retrofitted to the outcome.

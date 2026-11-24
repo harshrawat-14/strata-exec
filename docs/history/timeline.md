@@ -593,3 +593,11 @@ July audit (Phase −1/0) went back over it.
   were all run locally before pushing. **Lesson:** run the full CI step list locally before
   pushing Rust changes, and check `gh run list` after each push. A green local test run is
   not a green CI.
+
+### 2026-11-24 · RESULT · Impact decay: fast early reversion; no regime dependence established (doc 29)
+- Pre-registered propagator fit: G(30 min)/G(0) = 0.755 [0.60, 0.87] vs the simulator's 0.965,
+  with about a quarter reverting within 1–2 min. At 2 h and 6 h the intervals (0.52–1.21, 0.47–1.44) contain the
+  simulator, so criterion A does not trigger. High-vol minus low-vol 2 h reversion is +0.35
+  [−0.34, +0.97], so criterion B fails. Decay joins docs 26–28 as unproven on 16 days.
+- **Lesson:** four pre-checks in a row ended with intervals too wide to decide. Sample size
+  (12 training days) is now the binding limit for every route to a regime-aware edge.
