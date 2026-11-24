@@ -575,3 +575,11 @@ July audit (Phase −1/0) went back over it.
   AUC 0.62 on validation but 0.44 mean in leave-one-date-out (2/12 dates ≥ 0.55). Fails
   both criteria, so no belief head. Weak exploratory hint of mean reversion after drops (9/12
   dates). With doc 26, direction is not forecastable from free Bybit data at 1–2 h horizons.
+
+### 2026-11-24 · RESULT · Impact does not scale with local liquidity; daily model stays (doc 28)
+- Pre-registered fit on 30 s signed flow: trailing-hour volume normalisation R² 0.365 vs 0.441
+  for the daily model (validation); trailing volume + volatility ties (+0.002). Within a day,
+  log σ and log V correlate 0.92, so the impact cost per unit order (σ/√V) varies only ±16%:
+  busy hours are not cheaper to sell into. Fails the pass criterion.
+- Liquidity timing joins direction forecasting (docs 26, 27) as a route to a regime-aware
+  edge that this data does not support. Untested: regime-dependent impact decay; more dates.
