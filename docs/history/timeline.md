@@ -544,3 +544,15 @@ July audit (Phase −1/0) went back over it.
 - **Lesson:** the doc-25 lesson paid off. A ~20-minute offline fit replaced a training run
   whose result it predicts. "Regime" is a hindsight label (did the price fall), so
   "regime-aware" means forecasting direction.
+
+### 2026-11-24 · BUG · State dim 4 (depth within 1%) saturated by a unit mismatch in counterfactual mode
+- **What:** `depth_ref` is measured on the raw book (BTC units), but the state divides the
+  rescaled book's depth (raw × 1/btc_scale, ~128× at 5% ADV) by it, so tanh saturates at 1.0
+  on every step. Historical mode multiplies `depth_ref` by `qty_factor`; the counterfactual
+  path does not. Same class as the earlier `spread_ref` scale fix in that function (mirror
+  pattern).
+- **Found by:** belief-head pre-check (doc 26) showed dim 4 = 1.000 on all dates; on
+  2024-01-15, depth_ref 57,554 vs adjusted depth 52,281 should read tanh(0.91) ≈ 0.72.
+- **Impact:** every counterfactual-trained model (era 1 and era 2) had no book-depth input.
+  This was the one dim meant to carry the real order book, the reason era 2 moved to Bybit.
+- **Fix / status:** OPEN. To be fixed in the state rung, which needs retraining.
