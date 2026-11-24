@@ -590,7 +590,10 @@ fn counterfactual_book_state_dims_use_simulation_units() {
         .chain((0..5).map(|_| env.step(0).state[4]))
         .enumerate()
     {
-        assert!(s4 > 0.3 && s4 < 0.99, "step {t}: depth dim {s4} saturated or empty");
+        assert!(
+            s4 > 0.3 && s4 < 0.99,
+            "step {t}: depth dim {s4} saturated or empty"
+        );
     }
 }
 
@@ -642,7 +645,10 @@ fn counterfactual_reward_charges_our_own_impact() {
         "first sale: no impact yet, so the reference must be the book mid"
     );
     let impact = first.info["depth_reduction_pct"].as_f64().unwrap() / 100.0;
-    assert!(impact > 1e-5, "a 60 BTC sale must move the price (got I={impact})");
+    assert!(
+        impact > 1e-5,
+        "a 60 BTC sale must move the price (got I={impact})"
+    );
 
     let second = env.step(5);
     let impacted_mid = second.info["book_mid"].as_f64().unwrap();
@@ -1777,8 +1783,17 @@ mod twap_baseline {
             return None;
         }
         let args: Vec<String> = [
-            "--rl-mode", "counterfactual", "--lob-data", LOB, "--btc-target", "6000",
-            "--fixed-size", "--episode-steps", "1920", "--reward-baseline", baseline,
+            "--rl-mode",
+            "counterfactual",
+            "--lob-data",
+            LOB,
+            "--btc-target",
+            "6000",
+            "--fixed-size",
+            "--episode-steps",
+            "1920",
+            "--reward-baseline",
+            baseline,
         ]
         .iter()
         .map(|s| s.to_string())
@@ -1818,17 +1833,28 @@ mod twap_baseline {
         // price and TWAP's market-move gain is charged once, so the return is
         // exactly -IS - B (up to the tiny dust penalty). The mid baseline must
         // differ on this crash day: its reward leaves market moves out.
-        let (Some(mut twap), Some(mut mid)) = (env("twap"), env("mid")) else { return };
+        let (Some(mut twap), Some(mut mid)) = (env("twap"), env("mid")) else {
+            return;
+        };
         let (reward, is, b) = run(&mut twap);
-        assert!(b.abs() > 1e-4, "04-15 moves; the baseline must be non-trivial (B={b})");
+        assert!(
+            b.abs() > 1e-4,
+            "04-15 moves; the baseline must be non-trivial (B={b})"
+        );
         assert!(
             (reward - (-is - b)).abs() < 1e-5,
             "return {reward} must equal -IS - B = {}",
             -is - b
         );
         let (mid_reward, mid_is, _) = run(&mut mid);
-        assert!((mid_is - is).abs() < 1e-12, "the baseline must not change execution");
-        assert!((mid_reward - reward).abs() > 1e-4, "mid baseline must leave market moves out");
+        assert!(
+            (mid_is - is).abs() < 1e-12,
+            "the baseline must not change execution"
+        );
+        assert!(
+            (mid_reward - reward).abs() > 1e-4,
+            "mid baseline must leave market moves out"
+        );
     }
 
     #[test]

@@ -583,3 +583,13 @@ July audit (Phase −1/0) went back over it.
   busy hours are not cheaper to sell into. Fails the pass criterion.
 - Liquidity timing joins direction forecasting (docs 26, 27) as a route to a regime-aware
   edge that this data does not support. Untested: regime-dependent impact decay; more dates.
+
+### 2026-11-24 · MISTAKE · CI red on main for four weeks (formatting), unnoticed
+- **What:** every push from 6c8d42c (2026-10-26) through 0acf144 failed CI at `cargo fmt --check`,
+  on Rust code written in this period (config.rs, reset.rs, tests.rs). The tests themselves passed.
+  Because python-smoke depends on rust-tests, it was skipped on all eleven runs.
+- **Found by:** the user forwarded the CI failure emails.
+- **Fix / status:** FIXED. `cargo fmt`; the CI steps (tests, `-D warnings` build, fmt check)
+  were all run locally before pushing. **Lesson:** run the full CI step list locally before
+  pushing Rust changes, and check `gh run list` after each push. A green local test run is
+  not a green CI.

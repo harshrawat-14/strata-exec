@@ -228,7 +228,11 @@ pub(crate) fn parse_args(args: &[String]) -> Result<EnvConfig, String> {
                 cfg.reward_baseline = match flag_value(args, i, flag)? {
                     "mid" => RewardBaseline::Mid,
                     "twap" => RewardBaseline::Twap,
-                    other => return Err(format!("--reward-baseline must be mid or twap, got {other:?}")),
+                    other => {
+                        return Err(format!(
+                            "--reward-baseline must be mid or twap, got {other:?}"
+                        ))
+                    }
                 };
                 i += 1;
             }

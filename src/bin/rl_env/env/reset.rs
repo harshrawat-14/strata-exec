@@ -107,7 +107,10 @@ impl RlEnv {
         }
         if self.cfg.reward_baseline == RewardBaseline::Twap {
             if let Some(obj) = info.as_object_mut() {
-                obj.insert("twap_drift_baseline".to_string(), json!(self.pending_baseline));
+                obj.insert(
+                    "twap_drift_baseline".to_string(),
+                    json!(self.pending_baseline),
+                );
             }
         }
         if let Some(cf) = &self.cf_lob {
