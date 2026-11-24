@@ -69,6 +69,8 @@ findings were retracted and the retractions are preserved deliberately rather th
 | 25 | [m1-twap-relative-reward-predictions.md](experiments/25-m1-twap-relative-reward-predictions.md) | M1: reward charged against arrival minus TWAP's market-move gain on the same path; pre-registered predictions |
 | 25 | [m1-twap-relative-reward-result.md](experiments/25-m1-twap-relative-reward-result.md) | M1 negative: market moves in the reward drown the pacing signal (mean/sd 0.15); sells faster, calm −0.81 pp; M0-e2b stays best |
 | 26 | [belief-head-precheck.md](experiments/26-belief-head-precheck.md) | Belief head pre-check negative: state predicts neither drift nor regime on unseen days (worse than zero / below chance); dims 4, 6 dead; not trained |
+| 27 | [book-regime-features-predictions.md](experiments/27-book-regime-features-predictions.md) | Pre-registered check: do full-book, trade and price features predict the next 1–2 h? |
+| 27 | [book-regime-features-result.md](experiments/27-book-regime-features-result.md) | Fails: no out-of-sample 2 h return skill; fall-event AUC 0.62 on validation but 0.44 in leave-one-date-out; no belief head |
 
 Predictions files are **pre-registered** — written and committed before the corresponding experiment
 was run, so the result cannot be retrofitted to the outcome.

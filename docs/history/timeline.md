@@ -561,3 +561,17 @@ July audit (Phase −1/0) went back over it.
   Golden regenerated: only trajectory hashes changed; rewards, IS and TWAP/AC are bit-identical,
   and the dim-4-reading Heuristic and RL model moved as expected. Existing models were trained
   on the saturated dim and are not comparable; the next trained model uses the fixed state.
+
+### 2026-11-24 · MISTAKE · Target leaked into features in the doc-27 pre-check (caught before reporting)
+- **What:** `fall_240` was added to the table before `feature_columns()` ran, and the filter
+  excluded only `fwd_*`, so the label was an input: AUC 1.00, and validation R² +0.38 for the 2 h return.
+- **Found by:** AUC exactly 1.00 on every date, and `fall_240` topping the univariate list.
+- **Fix / status:** FIXED. Every target prefix is excluded, an assertion guards it, and the run
+  was redone. **Lesson:** a perfect score is a bug until shown otherwise. Derive targets
+  after the feature list is fixed, or exclude them by name.
+
+### 2026-11-24 · RESULT · Full-book regime features fail the pre-registered check (doc 27)
+- 30 real-time book, trade and price features: 2 h return validation R² −0.04 (ridge); fall-event
+  AUC 0.62 on validation but 0.44 mean in leave-one-date-out (2/12 dates ≥ 0.55). Fails
+  both criteria, so no belief head. Weak exploratory hint of mean reversion after drops (9/12
+  dates). With doc 26, direction is not forecastable from free Bybit data at 1–2 h horizons.
