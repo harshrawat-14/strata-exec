@@ -1,6 +1,7 @@
 pub mod adversarial;
 pub mod agg_trades;
 pub mod counterfactual_lob;
+pub mod data_file;
 pub mod garch;
 pub mod gbm;
 pub mod liquidity;

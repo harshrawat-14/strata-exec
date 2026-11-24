@@ -5,7 +5,8 @@ Book: Bybit's free ob500 archive (full 500-level snapshot + tick-by-tick deltas)
 is replayed and the complete 500-level book is written every 30 s (UTC-aligned)
 in the simulator's wide format. Trades: Bybit's public trade archive, converted
 to transact_time / price / quantity / is_buyer_maker (taker "Sell" -> buyer was
-the maker). Raw downloads are deleted after conversion.
+the maker). Output is gzip-compressed CSV (about 5x smaller). Raw downloads are
+deleted after conversion.
 
     python rl/experiments/fetch_bybit.py                 # all research dates
     python rl/experiments/fetch_bybit.py 2024-01-15      # selected dates
@@ -64,8 +65,8 @@ def convert_book(raw_zip: Path, out_csv: Path, date: str) -> int:
               + [f"a{i}_{k}" for i in range(LEVELS) for k in ("p", "q")])
     bids, asks, have_book, rows = {}, {}, False, 0
     next_boundary = start + INTERVAL_MS
-    tmp = out_csv.with_suffix(".csv.part")
-    with zipfile.ZipFile(raw_zip) as z, open(tmp, "w", newline="") as fout:
+    tmp = out_csv.with_name(out_csv.name + ".part")
+    with zipfile.ZipFile(raw_zip) as z, gzip.open(tmp, "wt", newline="") as fout:
         writer = csv.writer(fout)
         writer.writerow(header)
         name = z.namelist()[0]
@@ -101,8 +102,8 @@ def convert_book(raw_zip: Path, out_csv: Path, date: str) -> int:
 
 def convert_trades(raw_gz: Path, out_csv: Path) -> int:
     rows = 0
-    tmp = out_csv.with_suffix(".csv.part")
-    with gzip.open(raw_gz, "rt", newline="") as fin, open(tmp, "w", newline="") as fout:
+    tmp = out_csv.with_name(out_csv.name + ".part")
+    with gzip.open(raw_gz, "rt", newline="") as fin, gzip.open(tmp, "wt", newline="") as fout:
         reader = csv.DictReader(fin)
         writer = csv.writer(fout)
         writer.writerow(["transact_time", "price", "quantity", "is_buyer_maker"])

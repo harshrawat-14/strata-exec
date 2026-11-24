@@ -72,7 +72,7 @@ impl LobReplay {
     /// `rl_env.rs`.
     pub fn from_csv(path: &str) -> Result<Self, Box<dyn Error>> {
         // Peek at the header to choose the parser.
-        let mut reader = csv::Reader::from_path(path)?;
+        let mut reader = crate::market::data_file::csv_reader(path)?;
         let headers: Vec<String> = reader
             .headers()?
             .iter()
@@ -235,7 +235,7 @@ struct TallRow {
 ///   5. Diff consecutive cumulative depths to get per-level qty and price.
 ///   6. Discard groups with zero valid levels on either side.
 fn parse_binance_tall(path: &str) -> Result<Vec<LobSnapshot>, Box<dyn Error>> {
-    let mut reader = csv::Reader::from_path(path)?;
+    let mut reader = crate::market::data_file::csv_reader(path)?;
     let headers: Vec<String> = reader
         .headers()?
         .iter()
@@ -380,7 +380,7 @@ fn parse_wide(path: &str, headers: &[String]) -> Result<Vec<LobSnapshot>, Box<dy
     let bid_pairs = collect_level_pairs(headers, 'b');
     let ask_pairs = collect_level_pairs(headers, 'a');
 
-    let mut reader = csv::Reader::from_path(path)?;
+    let mut reader = crate::market::data_file::csv_reader(path)?;
     let mut snapshots: Vec<LobSnapshot> = Vec::new();
     let mut row_idx: u64 = 0;
 

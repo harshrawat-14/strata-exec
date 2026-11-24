@@ -6,7 +6,8 @@ of hard-coding a venue's paths, so changing venue or asset is a registry entry,
 not a code search. The active dataset comes from STRATAEXEC_DATASET (default
 below).
 
-Files are in the simulator's venue-neutral formats:
+Files are in the simulator's venue-neutral formats (plain or .gz CSV; every reader,
+pandas and the Rust simulator, decompresses .gz by file name):
   book   -- one row per snapshot: timestamp (unix ms), b0_p, b0_q, ..., a0_p, a0_q, ...
   trades -- transact_time (unix ms), price, quantity, is_buyer_maker
 """
@@ -44,7 +45,7 @@ DATASETS = {
     "bybit_btcusdt_perp": Dataset(
         name="bybit_btcusdt_perp", venue="bybit", symbol="BTCUSDT",
         root="TradeData/Bybit/BTCUSDT",
-        book_pattern="book-{date}.csv", trades_pattern="trades-{date}.csv"),
+        book_pattern="book-{date}.csv.gz", trades_pattern="trades-{date}.csv.gz"),
     # Era 1 (retired, data deleted 2026-10-26): Binance bookDepth bands + aggTrades.
     "binance_btcusdt_perp_bookdepth": Dataset(
         name="binance_btcusdt_perp_bookdepth", venue="binance", symbol="BTCUSDT",

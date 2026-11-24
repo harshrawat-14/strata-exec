@@ -35,8 +35,8 @@ impl AggTradesDay {
     // -----------------------------------------------------------------------
 
     pub fn from_csv(path: &str) -> Result<Self, String> {
-        let mut reader =
-            csv::Reader::from_path(path).map_err(|e| format!("cannot open '{}': {e}", path))?;
+        let mut reader = crate::market::data_file::csv_reader(path)
+            .map_err(|e| format!("cannot open '{}': {e}", path))?;
 
         // Locate required columns by name — robust to column reordering.
         let headers = reader
