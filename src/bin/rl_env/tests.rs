@@ -549,6 +549,52 @@ fn counterfactual_spread_ref_is_rescaled_not_raw_btc_dollar_scale() {
 }
 
 #[test]
+fn counterfactual_book_state_dims_use_simulation_units() {
+    // Regression guard (timeline 2026-11-24): depth_ref was measured on the raw
+    // book (BTC) while the state reads the rescaled book (BTC / btc_scale), so
+    // dim 4 read tanh(~128) = 1.0 on every step at 5% ADV; and the reset book
+    // was raw, so dim 3 read 1.0 on the first observation. With matching units
+    // depth near its own reference reads ~tanh(1), and the first spread
+    // observation equals tanh(1) exactly (spread_ref is that book's spread).
+    let lob_path = "TradeData/Bybit/BTCUSDT/book-2024-01-15.csv";
+    if !std::path::Path::new(lob_path).exists() {
+        eprintln!("skipping: {lob_path} not present in this checkout");
+        return;
+    }
+    let cfg = EnvConfig {
+        mode: RlMode::Counterfactual,
+        total_inventory: 1_000_000.0,
+        total_steps: 100,
+        seed: 42,
+        sigma_ref: 0.20,
+        gamma: 0.005,
+        adversarial: false,
+        lob_data_path: Some(lob_path.to_string()),
+        btc_target: 6_000.0,
+        adv_btc: 0.0,
+        agg_trades_path: None,
+        fixed_steps: true,
+        fixed_size: true,
+        no_time_features: true,
+        episode_steps: None,
+        reward_baseline: RewardBaseline::Mid,
+    };
+    let mut env = RlEnv::new(cfg);
+    let start = env.reset(Some(1));
+    assert!(
+        (start.state[3] - 1.0_f64.tanh()).abs() < 1e-9,
+        "first spread observation {} must be tanh(1)",
+        start.state[3]
+    );
+    for (t, s4) in std::iter::once(start.state[4])
+        .chain((0..5).map(|_| env.step(0).state[4]))
+        .enumerate()
+    {
+        assert!(s4 > 0.3 && s4 < 0.99, "step {t}: depth dim {s4} saturated or empty");
+    }
+}
+
+#[test]
 fn counterfactual_reward_charges_our_own_impact() {
     // Regression guard (doc 24): the counterfactual reward was charged
     // against the mid of the impact-shifted book, so the price drop our own

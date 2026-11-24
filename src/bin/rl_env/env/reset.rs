@@ -356,7 +356,9 @@ impl RlEnv {
             }
         }
         replay.reset();
-        self.depth_ref = (depth_sum / count.max(1) as f64).max(1.0);
+        // Simulation units (raw BTC depth / btc_scale), matching the rescaled book
+        // the state reads; raw units saturated state dim 4 at 1.0 on every step.
+        self.depth_ref = ((depth_sum / count.max(1) as f64) / btc_scale.max(1e-12)).max(1.0);
 
         let start_offset = self.choose_start(replay.len(), seed)?;
         replay.seek(start_offset);
@@ -389,7 +391,9 @@ impl RlEnv {
             .half_spread()
             .unwrap_or(0.01)
             .max(1e-9);
-        self.current_book = Some(first);
+        // The state at t=0 must read the same simulation-scale book as every later
+        // step (the raw book here pinned dim 3 at 1.0 on the first observation).
+        self.current_book = Some(scaled_first_for_spread);
         // FIX A: cf_lob rescales all BTC prices to simulation scale (~100).
         // Both arrival_price and current_mid must match that scale, otherwise the IS
         // reward formula gets a ~42000 denominator while fills are priced at ~100.

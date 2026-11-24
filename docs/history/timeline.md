@@ -555,4 +555,9 @@ July audit (Phase −1/0) went back over it.
   2024-01-15, depth_ref 57,554 vs adjusted depth 52,281 should read tanh(0.91) ≈ 0.72.
 - **Impact:** every counterfactual-trained model (era 1 and era 2) had no book-depth input.
   This was the one dim meant to carry the real order book, the reason era 2 moved to Bybit.
-- **Fix / status:** OPEN. To be fixed in the state rung, which needs retraining.
+- **Fix / status:** FIXED. depth_ref is now in simulation units. The reset book is rescaled too:
+  it was raw, so dim 3 read 1.0 on every first observation. Test
+  `counterfactual_book_state_dims_use_simulation_units` (mutation-checked against each fix).
+  Golden regenerated: only trajectory hashes changed; rewards, IS and TWAP/AC are bit-identical,
+  and the dim-4-reading Heuristic and RL model moved as expected. Existing models were trained
+  on the saturated dim and are not comparable; the next trained model uses the fixed state.
