@@ -8,8 +8,8 @@ future dates were not downloaded or read.
 
 - **Complete:** all 343 pool days downloaded and converted. Every day has 2,879–2,880 book
   snapshots, so none was excluded.
-- **Trades:** 256,846 to 18 M per day (median 1.46 M).
-- **Size:** the converted pool is about 7 GB as gzip CSV.
+- **Trades:** 256,846 to 5.32 M per day (median 1.46 M; busiest 2024-11-06).
+- **Size:** 5.3 GB as gzip CSV for all 2024 days on disk (the V4 pool plus the old 25-day pool).
 
 **Downloader bugs found and fixed (`fetch_bybit.py`):**
 1. Bybit's servers reset connections often. Without a retry, 2 days failed.
