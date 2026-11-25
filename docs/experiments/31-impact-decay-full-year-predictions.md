@@ -36,9 +36,8 @@ change) if the simulator's G(τ)/G(0) lies outside the training 90% interval at 
 4. **New:** |high − low| ≥ 0.05.
 
 Condition 4 is added now because, with 256 days, a difference too small to change the best
-pace could still exclude zero. A gap of 0.05 in G(2h)/G(0) is the smallest gap that would move
-a 2 h pacing decision by more than the noise between nearby constant paces in era-2
-baselines.
+pace could still exclude zero. The 0.05 floor is a judgement call (one seventh of doc 29's
+estimate), not derived from a pacing calculation; it is fixed here, before the run.
 
 **If B passes:** the next step is to add volatility-dependent decay to the simulator (as a
 tested change), then check that a simple pace rule keyed to trailing volatility beats TWAP
