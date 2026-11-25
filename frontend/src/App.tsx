@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { BrowserRouter, Routes, Route, Navigate, Outlet, useLocation } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, Outlet, useLocation } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { Sidebar } from './components/Sidebar'
 import Dashboard from './pages/Dashboard'
@@ -9,6 +9,8 @@ import DataUpload from './pages/DataUpload'
 import ParameterSweep from './pages/ParameterSweep'
 import Login from './pages/Login'
 import ResultsTour from './pages/ResultsTour'
+import Learn from './pages/Learn'
+import { TourProvider } from './tour/TourProvider'
 import { SystemDownBanner } from './components/SystemDownBanner'
 import { useBackendStatus } from './hooks/useBackendStatus'
 import { Menu } from 'lucide-react'
@@ -18,14 +20,6 @@ const queryClient = new QueryClient({
     queries: { retry: 1, staleTime: 30_000 },
   },
 })
-
-function ProtectedRoute() {
-  const token = localStorage.getItem('strataexec_token')
-  if (!token) {
-    return <Navigate to="/login" replace />
-  }
-  return <Outlet />
-}
 
 function AppLayout() {
   const [collapsed, setCollapsed] = useState(() => {
@@ -111,7 +105,7 @@ function AppLayout() {
         }}
       >
         <div className="max-w-7xl mx-auto">
-          {backend === 'offline' && location.pathname !== '/results' && (
+          {backend === 'offline' && !['/results', '/learn'].includes(location.pathname) && (
             <div className="mb-6"><SystemDownBanner /></div>
           )}
           <Outlet />
@@ -121,30 +115,32 @@ function AppLayout() {
   )
 }
 
+/** All routes; every page is open to visitors. Running jobs needs the engine and a sign-in. */
+export function AppRoutes() {
+  return (
+    <TourProvider>
+      <Routes>
+        <Route path="/login" element={<Login />} />
+        <Route element={<AppLayout />}>
+          <Route path="/"          element={<Dashboard />} />
+          <Route path="/results"   element={<ResultsTour />} />
+          <Route path="/learn"     element={<Learn />} />
+          <Route path="/simulator" element={<Simulator />} />
+          <Route path="/evaluate"  element={<RLEvaluation />} />
+          <Route path="/upload"    element={<DataUpload />} />
+          <Route path="/sweep"     element={<ParameterSweep />} />
+        </Route>
+      </Routes>
+    </TourProvider>
+  )
+}
+
 export default function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>
-        <Routes>
-          {/* Public Route */}
-          <Route path="/login" element={<Login />} />
-          <Route element={<AppLayout />}>
-            <Route path="/results" element={<ResultsTour />} />
-          </Route>
-
-          {/* Protected Routes */}
-          <Route element={<ProtectedRoute />}>
-            <Route element={<AppLayout />}>
-              <Route path="/"         element={<Dashboard />} />
-              <Route path="/simulator" element={<Simulator />} />
-              <Route path="/evaluate"  element={<RLEvaluation />} />
-              <Route path="/upload"    element={<DataUpload />} />
-              <Route path="/sweep"     element={<ParameterSweep />} />
-            </Route>
-          </Route>
-        </Routes>
+        <AppRoutes />
       </BrowserRouter>
     </QueryClientProvider>
   )
 }
-

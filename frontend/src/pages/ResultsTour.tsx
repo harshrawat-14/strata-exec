@@ -1,5 +1,5 @@
 /**
- * Results tour — the pinned PPO-LSTM results, served from a frozen snapshot.
+ * Results — the pinned PPO-LSTM results, served from a frozen snapshot.
  * Works with the backend offline: nothing here calls the API.
  */
 
@@ -9,67 +9,25 @@ import {
   ScatterChart, Scatter, ZAxis, Legend,
 } from 'recharts'
 import {
-  ArrowUpDown, BarChart2, BrainCircuit, ChevronDown, ChevronUp, Layers, ShieldCheck, TrendingDown,
-  TrendingUp,
+  ArrowUpDown, BarChart2, BookOpen, BrainCircuit, ChevronDown, ChevronUp, Compass, Layers, ShieldCheck,
+  TrendingDown, TrendingUp,
 } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
 import { MetricTile } from '../components/ui'
 import { useBackendStatus } from '../hooks/useBackendStatus'
 import { SystemDownBanner } from '../components/SystemDownBanner'
+import { useTour } from '../tour/context'
 import {
-  PINNED, REGIMES, REGIME_COLORS, STRATEGY_COLORS, edgeVsAc, episodeHistogram, filterDates, strategyMeansByRegime,
+  PINNED, REGIMES, REGIME_COLORS, STRATEGY_COLORS, edgeVsAc, filterDates, strategyMeansByRegime,
   summariseByRegime,
 } from '../data/pinned/results'
-import type { DateResult, Regime, Split, StrategyKey } from '../data/pinned/results'
+import type { DateResult, Regime } from '../data/pinned/results'
+import { ChartCard, DayDetail, LearnMore, RegimeTag, Segmented } from '../components/pinned/PinnedViews'
+import { REGIME_INFO, axisTick, pct, pp, tooltipStyle } from '../components/pinned/format'
 
-const SPLITS: { id: Split | 'all'; label: string }[] = [
-  { id: 'all', label: 'All days' },
-  { id: 'train', label: 'Training' },
-  { id: 'held_out', label: 'Held-out' },
-]
 const REGIME_FILTERS: (Regime | 'all')[] = ['all', 'crash', 'normal', 'calm']
-const HIST_KEYS: StrategyKey[] = ['ac_optimal', 'adaptive_ac', 'rl']
-
-const tooltipStyle = {
-  background: 'var(--card)',
-  border: '1px solid var(--card-border)',
-  borderRadius: 8,
-  fontSize: 10,
-  fontFamily: 'JetBrains Mono, monospace',
-  color: 'var(--text)',
-}
-const axisTick = { fill: 'var(--text-muted)', fontSize: 9 }
-
-const pp = (v: number, digits = 2) => `${v > 0 ? '+' : v < 0 ? '−' : ''}${Math.abs(v).toFixed(digits)}`
-const pct = (v: number, digits = 3) => `${pp(v, digits)}%`
-const label = (k: StrategyKey) => PINNED.strategies.find(s => s.key === k)!.label
 
 type SortKey = 'date' | 'edge' | 'rl' | 'ac_optimal'
-
-function Segmented<T extends string>({ value, options, onChange, ariaLabel }: {
-  value: T
-  options: { id: T; label: string }[]
-  onChange: (v: T) => void
-  ariaLabel: string
-}) {
-  return (
-    <div role="group" aria-label={ariaLabel} className="inline-flex flex-wrap gap-1 p-1 rounded-lg"
-      style={{ background: 'var(--input-bg)', border: '1px solid var(--divider)' }}>
-      {options.map(o => {
-        const on = o.id === value
-        return (
-          <button key={o.id} type="button" aria-pressed={on} onClick={() => onChange(o.id)}
-            className="px-3 py-1.5 rounded-md text-[10px] font-mono font-semibold uppercase tracking-wider"
-            style={{
-              background: on ? 'var(--active-fill)' : 'transparent',
-              color: on ? 'var(--active-text)' : 'var(--text-muted)',
-            }}>
-            {o.label}
-          </button>
-        )
-      })}
-    </div>
-  )
-}
 
 function SortHead({ k, current, asc, onSort, children }: {
   k: SortKey
@@ -90,54 +48,30 @@ function SortHead({ k, current, asc, onSort, children }: {
   )
 }
 
-function RegimeTag({ regime }: { regime: Regime }) {
-  return (
-    <span className="text-[9px] font-mono font-bold uppercase px-1.5 py-0.5 rounded"
-      style={{ background: REGIME_COLORS[regime] + '20', color: REGIME_COLORS[regime] }}>
-      {regime}
-    </span>
-  )
-}
-
-function ChartCard({ icon, title, sub, children }: {
-  icon: React.ReactNode
-  title: string
-  sub?: string
-  children: React.ReactNode
-}) {
-  return (
-    <div className="glass-card p-5 space-y-4 min-w-0">
-      <div>
-        <div className="flex items-center gap-2">
-          <span style={{ color: 'var(--text-muted)' }}>{icon}</span>
-          <h3 className="label-text">{title}</h3>
-        </div>
-        {sub && <p className="text-[10px] font-mono mt-1" style={{ color: 'var(--text-muted)' }}>{sub}</p>}
-      </div>
-      <div className="w-full h-[280px]">{children}</div>
-    </div>
-  )
-}
+const TH = 'px-3 py-2 text-[9px] font-bold uppercase tracking-wider'
 
 export default function ResultsTour() {
   const backend = useBackendStatus()
-  const [split, setSplit] = useState<Split | 'all'>('all')
+  const { start } = useTour()
+  const navigate = useNavigate()
   const [regime, setRegime] = useState<Regime | 'all'>('all')
   const [sortKey, setSortKey] = useState<SortKey>('date')
   const [sortAsc, setSortAsc] = useState(true)
   const [expanded, setExpanded] = useState<string | null>('2024-08-05')
 
-  const dates = useMemo(() => filterDates(PINNED.dates, split, regime), [split, regime])
-  const bySplit = useMemo(() => filterDates(PINNED.dates, split, 'all'), [split])
-  const summary = summariseByRegime(bySplit)
-  const crash = summary.find(s => s.regime === 'crash')
+  // Headline tiles describe all 25 days and do not move with the regime filter.
+  const summary = summariseByRegime(PINNED.dates)
+  const crash = summary.find(s => s.regime === 'crash')!
   const quiet = summary.filter(s => s.regime !== 'crash')
   const quietDays = quiet.reduce((a, s) => a + s.days, 0)
   const quietWins = quiet.reduce((a, s) => a + s.wins, 0)
-  const episodes = bySplit.length * PINNED.strategies.length * PINNED.protocol.episodes_per_strategy
+  const unseenCrash = PINNED.dates.filter(d => d.regime === 'crash' && d.split === 'held_out')
+  const unseenCrashWins = unseenCrash.filter(d => edgeVsAc(d) > 0).length
+  const episodes = PINNED.dates.length * PINNED.strategies.length * PINNED.protocol.episodes_per_strategy
 
+  const dates = useMemo(() => filterDates(PINNED.dates, 'all', regime), [regime])
   const edgeData = dates.map(d => ({
-    name: d.date.slice(5), date: d.date, edge: edgeVsAc(d), regime: d.regime, split: d.split, event: d.event_detail,
+    name: d.date.slice(5), date: d.date, edge: edgeVsAc(d), regime: d.regime, split: d.split,
   }))
   const regimeData = strategyMeansByRegime(dates)
   const scatterData = REGIMES.filter(r => dates.some(d => d.regime === r)).map(r => ({
@@ -146,9 +80,9 @@ export default function ResultsTour() {
       severity: d.strategies.ac_optimal.mean, edge: edgeVsAc(d), date: d.date,
     })),
   }))
-  const ablation = PINNED.ablation.filter(a =>
-    (split === 'all' || a.split === split) && (regime === 'all' || a.regime === regime))
+  const ablation = PINNED.ablation.filter(a => regime === 'all' || a.regime === regime)
     .map(a => ({ name: a.date.slice(5), '12-dim': a.delta12, '16-dim': a.delta16 }))
+  const regimeCount = (r: Regime | 'all') => filterDates(PINNED.dates, 'all', r).length
 
   const sorted = [...dates].sort((a, b) => {
     const v = (d: DateResult) => sortKey === 'date' ? d.date : sortKey === 'edge' ? edgeVsAc(d)
@@ -173,20 +107,26 @@ export default function ResultsTour() {
       <div className="flex flex-col lg:flex-row items-start lg:items-end justify-between gap-4">
         <div>
           <h1 className="text-3xl font-bold tracking-tight" style={{ color: 'var(--text)' }}>
-            Results <span className="text-gradient-electric">Tour</span>
+            Research <span className="text-gradient-electric">Results</span>
           </h1>
           <p className="mt-1 text-xs font-mono uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>
             {PINNED.model.name} · {PINNED.dates.length} trading days · {PINNED.strategies.length} strategies ·{' '}
             {PINNED.protocol.episodes_per_strategy} episodes each
           </p>
           <p className="mt-3 text-sm max-w-2xl leading-relaxed" style={{ color: 'var(--text-sub)' }}>
-            A recurrent PPO agent sells a large BTC order against five classical schedules, on real Binance
-            order flow replayed through StrataExec's Rust order-book simulator. Training and held-out days
-            are scored the same way, on the same episode starts.
+            A recurrent PPO agent sells a large BTC order against four classical schedules, on real Binance
+            order flow replayed through StrataExec's Rust order-book simulator. Every strategy trades the same
+            episodes on the same days.
           </p>
+          <div className="flex flex-wrap gap-2 mt-4">
+            <button type="button" onClick={start} className="btn-primary"><Compass size={12} /> Start the tour</button>
+            <button type="button" onClick={() => navigate('/learn')} className="btn-secondary">
+              <BookOpen size={12} /> How it works
+            </button>
+          </div>
         </div>
         <div className="p-3 rounded-lg w-full lg:w-auto" style={{ background: 'var(--card)', border: '1px solid var(--card-border)' }}>
-          <div className="text-[9px] font-mono uppercase" style={{ color: 'var(--text-muted)' }}>Pinned model</div>
+          <div className="text-[9px] font-mono uppercase" style={{ color: 'var(--text-muted)' }}>Model</div>
           <div className="text-[11px] font-mono font-semibold mt-0.5" style={{ color: 'var(--text)' }}>
             {PINNED.model.name} · {PINNED.model.variant}
           </div>
@@ -196,34 +136,37 @@ export default function ResultsTour() {
         </div>
       </div>
 
-      {/* Filters */}
-      <div className="flex flex-wrap items-center gap-3">
-        <Segmented ariaLabel="Data split" value={split} onChange={setSplit}
-          options={SPLITS.map(s => ({
-            id: s.id, label: `${s.label} · ${filterDates(PINNED.dates, s.id, 'all').length}`,
-          }))} />
-        <Segmented ariaLabel="Regime" value={regime} onChange={setRegime}
-          options={REGIME_FILTERS.map(r => ({ id: r, label: r === 'all' ? 'All regimes' : r }))} />
-      </div>
-
-      {/* Stat tiles (by split; the regime filter narrows the charts and table) */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <MetricTile label="Crash days won" value={crash ? `${crash.wins} / ${crash.days}` : '—'}
-          sub={crash ? `vs AC Optimal · best ${pp(crash.bestEdge)} pp` : 'no crash days in view'}
+      {/* Headline tiles: fixed, all 25 days */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4" data-tour="results-headline">
+        <MetricTile label="Crash days won" value={`${crash.wins} / ${crash.days}`}
+          sub={`vs AC Optimal · ${unseenCrashWins} of ${unseenCrash.length} never seen in training`}
           icon={<TrendingUp size={14} />} />
-        <MetricTile label="Mean edge, crash days" value={crash ? `${pp(crash.meanEdge)} pp` : '—'}
-          sub="RL − AC Optimal, IS" icon={<BrainCircuit size={14} />} />
+        <MetricTile label="Mean edge, crash days" value={`${pp(crash.meanEdge)} pp`}
+          sub={`RL − AC Optimal · best ${pp(crash.bestEdge)} pp`} icon={<BrainCircuit size={14} />} />
         <MetricTile label="Calm & normal days won" value={`${quietWins} / ${quietDays}`}
           sub="AC Optimal is hard to beat here" icon={<TrendingDown size={14} />} />
         <MetricTile label="Episodes scored" value={episodes.toLocaleString()}
-          sub={`${bySplit.length} days × ${PINNED.strategies.length} strategies × ${PINNED.protocol.episodes_per_strategy}`}
+          sub={`${PINNED.dates.length} days × ${PINNED.strategies.length} strategies × ${PINNED.protocol.episodes_per_strategy}`}
           icon={<Layers size={14} />} />
+      </div>
+
+      {/* Regime filter + what the regime means */}
+      <div className="space-y-3" data-tour="regime-filter">
+        <Segmented ariaLabel="Regime" value={regime} onChange={setRegime}
+          options={REGIME_FILTERS.map(r => ({ id: r, label: `${REGIME_INFO[r].title} · ${regimeCount(r)}` }))} />
+        <div className="glass-card px-4 py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+          <p className="text-xs leading-relaxed max-w-3xl" style={{ color: 'var(--text-sub)' }}>
+            <span className="font-semibold" style={{ color: 'var(--text)' }}>{REGIME_INFO[regime].title}. </span>
+            {REGIME_INFO[regime].text}
+          </p>
+          <LearnMore to="/learn#regimes" />
+        </div>
       </div>
 
       {/* Charts */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <ChartCard icon={<BarChart2 size={14} />} title="RL edge over AC Optimal, by day (pp)"
-          sub="Above zero: the RL agent sold at a better average price. Faded bars are training days.">
+        <ChartCard tour="edge-chart" icon={<BarChart2 size={14} />} title="RL edge over AC Optimal, by day (pp)"
+          sub="Above zero: the RL agent sold at a better average price. Faded bars: days the model trained on.">
           <ResponsiveContainer width="100%" height="100%">
             <BarChart data={edgeData} margin={{ top: 10, right: 10, bottom: 10, left: 0 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="var(--divider)" vertical={false} />
@@ -232,21 +175,21 @@ export default function ResultsTour() {
               <YAxis tickLine={false} axisLine={false} tick={axisTick} tickFormatter={v => pp(v, 1)} />
               <ReferenceLine y={0} stroke="var(--text-muted)" />
               <Tooltip contentStyle={tooltipStyle} cursor={{ fill: 'var(--card-hover)' }}
-                formatter={(v) => [`${pp(Number(v), 3)} pp`, 'RL − AC']}
+                formatter={v => [`${pp(Number(v), 3)} pp`, 'RL − AC']}
                 labelFormatter={(_, p) => {
                   const d = p?.[0]?.payload
-                  return d ? `${d.date} · ${d.regime} · ${d.split === 'train' ? 'training' : 'held-out'}` : ''
+                  return d ? `${d.date} · ${d.regime}${d.split === 'train' ? ' · training day' : ''}` : ''
                 }} />
               <Bar isAnimationActive={false} dataKey="edge" radius={[2, 2, 0, 0]}>
                 {edgeData.map(d => (
-                  <Cell key={d.date} fill={REGIME_COLORS[d.regime]} fillOpacity={d.split === 'train' ? 0.45 : 1} />
+                  <Cell key={d.date} fill={REGIME_COLORS[d.regime]} fillOpacity={d.split === 'train' ? 0.4 : 1} />
                 ))}
               </Bar>
             </BarChart>
           </ResponsiveContainer>
         </ChartCard>
 
-        <ChartCard icon={<BarChart2 size={14} />} title="Strategy performance by regime (mean IS %)"
+        <ChartCard tour="strategy-chart" icon={<BarChart2 size={14} />} title="Strategy performance by regime (mean IS %)"
           sub="Average over the days in view. Higher is better.">
           <ResponsiveContainer width="100%" height="100%">
             <BarChart data={regimeData} margin={{ top: 10, right: 10, bottom: 10, left: 0 }}>
@@ -255,7 +198,7 @@ export default function ResultsTour() {
               <YAxis tickLine={false} axisLine={false} tick={axisTick} tickFormatter={v => `${pp(v, 1)}%`} />
               <ReferenceLine y={0} stroke="var(--text-muted)" />
               <Tooltip contentStyle={tooltipStyle} cursor={{ fill: 'var(--card-hover)' }}
-                formatter={(v) => [pct(Number(v)), '']} />
+                formatter={v => [pct(Number(v)), '']} />
               <Legend wrapperStyle={{ fontSize: 10, paddingTop: 8 }} />
               {PINNED.strategies.map(s => (
                 <Bar isAnimationActive={false} key={s.key} dataKey={s.label} fill={STRATEGY_COLORS[s.key]} radius={[2, 2, 0, 0]} />
@@ -264,7 +207,7 @@ export default function ResultsTour() {
           </ResponsiveContainer>
         </ChartCard>
 
-        <ChartCard icon={<TrendingDown size={14} />} title="The edge grows with how hard the day is"
+        <ChartCard tour="severity-chart" icon={<TrendingDown size={14} />} title="The edge grows with how hard the day is"
           sub="x: AC Optimal's IS on the day (further left = more costly day). y: RL − AC Optimal.">
           <ResponsiveContainer width="100%" height="100%">
             <ScatterChart margin={{ top: 10, right: 16, bottom: 10, left: 0 }}>
@@ -285,7 +228,7 @@ export default function ResultsTour() {
           </ResponsiveContainer>
         </ChartCard>
 
-        <ChartCard icon={<ShieldCheck size={14} />} title="Does the richer state help? 12-dim vs 16-dim"
+        <ChartCard tour="ablation-chart" icon={<ShieldCheck size={14} />} title="Does the richer state help? 12-dim vs 16-dim"
           sub={`RL − AC Optimal (pp) for two otherwise identical agents, on the ${PINNED.ablation.length}-day ablation set.`}>
           {ablation.length ? (
             <ResponsiveContainer width="100%" height="100%">
@@ -311,12 +254,12 @@ export default function ResultsTour() {
       </div>
 
       {/* Per-day table */}
-      <div className="glass-card p-5 space-y-4">
+      <div className="glass-card p-5 space-y-4" data-tour="day-table">
         <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-2">
           <div>
             <h3 className="label-text">Every day, every strategy (mean IS %)</h3>
             <p className="text-[10px] font-mono mt-1" style={{ color: 'var(--text-muted)' }}>
-              Click a day to see how its {PINNED.protocol.episodes_per_strategy} episodes spread.
+              Click a day to see how its {PINNED.protocol.episodes_per_strategy} episodes spread. Bold: best strategy on the day.
             </p>
           </div>
           <span className="text-[10px] font-mono" style={{ color: 'var(--text-muted)' }}>{dates.length} days</span>
@@ -332,12 +275,12 @@ export default function ResultsTour() {
                     Day {sortKey === 'date' ? (sortAsc ? <ChevronUp size={10} /> : <ChevronDown size={10} />) : <ArrowUpDown size={10} />}
                   </button>
                 </th>
-                <th className="px-3 py-2 text-left text-[9px] font-bold uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>Set</th>
-                <th className="px-3 py-2 text-left text-[9px] font-bold uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>Regime</th>
-                <th className="px-3 py-2 text-right text-[9px] font-bold uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>TWAP</th>
-                <th className="px-3 py-2 text-right text-[9px] font-bold uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>Heuristic</th>
+                <th className={`${TH} text-left`} style={{ color: 'var(--text-muted)' }}>Regime</th>
+                <th className={`${TH} text-left`} style={{ color: 'var(--text-muted)' }}>Training day</th>
+                <th className={`${TH} text-right`} style={{ color: 'var(--text-muted)' }}>TWAP</th>
+                <th className={`${TH} text-right`} style={{ color: 'var(--text-muted)' }}>Heuristic</th>
                 <SortHead k="ac_optimal" current={sortKey} asc={sortAsc} onSort={toggleSort}>AC Optimal</SortHead>
-                <th className="px-3 py-2 text-right text-[9px] font-bold uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>Adaptive AC</th>
+                <th className={`${TH} text-right`} style={{ color: 'var(--text-muted)' }}>Adaptive AC</th>
                 <SortHead k="rl" current={sortKey} asc={sortAsc} onSort={toggleSort}>RL Agent</SortHead>
                 <SortHead k="edge" current={sortKey} asc={sortAsc} onSort={toggleSort}>RL − AC</SortHead>
               </tr>
@@ -357,20 +300,15 @@ export default function ResultsTour() {
                           {open ? <ChevronUp size={10} /> : <ChevronDown size={10} />}{d.date}
                         </span>
                       </td>
-                      <td className="px-3 py-2.5">
-                        <span className={d.split === 'held_out' ? 'badge-info' : 'badge-neutral'}>
-                          {d.split === 'held_out' ? 'Held-out' : 'Training'}
-                        </span>
-                      </td>
                       <td className="px-3 py-2.5"><RegimeTag regime={d.regime} /></td>
+                      <td className="px-3 py-2.5" style={{ color: 'var(--text-muted)' }}>
+                        {d.split === 'train' ? <span className="badge-neutral">Yes</span> : '—'}
+                      </td>
                       {PINNED.strategies.map(s => {
                         const v = d.strategies[s.key].mean
                         return (
                           <td key={s.key} className="px-3 py-2.5 text-right"
-                            style={{
-                              color: v === best ? 'var(--text)' : 'var(--text-sub)',
-                              fontWeight: v === best ? 700 : 400,
-                            }}>
+                            style={{ color: v === best ? 'var(--text)' : 'var(--text-sub)', fontWeight: v === best ? 700 : 400 }}>
                             {pct(v)}
                           </td>
                         )
@@ -382,9 +320,7 @@ export default function ResultsTour() {
                     </tr>
                     {open && (
                       <tr style={{ borderBottom: '1px solid var(--divider)', background: 'var(--input-bg)' }}>
-                        <td colSpan={9} className="p-4">
-                          <DayDetail d={d} />
-                        </td>
+                        <td colSpan={9} className="p-4"><DayDetail d={d} /></td>
                       </tr>
                     )}
                   </Fragment>
@@ -397,7 +333,10 @@ export default function ResultsTour() {
 
       {/* Caveats */}
       <div className="glass-card p-5 space-y-4">
-        <h3 className="label-text">Read before citing</h3>
+        <div className="flex items-center justify-between gap-2">
+          <h3 className="label-text">Read before citing</h3>
+          <LearnMore to="/learn#limits" />
+        </div>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs leading-relaxed" style={{ color: 'var(--text-sub)' }}>
           <p>
             <span className="font-semibold" style={{ color: 'var(--text)' }}>A crash-day specialist. </span>
@@ -406,64 +345,14 @@ export default function ResultsTour() {
           </p>
           <p>
             <span className="font-semibold" style={{ color: 'var(--text)' }}>Correlated days. </span>
-            Three of the four held-out crash days fall in one week (the August 2024 yen-carry unwind), so the
-            held-out crash wins come from two separate events.
+            Several crash days fall in the same week (the July 2024 German-government sales, the August 2024
+            yen-carry unwind), so they are fewer independent events than days.
           </p>
           <p>
             <span className="font-semibold" style={{ color: 'var(--text)' }}>Other baselines. </span>
             Against Adaptive AC the RL agent was better on {beatsAdaptive} of {crashAll.length} crash days. Its
             tail-risk (CVaR) edge is its mean edge carried into the tail, not a separate effect.
           </p>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-function DayDetail({ d }: { d: DateResult }) {
-  const hist = episodeHistogram(d, HIST_KEYS)
-  return (
-    <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-      <div className="space-y-2">
-        <div className="text-[9px] font-mono uppercase" style={{ color: 'var(--text-muted)' }}>Event</div>
-        <div className="text-xs" style={{ color: 'var(--text)' }}>{d.event_detail}</div>
-        <table className="w-full text-[10px] font-mono mt-2">
-          <thead>
-            <tr style={{ color: 'var(--text-muted)' }}>
-              <th className="text-left py-1 font-normal">Strategy</th>
-              <th className="text-right py-1 font-normal">Std</th>
-              <th className="text-right py-1 font-normal">CVaR 95</th>
-            </tr>
-          </thead>
-          <tbody>
-            {PINNED.strategies.map(s => (
-              <tr key={s.key} style={{ color: s.key === 'rl' ? STRATEGY_COLORS.rl : 'var(--text-sub)' }}>
-                <td className="py-0.5">{s.label}</td>
-                <td className="py-0.5 text-right">{d.strategies[s.key].std.toFixed(3)}</td>
-                <td className="py-0.5 text-right">{pct(d.strategies[s.key].cvar95)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      <div className="lg:col-span-2 min-w-0">
-        <div className="text-[9px] font-mono uppercase mb-2" style={{ color: 'var(--text-muted)' }}>
-          Episode IS distribution (count of {d.strategies.rl.episodes.length} episodes per bin)
-        </div>
-        <div className="h-[180px]">
-          <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={hist} margin={{ top: 4, right: 8, bottom: 4, left: -16 }} barGap={0}>
-              <CartesianGrid strokeDasharray="3 3" stroke="var(--divider)" vertical={false} />
-              <XAxis dataKey="bin" tickLine={false} axisLine={false} tick={axisTick} tickFormatter={v => `${v}%`} />
-              <YAxis tickLine={false} axisLine={false} tick={axisTick} allowDecimals={false} />
-              <Tooltip contentStyle={tooltipStyle} cursor={{ fill: 'var(--card-hover)' }}
-                labelFormatter={v => `IS ≈ ${v}%`} />
-              <Legend wrapperStyle={{ fontSize: 10 }} />
-              {HIST_KEYS.map(k => (
-                <Bar isAnimationActive={false} key={k} dataKey={k} name={label(k)} fill={STRATEGY_COLORS[k]} />
-              ))}
-            </BarChart>
-          </ResponsiveContainer>
         </div>
       </div>
     </div>

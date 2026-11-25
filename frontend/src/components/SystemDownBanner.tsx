@@ -1,5 +1,5 @@
-import { useNavigate } from 'react-router-dom'
 import { AlertTriangle, ArrowRight } from 'lucide-react'
+import { useTour } from '../tour/context'
 
 const AMBER = '#F59E0B'
 
@@ -9,7 +9,7 @@ const AMBER = '#F59E0B'
  * such as the login card, which also sits outside the app's light/dark theme).
  */
 export function SystemDownBanner({ compact = false, stacked = false }: { compact?: boolean; stacked?: boolean }) {
-  const navigate = useNavigate()
+  const { start } = useTour()
   return (
     <div
       role="status"
@@ -35,14 +35,14 @@ export function SystemDownBanner({ compact = false, stacked = false }: { compact
             <p className="text-xs mt-1 max-w-xl leading-relaxed"
               style={{ color: stacked ? 'rgba(253, 230, 138, 0.8)' : 'var(--text-sub)' }}>
               We're sorry for the inconvenience. Live simulations run on our compute backend, which is
-              offline right now. How about a tour through the results instead? Every number there comes
-              from completed experiments.
+              offline right now. How about a guided tour of what we built and what we found? Every number
+              in it comes from completed experiments.
             </p>
           )}
         </div>
       </div>
       <button
-        onClick={() => navigate('/results')}
+        onClick={start}
         className={stacked ? 'inline-flex items-center justify-center gap-2 w-full py-2.5 rounded-lg text-xs font-semibold uppercase tracking-wider' : 'btn-primary flex-shrink-0'}
         style={stacked ? { background: AMBER, color: '#111827' } : undefined}
       >

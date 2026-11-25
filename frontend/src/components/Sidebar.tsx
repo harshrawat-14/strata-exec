@@ -3,17 +3,18 @@ import { NavLink } from 'react-router-dom'
 import {
   LayoutDashboard, FlaskConical, BrainCircuit,
   Upload, BarChart3, Sun, Moon, LogOut,
-  ChevronLeft, ChevronRight, X, Compass
+  ChevronLeft, ChevronRight, X, Compass, BookOpen, LogIn
 } from 'lucide-react'
 import { clsx } from 'clsx'
 
 const NAV_ITEMS = [
-  { to: '/results',   icon: Compass,         label: 'Results Tour' },
+  { to: '/results',   icon: Compass,         label: 'Results'     },
   { to: '/',          icon: LayoutDashboard, label: 'Dashboard'   },
   { to: '/simulator', icon: FlaskConical,    label: 'Simulator'   },
   { to: '/evaluate',  icon: BrainCircuit,    label: 'RL Eval'     },
   { to: '/upload',    icon: Upload,          label: 'Data Upload' },
   { to: '/sweep',     icon: BarChart3,       label: 'Param Sweep' },
+  { to: '/learn',     icon: BookOpen,        label: 'Learn'       },
 ]
 
 interface SidebarProps {
@@ -34,6 +35,8 @@ export function Sidebar({ collapsed, onToggle, mobileOpen = false, onCloseMobile
     else root.classList.remove('dark')
     localStorage.setItem('theme', theme)
   }, [theme])
+
+  const signedIn = Boolean(localStorage.getItem('strataexec_token'))
 
   const toggleTheme = () => setTheme(prev => prev === 'dark' ? 'light' : 'dark')
 
@@ -149,14 +152,15 @@ export function Sidebar({ collapsed, onToggle, mobileOpen = false, onCloseMobile
               localStorage.removeItem('strataexec_token')
               window.location.href = '/login'
             }}
+            aria-label={signedIn ? 'Log out' : 'Sign in'}
             className={clsx(
               "w-full flex items-center rounded-lg text-[10px] font-mono font-semibold tracking-widest uppercase transition-all duration-150",
               (collapsed && !mobileOpen) ? "justify-center p-2.5" : "justify-between px-3.5 py-2.5"
             )}
             style={{
               border: '1px solid var(--card-border)',
-              color: '#fca5a5',
-              background: 'rgba(239, 68, 68, 0.03)',
+              color: signedIn ? '#fca5a5' : 'var(--text-sub)',
+              background: signedIn ? 'rgba(239, 68, 68, 0.03)' : 'transparent',
             }}
             onMouseEnter={e => {
               e.currentTarget.style.borderColor = 'rgba(239, 68, 68, 0.2)'
@@ -166,11 +170,11 @@ export function Sidebar({ collapsed, onToggle, mobileOpen = false, onCloseMobile
               e.currentTarget.style.borderColor = 'var(--card-border)'
               e.currentTarget.style.background = 'rgba(239, 68, 68, 0.03)'
             }}
-            title={(collapsed && !mobileOpen) ? "Logout" : undefined}
+            title={(collapsed && !mobileOpen) ? (signedIn ? 'Logout' : 'Sign in') : undefined}
           >
             <span className="flex items-center gap-2">
-              <LogOut size={14} className="flex-shrink-0" />
-              {(!collapsed || mobileOpen) && 'Logout'}
+              {signedIn ? <LogOut size={14} className="flex-shrink-0" /> : <LogIn size={14} className="flex-shrink-0" />}
+              {(!collapsed || mobileOpen) && (signedIn ? 'Logout' : 'Sign in')}
             </span>
           </button>
 

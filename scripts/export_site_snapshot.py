@@ -21,7 +21,16 @@ PIN = "site-pin-ppo-lstm"  # tag on ae90ac1, Phase 3 Step 1 (doc 05): 25 dates, 
 EPISODES = "rl/results/phase3_tail_validation_episodes.csv"
 SUMMARY = "rl/results/phase3_tail_validation_summary.csv"
 ABLATION = "rl/results/phase2r_ablation_honest_lambda.csv"
-OUT = Path(__file__).resolve().parents[1] / "frontend/src/data/pinned/results.json"
+ROOT = Path(__file__).resolve().parents[1]
+OUT = ROOT / "frontend/src/data/pinned/results.json"
+SWEEPS_OUT = ROOT / "frontend/src/data/pinned/sweeps.json"
+PRESETS_OUT = ROOT / "frontend/public/demo/simulation"  # fetched on demand, ~100 KB each
+SWEEPS = {  # Monte Carlo GARCH sweeps, 500 paths per cell (research-sim)
+    "volatility": "results/garch_sweep_volatility.csv",
+    "horizon": "results/garch_sweep_horizon.csv",
+    "impact": "results/garch_sweep_impact.csv",
+    "trade_chunks": "results/garch_sweep_trade_chunks.csv",
+}
 
 STRATEGIES = {  # csv name -> site key, label
     "twap": ("twap", "TWAP"),
@@ -38,9 +47,23 @@ EVENTS = {
 }
 
 
+def _show(path: str) -> str:
+    return subprocess.run(["git", "show", f"{PIN}:{path}"], check=True, capture_output=True, text=True).stdout
+
+
 def _csv(path: str) -> pd.DataFrame:
-    text = subprocess.run(["git", "show", f"{PIN}:{path}"], check=True, capture_output=True, text=True).stdout
-    return pd.read_csv(io.StringIO(text))
+    return pd.read_csv(io.StringIO(_show(path)))
+
+
+def build_sweeps() -> dict:
+    return {dim: _csv(path).to_dict(orient="records") for dim, path in SWEEPS.items()}
+
+
+def build_presets() -> dict:
+    """The research-sim presets the Simulator page shows: file name -> text, as pinned."""
+    names = subprocess.run(["git", "ls-tree", "--name-only", f"{PIN}:demo_results/simulation"], check=True,
+                           capture_output=True, text=True).stdout.split()
+    return {n: _show(f"demo_results/simulation/{n}") for n in names if n.endswith(".json")}
 
 
 def _cvar95(x) -> float:
@@ -80,7 +103,9 @@ def build() -> dict:
             strategies[key] = dict(mean=round(s.mean(), 4), std=round(s.std(), 4), cvar95=round(_cvar95(x), 4),
                                    episodes=[round(v, 4) for v in x])
         dates.append(dict(date=date, regime=row.regime_v2,
-                          split="held_out" if row.split_v2 == "held_out_v2" else "train",
+                          # RL-16 was trained on the V1 split (rl/evaluate.py TRAINING_DATES at the tag);
+                          # the V2 split came later, for other models.
+                          split="train" if row.split_v1 == "training_v1" else "held_out",
                           event=event, event_detail=detail, strategies=strategies))
 
     ablation = [dict(date=r.date, regime=r.regime, split="held_out" if "held" in r.split else "train",
@@ -106,15 +131,20 @@ def main(argv=None):
     ap = argparse.ArgumentParser()
     ap.add_argument("--check", action="store_true")
     args = ap.parse_args(argv)
-    text = json.dumps(build(), indent=1, ensure_ascii=False) + "\n"
+    files = {OUT: json.dumps(build(), indent=1, ensure_ascii=False) + "\n",
+             SWEEPS_OUT: json.dumps(build_sweeps(), indent=1) + "\n"}
+    files.update({PRESETS_OUT / n: text for n, text in build_presets().items()})
     if args.check:
-        if not OUT.exists() or OUT.read_text() != text:
-            sys.exit(f"{OUT} is out of date with tag {PIN}; rerun scripts/export_site_snapshot.py")
+        stale = [p for p, text in files.items() if not p.exists() or p.read_text() != text]
+        if stale:
+            sys.exit(f"out of date with tag {PIN}: {[str(p.relative_to(ROOT)) for p in stale]}; "
+                     "rerun scripts/export_site_snapshot.py")
         print("snapshot matches", PIN)
         return
-    OUT.parent.mkdir(parents=True, exist_ok=True)
-    OUT.write_text(text)
-    print(f"wrote {OUT} ({OUT.stat().st_size // 1024} KB)")
+    for path, text in files.items():
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text)
+        print(f"wrote {path.relative_to(ROOT)} ({path.stat().st_size // 1024} KB)")
 
 
 if __name__ == "__main__":

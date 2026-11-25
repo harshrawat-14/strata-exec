@@ -40,7 +40,8 @@ api.interceptors.request.use(
 api.interceptors.response.use(
   (response) => response,
   (error) => {
-    if (error.response && error.response.status === 401) {
+    // Only a signed-in session that expired goes back to sign-in; visitors browse freely.
+    if (error.response && error.response.status === 401 && localStorage.getItem('strataexec_token')) {
       localStorage.removeItem('strataexec_token')
       // Only redirect if we are not already on the login page
       if (!window.location.pathname.endsWith('/login')) {

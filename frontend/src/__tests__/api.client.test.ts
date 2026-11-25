@@ -101,6 +101,17 @@ describe("API client — response interceptor", () => {
     expect(window.location.href).toBe("/login");
   });
 
+  // Visitors browse every page without signing in; a 401 must not bounce them to /login.
+  it("does NOT redirect a visitor with no token on 401", async () => {
+    localStorage.clear();
+    const { api } = await import("../api/client");
+    const handlers = getLastResponseInterceptor(api);
+
+    const error = { response: { status: 401 }, message: "Unauthorized" };
+    await expect(handlers.rejected(error)).rejects.toBeDefined();
+    expect(window.location.href).toBe("http://localhost/simulator");
+  });
+
   it("does NOT remove token on 500 errors", async () => {
     const { api } = await import("../api/client");
     const handlers = getLastResponseInterceptor(api);

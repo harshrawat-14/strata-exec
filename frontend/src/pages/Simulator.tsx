@@ -6,7 +6,7 @@
 
 import { useState, useCallback, useEffect } from 'react'
 import { clsx } from 'clsx'
-import { fetchSimulationResult } from '../api/client'
+import { loadSimulationPreset } from '../api/offline'
 import { PriceChart } from '../components/TrajectoryChart'
 import { EmptyState } from '../components/ui'
 import SimulationResultsPanel, {
@@ -107,8 +107,8 @@ export default function Simulator() {
     setResult(null)
     setActiveTab('dashboard')
     try {
-      // Fetch directly from the demo endpoint — no job queue needed
-      const res = await fetchSimulationResult(`demo_${scenario.presetKey}`)
+      // Precomputed scenario: from the API, or the static copy when the engine is offline
+      const res = await loadSimulationPreset(scenario.presetKey)
       setResult(res)
     } catch (err: any) {
       setError(err?.message || 'Failed to load scenario')
@@ -116,6 +116,11 @@ export default function Simulator() {
       setLoading(false)
     }
   }, [loading])
+
+  // Open on the first scenario so a visitor sees results straight away.
+  useEffect(() => {
+    void handleSelectScenario(SCENARIOS[0])
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   const tabs: { key: TabKey; label: string; emoji: string }[] = [
     { key: 'dashboard',  label: 'Dashboard',      emoji: '⊞' },
@@ -126,7 +131,7 @@ export default function Simulator() {
   ]
 
   return (
-    <div className="flex flex-col lg:flex-row gap-6 h-full animate-fade-in">
+    <div data-tour="simulator" className="flex flex-col lg:flex-row gap-6 h-full animate-fade-in">
 
       {/* ── Left: Scenario Selector ───────────────────────────────────────── */}
       <div className="w-full lg:w-72 lg:flex-shrink-0 space-y-3">

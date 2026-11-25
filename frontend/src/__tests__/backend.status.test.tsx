@@ -1,14 +1,8 @@
 /**
- * Offline handling: the site must say the engine is down whenever the API is unreachable,
- * and must send visitors to the results tour, which needs no backend.
+ * The health probe: the site must say the engine is down whenever the API is unreachable.
  */
-import { describe, it, expect, vi, beforeAll } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
-import { MemoryRouter, Routes, Route } from "react-router-dom";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { describe, it, expect, vi } from "vitest";
 import { probeBackend } from "../hooks/useBackendStatus";
-import { SystemDownBanner } from "../components/SystemDownBanner";
-import ResultsTour from "../pages/ResultsTour";
 
 const response = (status: number, body: string, type = "application/json") =>
   new Response(body, { status, headers: { "Content-Type": type } });
@@ -39,50 +33,3 @@ describe("probeBackend", () => {
   });
 });
 
-describe("SystemDownBanner", () => {
-  it("apologises and takes the visitor to the tour", () => {
-    render(
-      <MemoryRouter initialEntries={["/simulator"]}>
-        <Routes>
-          <Route path="/simulator" element={<SystemDownBanner />} />
-          <Route path="/results" element={<div>tour page</div>} />
-        </Routes>
-      </MemoryRouter>,
-    );
-    expect(screen.getByText("The simulation engine is down")).toBeInTheDocument();
-    expect(screen.getByText(/sorry for the inconvenience/i)).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: /take the tour/i }));
-    expect(screen.getByText("tour page")).toBeInTheDocument();
-  });
-});
-
-describe("ResultsTour", () => {
-  beforeAll(() => {
-    globalThis.ResizeObserver ??= class { observe() {} unobserve() {} disconnect() {} } as unknown as typeof ResizeObserver;
-  });
-
-  const renderTour = () => {
-    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("offline")));
-    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    return render(
-      <QueryClientProvider client={qc}>
-        <MemoryRouter initialEntries={["/results"]}>
-          <ResultsTour />
-        </MemoryRouter>
-      </QueryClientProvider>,
-    );
-  };
-
-  it("renders from the snapshot with the backend down and filters by split", async () => {
-    renderTour();
-    expect(await screen.findByText("The simulation engine is down")).toBeInTheDocument();
-    expect(screen.getByText("8 / 8")).toBeInTheDocument();
-    expect(screen.getByText("1 / 17")).toBeInTheDocument();
-    expect(screen.getByText("6,250")).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole("button", { name: /held-out · 9/i }));
-    expect(screen.getByText("4 / 4")).toBeInTheDocument();
-    expect(screen.getByText("0 / 5")).toBeInTheDocument();
-    expect(screen.getByText("9 days")).toBeInTheDocument();
-  });
-});

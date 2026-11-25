@@ -8,6 +8,7 @@ import { useMutation, useQuery } from '@tanstack/react-query'
 import { FileText, Brain } from 'lucide-react'
 import { clsx } from 'clsx'
 
+import { useBackendStatus } from '../hooks/useBackendStatus'
 import { uploadLobFile, uploadAggFile, uploadModel, fetchLobDepthPreview, fetchUploadedFiles, fetchUploadedModels } from '../api/client'
 import { OrderBookViz, SpreadChart } from '../components/OrderBookViz'
 import { Skeleton } from '../components/ui'
@@ -106,6 +107,7 @@ function DropZone({ type, accept, label, description, icon, onDrop, isLoading, r
 }
 
 export default function DataUpload() {
+  const backend = useBackendStatus()
   const [lobResult, setLobResult] = useState<UploadedFileInfo | null>(null)
   const [aggResult, setAggResult] = useState<UploadedFileInfo | null>(null)
   const [modelResult, setModelResult] = useState<UploadedModelInfo | null>(null)
@@ -155,7 +157,7 @@ export default function DataUpload() {
   })
 
   return (
-    <div className="space-y-8 animate-fade-in">
+    <div data-tour="upload" className="space-y-8 animate-fade-in">
       <div>
         <h1 className="text-3xl font-bold text-black dark:text-white tracking-tight">
           Data Upload
@@ -163,6 +165,29 @@ export default function DataUpload() {
         <p className="text-black/40 dark:text-white/40 mt-1 text-sm font-mono uppercase tracking-wider">
           Upload Binance LOB data, aggregate trades, or trained RL models
         </p>
+      </div>
+
+      {/* What this page is for (visible to everyone; uploads need the engine) */}
+      <div className="glass-card p-5 grid grid-cols-1 md:grid-cols-3 gap-4 text-xs leading-6" style={{ color: 'var(--text-sub)' }}>
+        <div>
+          <div className="label-text mb-1">1 · Market data</div>
+          Binance order-book depth and trade files for any day. The engine replays them through the
+          counterfactual order book.
+        </div>
+        <div>
+          <div className="label-text mb-1">2 · Your model</div>
+          A trained Stable-Baselines3 model (.zip). It is evaluated with the same harness, days and episodes
+          as the built-in agent.
+        </div>
+        <div>
+          <div className="label-text mb-1">3 · Compare</div>
+          Run it on the RL Eval page against TWAP, Heuristic, Almgren–Chriss and Adaptive AC.
+          {backend === 'offline' && (
+            <span className="block mt-1 font-semibold" style={{ color: 'var(--text)' }}>
+              Uploads need the engine, which is offline right now.
+            </span>
+          )}
+        </div>
       </div>
 
       {/* Drop zones */}

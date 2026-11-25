@@ -11,6 +11,8 @@ import {
   ResponsiveContainer, Legend
 } from 'recharts'
 import { startSweep, fetchSweepResult, cancelJob } from '../api/client'
+import { pinnedSweepResult } from '../api/offline'
+import { useBackendStatus } from '../hooks/useBackendStatus'
 import { useWebSocket } from '../hooks/useWebSocket'
 import { JobStatusBadge, ProgressBar, Skeleton, EmptyState } from '../components/ui'
 import type { JobStatusValue, WsMessage } from '../types'
@@ -32,7 +34,7 @@ export default function ParameterSweep() {
   const [jobId,     setJobId]     = useState<string | null>(() => sessionStorage.getItem('activeJobId_sweep'))
   const [jobStatus, setJobStatus] = useState<JobStatusValue | null>(null)
   const [progress,  setProgress]  = useState({ completed: 0, total: 0 })
-  const [result,    setResult]    = useState<any>(null)
+  const [liveResult, setResult]   = useState<any>(null)
   const [jobStartedAt, setJobStartedAt] = useState<number | undefined>(undefined)
 
   useEffect(() => {
@@ -42,6 +44,10 @@ export default function ParameterSweep() {
       sessionStorage.removeItem('activeJobId_sweep')
     }
   }, [jobId])
+
+  const backend = useBackendStatus()
+  // While the engine is offline, show the pinned GARCH sweep for the chosen dimension.
+  const result = liveResult ?? (backend === 'offline' ? pinnedSweepResult(dimension) : null)
 
   const selectedDim = DIMENSION_OPTIONS.find(d => d.id === dimension)
 
@@ -120,7 +126,7 @@ export default function ParameterSweep() {
     : null
 
   return (
-    <div className="flex flex-col lg:flex-row gap-6 animate-fade-in">
+    <div data-tour="sweep" className="flex flex-col lg:flex-row gap-6 animate-fade-in">
 
       {/* ── Config ───────────────────────────────────────────────────── */}
       <div className="w-full lg:w-72 lg:flex-shrink-0">
@@ -304,7 +310,9 @@ export default function ParameterSweep() {
                   {result.sweep_dimension} Sensitivity Analysis
                 </h2>
                 <p className="text-xs font-mono mt-0.5" style={{ color: 'var(--text-muted)' }}>
-                  {result.grid_values?.length} grid points · {result.duration_seconds?.toFixed(1)}s
+                  {result.grid_values?.length} grid points · {result.precomputed
+                    ? 'precomputed GARCH sweep, 500 paths per point'
+                    : `${result.duration_seconds?.toFixed(1)}s`}
                 </p>
               </div>
               <button onClick={() => downloadSweepJson(result)} className="btn-secondary text-xs font-mono">

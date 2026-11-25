@@ -17,10 +17,14 @@ describe("pinned snapshot", () => {
     expect(PINNED.model.pinned_commit.startsWith("ae90ac1")).toBe(true);
   });
 
-  it("covers 25 days: 16 training and 9 held-out", () => {
+  // Regression: RL-16 trained on the 7 V1 dates (rl/evaluate.py TRAINING_DATES at the tag).
+  // The later V2 split labelled 16 days "training", 9 of which this model never saw.
+  it("covers 25 days: the 7 RL-16 training days and 18 it never saw", () => {
     expect(PINNED.dates).toHaveLength(25);
-    expect(filterDates(PINNED.dates, "train", "all")).toHaveLength(16);
-    expect(filterDates(PINNED.dates, "held_out", "all")).toHaveLength(9);
+    expect(filterDates(PINNED.dates, "train", "all").map(d => d.date)).toEqual([
+      "2024-01-15", "2024-02-20", "2024-04-15", "2024-06-10", "2024-09-15", "2024-10-15", "2024-11-06",
+    ]);
+    expect(filterDates(PINNED.dates, "held_out", "all")).toHaveLength(18);
   });
 
   it("has 50 episodes per strategy per day, and each mean is the mean of its episodes", () => {
@@ -43,12 +47,11 @@ describe("pinned snapshot", () => {
 });
 
 describe("summaries", () => {
-  it("wins every crash day, in training and held-out alike", () => {
-    for (const split of ["train", "held_out"] as const) {
-      const crash = summariseByRegime(filterDates(PINNED.dates, split, "all")).find(s => s.regime === "crash")!;
-      expect(crash.days).toBe(4);
-      expect(crash.wins).toBe(4);
-    }
+  it("wins every crash day, including the 7 it never trained on", () => {
+    const all = summariseByRegime(PINNED.dates).find(s => s.regime === "crash")!;
+    expect([all.wins, all.days]).toEqual([8, 8]);
+    const unseen = summariseByRegime(filterDates(PINNED.dates, "held_out", "all")).find(s => s.regime === "crash")!;
+    expect([unseen.wins, unseen.days]).toEqual([7, 7]);
   });
 
   it("wins 1 of 17 calm and normal days", () => {
