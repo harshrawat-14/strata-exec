@@ -27,7 +27,9 @@ def test_adv_uses_only_the_20_days_before_the_date():
 def test_committed_table_covers_every_research_date(name):
     table = pd.read_csv(DATASETS[name].adv_table_path()).set_index("date").adv20_btc
     assert set(table.index) == set(SEVERITY_RANK_V2)
-    assert (table > 50_000).all() and (table < 2_000_000).all()
+    assert (table > 0).all() and table.max() / table.min() < 10  # units differ by symbol
+    if DATASETS[name].symbol == "BTCUSDT":
+        assert (table > 50_000).all() and (table < 2_000_000).all()
 
 
 def test_sizing_follows_the_active_dataset(monkeypatch):

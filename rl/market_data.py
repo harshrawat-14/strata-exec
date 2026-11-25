@@ -46,6 +46,15 @@ DATASETS = {
         name="bybit_btcusdt_perp", venue="bybit", symbol="BTCUSDT",
         root="TradeData/Bybit/BTCUSDT",
         book_pattern="book-{date}.csv.gz", trades_pattern="trades-{date}.csv.gz"),
+    # Less liquid Bybit perpetuals, same format: do the BTC findings (docs 26-32) carry over?
+    "bybit_solusdt_perp": Dataset(
+        name="bybit_solusdt_perp", venue="bybit", symbol="SOLUSDT",
+        root="TradeData/Bybit/SOLUSDT",
+        book_pattern="book-{date}.csv.gz", trades_pattern="trades-{date}.csv.gz"),
+    "bybit_dogeusdt_perp": Dataset(
+        name="bybit_dogeusdt_perp", venue="bybit", symbol="DOGEUSDT",
+        root="TradeData/Bybit/DOGEUSDT",
+        book_pattern="book-{date}.csv.gz", trades_pattern="trades-{date}.csv.gz"),
     # Era 1 (retired, data deleted 2026-10-26): Binance bookDepth bands + aggTrades.
     "binance_btcusdt_perp_bookdepth": Dataset(
         name="binance_btcusdt_perp_bookdepth", venue="binance", symbol="BTCUSDT",

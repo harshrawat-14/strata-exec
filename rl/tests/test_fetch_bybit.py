@@ -193,3 +193,18 @@ def test_fetch_through_flaky_connections_equals_clean_fetch(tmp_path, monkeypatc
     pd.testing.assert_frame_equal(clean_trades, flaky_trades)
     assert len(clean_book) == 2879  # first snapshot at 00:00:01: boundaries 00:00:30 .. 23:59:30
     assert len(clean_trades) == 400
+
+
+def test_fetch_other_symbol_uses_its_urls_and_dataset_root(tmp_path, monkeypatch, no_sleep):
+    files = {f"/SOLUSDT/book/{DATE}.zip": _book_zip(), f"/SOLUSDT/trades/{DATE}.csv.gz": _trades_gz()}
+    srv = _Server(files)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(fb, "BOOK_URL", srv.url + "/{symbol}/book/{date}.zip")
+    monkeypatch.setattr(fb, "TRADES_URL", srv.url + "/{symbol}/trades/{date}.csv.gz")
+    try:
+        fb.fetch(DATE, dataset="bybit_solusdt_perp")
+    finally:
+        srv.close()
+    root = tmp_path / "TradeData/Bybit/SOLUSDT"
+    assert (root / f"book-{DATE}.csv.gz").exists() and (root / f"trades-{DATE}.csv.gz").exists()
+    assert not (tmp_path / "TradeData/Bybit/BTCUSDT").exists()

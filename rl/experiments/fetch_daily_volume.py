@@ -1,9 +1,12 @@
 """
-Download Bybit daily volume (BTCUSDT perpetual, 2023-12 -> 2024-12) for ADV
-sizing, then write the 20-day trailing ADV table for the research dates.
+Download Bybit daily volume (linear perpetual, 2023-12 -> 2024-12) for ADV sizing,
+then write the 20-day trailing ADV table for the research dates. Volumes are in the
+base asset's units (the volume_btc / adv20_btc column names predate other symbols).
 
-    python rl/experiments/fetch_daily_volume.py
+    python rl/experiments/fetch_daily_volume.py                              # BTCUSDT
+    python rl/experiments/fetch_daily_volume.py --dataset bybit_solusdt_perp
 """
+import os
 import json
 import sys
 import urllib.request
@@ -24,11 +27,14 @@ def _ms(day: str) -> int:
 
 
 def main():
+    args = sys.argv[1:]
+    name = args[1] if args[:1] == ["--dataset"] else "bybit_btcusdt_perp"
+    os.environ["STRATAEXEC_DATASET"] = name  # adv_from_daily_volume reads the active dataset
     from evaluation.dates import SEVERITY_RANK_V2
     from evaluation.liquidity import adv_from_daily_volume
     from market_data import DATASETS
 
-    ds = DATASETS["bybit_btcusdt_perp"]
+    ds = DATASETS[name]
     with urllib.request.urlopen(URL.format(symbol=ds.symbol, start=_ms(FIRST), end=_ms(LAST)), timeout=60) as r:
         payload = json.load(r)
     if payload.get("retCode") != 0:

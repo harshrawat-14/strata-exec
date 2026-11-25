@@ -1,5 +1,6 @@
 """
-Download and convert Bybit BTCUSDT perpetual data for the research dates (era 2).
+Download and convert Bybit linear perpetual data (era 2) for any dataset registered in
+market_data.DATASETS with venue "bybit" (BTCUSDT by default).
 
 Book: Bybit's free ob500 archive (full 500-level snapshot + tick-by-tick deltas)
 is replayed and the complete 500-level book is written every 30 s (UTC-aligned)
@@ -8,8 +9,9 @@ to transact_time / price / quantity / is_buyer_maker (taker "Sell" -> buyer was
 the maker). Output is gzip-compressed CSV (about 5x smaller). Raw downloads are
 deleted after conversion.
 
-    python rl/experiments/fetch_bybit.py                 # all research dates
+    python rl/experiments/fetch_bybit.py                 # all research dates, BTCUSDT
     python rl/experiments/fetch_bybit.py 2024-01-15      # selected dates
+    python rl/experiments/fetch_bybit.py --dataset bybit_solusdt_perp 2024-01-15
 """
 import csv
 import gzip
@@ -28,8 +30,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # rl/
 
 import orjson
 
-BOOK_URL = "https://quote-saver.bycsi.com/orderbook/linear/BTCUSDT/{date}_BTCUSDT_ob500.data.zip"
-TRADES_URL = "https://public.bybit.com/trading/BTCUSDT/BTCUSDT{date}.csv.gz"
+BOOK_URL = "https://quote-saver.bycsi.com/orderbook/linear/{symbol}/{date}_{symbol}_ob500.data.zip"
+TRADES_URL = "https://public.bybit.com/trading/{symbol}/{symbol}{date}.csv.gz"
+DEFAULT_DATASET = "bybit_btcusdt_perp"
 LEVELS = 500
 INTERVAL_MS = 30_000
 RAW_DIR = Path("TradeData/BybitRaw")
@@ -138,30 +141,35 @@ def convert_trades(raw_gz: Path, out_csv: Path) -> int:
     return rows
 
 
-def fetch(date: str, keep_raw: bool = False) -> None:
+def fetch(date: str, keep_raw: bool = False, dataset: str = DEFAULT_DATASET) -> None:
     from market_data import DATASETS
-    ds = DATASETS["bybit_btcusdt_perp"]
+    ds = DATASETS[dataset]
+    assert ds.venue == "bybit", f"{dataset} is not a Bybit dataset"
+    sym = ds.symbol
     book_out, trades_out = Path(ds.book_path(date)), Path(ds.trades_path(date))
     book_out.parent.mkdir(parents=True, exist_ok=True)
     if not trades_out.exists():
-        raw = _download(TRADES_URL.format(date=date), RAW_DIR / f"BTCUSDT{date}.csv.gz")
+        raw = _download(TRADES_URL.format(symbol=sym, date=date), RAW_DIR / f"{sym}{date}.csv.gz")
         n = convert_trades(raw, trades_out)
-        print(f"{date}: {n:,} trades", flush=True)
+        print(f"{sym} {date}: {n:,} trades", flush=True)
         if not keep_raw:
             raw.unlink()
     if not book_out.exists():
-        raw = _download(BOOK_URL.format(date=date), RAW_DIR / f"{date}_BTCUSDT_ob500.data.zip")
+        raw = _download(BOOK_URL.format(symbol=sym, date=date), RAW_DIR / f"{date}_{sym}_ob500.data.zip")
         n = convert_book(raw, book_out, date)
-        print(f"{date}: {n} book snapshots", flush=True)
+        print(f"{sym} {date}: {n} book snapshots", flush=True)
         if not keep_raw:
             raw.unlink()
 
 
 def main():
     from evaluation.dates import SEVERITY_RANK_V2
-    dates = sys.argv[1:] or sorted(SEVERITY_RANK_V2)
-    for d in dates:
-        fetch(d)
+    args = sys.argv[1:]
+    dataset = DEFAULT_DATASET
+    if args[:1] == ["--dataset"]:
+        dataset, args = args[1], args[2:]
+    for d in args or sorted(SEVERITY_RANK_V2):
+        fetch(d, dataset=dataset)
 
 
 if __name__ == "__main__":
