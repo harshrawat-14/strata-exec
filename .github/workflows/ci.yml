@@ -66,7 +66,7 @@ jobs:
       - name: Install RL dependencies (CPU-only torch)
         run: |
           pip install --index-url https://download.pytorch.org/whl/cpu torch==2.1.0
-          pip install -r rl/requirements.txt pytest==8.4.2
+          pip install -r rl/requirements.txt pytest==8.4.2 pydantic==2.7.0  # pyproject filterwarnings imports pydantic
 
       - name: Download rl-env binary
         uses: actions/download-artifact@v4
