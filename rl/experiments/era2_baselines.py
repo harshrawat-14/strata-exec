@@ -10,7 +10,8 @@ Rules, fixed before running:
   * Constant paces (rate actions, no learning): 0.5x-3x the TWAP pace;
     pace 1.0 is TWAP.
 
-    python rl/experiments/era2_baselines.py
+    python rl/experiments/era2_baselines.py                    # doc 22 -> era2_baselines.csv
+    python rl/experiments/era2_baselines.py <out.csv>          # e.g. doc 33's rerun
 """
 import sys
 from multiprocessing import Pool
@@ -80,14 +81,14 @@ def _run(args):
     return rows
 
 
-def main():
+def main(out=OUT):
     from evaluation.dates import TRAINING_DATES_V3, VALIDATION_DATES_V3
 
     dates = list(TRAINING_DATES_V3) + list(VALIDATION_DATES_V3)
     with Pool(8) as pool:
         df = pd.DataFrame([r for rs in pool.map(_run, [(d, s) for s in SHARES for d in dates]) for r in rs])
     df["split"] = np.where(df.date.isin(TRAINING_DATES_V3), "train", "validation")
-    df.to_csv(OUT, index=False)
+    df.to_csv(out, index=False)
 
     per_date = df.groupby(["share", "split", "date", "regime", "kind", "param"], as_index=False)[
         ["IS", "execution", "forced"]].mean()
@@ -103,8 +104,8 @@ def main():
               .round(4).to_string())
         print(pick[pick.split == "validation"].pivot_table(index="date", columns="strategy", values="IS")
               .round(3).to_string())
-    print(f"\nSaved {OUT}")
+    print(f"\nSaved {out}")
 
 
 if __name__ == "__main__":
-    main()
+    main(*sys.argv[1:])

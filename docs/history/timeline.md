@@ -685,3 +685,12 @@ July audit (Phase −1/0) went back over it.
 - **Lesson:** a null must preserve every property the statistic responds to. The shuffled null
   dropped volatility clustering and nearly produced a false momentum finding in the opposite
   direction. State a null's limitation in advance, then test it.
+
+### 2026-11-25 · DECISION · Simulator impact decay recalibrated to data (doc 33)
+- π 0.3 → 0.435 and ρ 5 → 2,284/day (half-life 3.3 h → 26 s), fitted to the response curve on
+  256 V4 training days. Accepted: inside the training band at 30 min / 2 h / 6 h, and
+  validation RMSE 11% of the old. The era-1 constants had never been fitted.
+- Baselines rerun: TWAP is 0.06 pp cheaper at 5% of ADV. Honest AC still selects λ → 0, so
+  AC = TWAP. Faster paces cost ~40% less extra impact than before.
+- **Consequence:** all era-2 model results (M0-e2b, M1) were scored on the old decay; re-score
+  and retrain on the recalibrated simulator before any comparison.
