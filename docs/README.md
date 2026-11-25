@@ -81,6 +81,7 @@ findings were retracted and the retractions are preserved deliberately rather th
 | 31 | [impact-decay-full-year-result.md](experiments/31-impact-decay-full-year-result.md) | 35% of impact reverts within ~8 min, then flat (sim: slow decay over hours) → recalibrate; no volatility dependence (−0.055 [−0.17, +0.07]) |
 | 32 | [bounce-back-predictions.md](experiments/32-bounce-back-predictions.md) | Pre-registered bounce-back test (drawdown_z → 2 h return) with a shuffled-returns null: doc 27's raw hint is weaker than random-walk bias |
 | 32 | [bounce-back-result.md](experiments/32-bounce-back-result.md) | No bounce-back and no momentum: doc 27's hint was Stambaugh bias; the shuffled null nearly produced a false momentum finding; all four regime-aware routes closed |
+| 33 | [impact-decay-recalibration-predictions.md](experiments/33-impact-decay-recalibration-predictions.md) | Pre-registered refit of the simulator's permanent share π and decay rate ρ to doc 31's curve |
 
 Predictions files are **pre-registered** — written and committed before the corresponding experiment
 was run, so the result cannot be retrofitted to the outcome.
