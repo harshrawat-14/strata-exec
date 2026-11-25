@@ -10,10 +10,12 @@ than a price or volume level, so it cannot identify a day by its level.
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))  # rl/
+
 import numpy as np
 import pandas as pd
 
-DATA = Path("TradeData/Bybit/BTCUSDT")
+from market_data import book_path, trades_path
 # The free 500-level book spans only ~13-20 bp each side (p10 13 bp), so
 # "all" is the whole visible book and wider bands would all equal it.
 BANDS_BP = (2, 5, 10, "all")
@@ -21,7 +23,7 @@ SNAPSHOT_MS = 30_000
 
 
 def _load_book(date):
-    df = pd.read_csv(DATA / f"book-{date}.csv")
+    df = pd.read_csv(book_path(date))
     ts = df.timestamp.to_numpy()
     n_levels = sum(c.startswith("b") and c.endswith("_p") for c in df.columns)
     bp = df[[f"b{i}_p" for i in range(n_levels)]].to_numpy(float)
@@ -33,7 +35,7 @@ def _load_book(date):
 
 def _trade_flow(date, ts):
     """Taker buy and sell volume in the 30 s window ending at each snapshot."""
-    tr = pd.read_csv(DATA / f"trades-{date}.csv")
+    tr = pd.read_csv(trades_path(date))
     idx = np.searchsorted(ts, tr.transact_time.to_numpy(), side="left")
     keep = idx < len(ts)
     idx, q = idx[keep], tr.quantity.to_numpy(float)[keep]
@@ -51,6 +53,13 @@ def _trailing_sum(x, n):
 
 def _trailing_mean(x, n):
     return pd.Series(x).rolling(n, min_periods=1).mean().to_numpy()
+
+
+def drawdown_z(mid):
+    """Drawdown from the day's running high, in units of trailing 2 h volatility (240 steps)."""
+    r = np.concatenate([[0.0], np.diff(np.log(mid))])
+    sd240 = np.sqrt(_trailing_mean(r ** 2, 240)) + 1e-12
+    return np.log(mid / np.maximum.accumulate(mid)) / (sd240 * np.sqrt(240))
 
 
 def build(date):
@@ -88,8 +97,7 @@ def build(date):
     sd60 = np.sqrt(_trailing_mean(r ** 2, 60)) + 1e-12
     f["vol_ratio_60_240"] = np.log(sd60 / sd240)
     f["vol_ratio_240_day"] = np.log(sd240 / (np.sqrt(pd.Series(r ** 2).expanding().mean().to_numpy()) + 1e-12))
-    # drawdown from the running high, in trailing-vol units
-    f["drawdown_z"] = np.log(mid / np.maximum.accumulate(mid)) / (sd240 * np.sqrt(240))
+    f["drawdown_z"] = drawdown_z(mid)
 
     out = pd.DataFrame(f)
     for h in (120, 240):

@@ -8,6 +8,16 @@ use crate::config::*;
 use crate::env::*;
 use crate::transport::*;
 
+/// Era-2 book fixture for a date, in rl/market_data.py's layout. One definition so a storage
+/// change (e.g. the 2026-11-24 move to .csv.gz) cannot leave tests pointing at missing files;
+/// data tests skip when their file is absent, so a stale path would turn them into silent passes.
+macro_rules! bybit_book {
+    ($date:literal) => {
+        concat!("TradeData/Bybit/BTCUSDT/book-", $date, ".csv.gz")
+    };
+}
+const BYBIT_DIR: &str = "TradeData/Bybit/BTCUSDT";
+
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
@@ -92,7 +102,7 @@ fn step_allocation_time_share_of_wall_time() {
     // benchmark, not a correctness assertion; it prints a number rather
     // than asserting a threshold, since "how much allocation costs" is a
     // measurement to report, not a pass/fail gate.)
-    let lob_path = "TradeData/Bybit/BTCUSDT/book-2024-01-15.csv";
+    let lob_path = bybit_book!("2024-01-15");
     if !std::path::Path::new(lob_path).exists() {
         eprintln!("skipping: {lob_path} not present in this checkout");
         return;
@@ -189,7 +199,7 @@ fn historical_lob_episode_hash_identical_across_20_runs_same_seed() {
     // repeatedly, must produce a bit-identical trajectory every time. This is
     // also the guard that would catch a bug in the new per-date MarketDataCache
     // (e.g. Arc-shared snapshot data accidentally mutated or racily reused).
-    let lob_path = "TradeData/Bybit/BTCUSDT/book-2024-01-15.csv";
+    let lob_path = bybit_book!("2024-01-15");
     if !std::path::Path::new(lob_path).exists() {
         eprintln!("skipping: {lob_path} not present in this checkout");
         return;
@@ -499,7 +509,7 @@ fn counterfactual_spread_ref_is_rescaled_not_raw_btc_dollar_scale() {
     // formula floor at ~$0 instead of a genuinely punitive-but-nonzero
     // price. spread_ref must end up small (simulation-scale, comparable to
     // a ~100-scale half-spread), not raw-BTC-scale.
-    let lob_path = "TradeData/Bybit/BTCUSDT/book-2024-01-15.csv";
+    let lob_path = bybit_book!("2024-01-15");
     if !std::path::Path::new(lob_path).exists() {
         eprintln!("skipping: {lob_path} not present in this checkout");
         return;
@@ -556,7 +566,7 @@ fn counterfactual_book_state_dims_use_simulation_units() {
     // was raw, so dim 3 read 1.0 on the first observation. With matching units
     // depth near its own reference reads ~tanh(1), and the first spread
     // observation equals tanh(1) exactly (spread_ref is that book's spread).
-    let lob_path = "TradeData/Bybit/BTCUSDT/book-2024-01-15.csv";
+    let lob_path = bybit_book!("2024-01-15");
     if !std::path::Path::new(lob_path).exists() {
         eprintln!("skipping: {lob_path} not present in this checkout");
         return;
@@ -605,7 +615,7 @@ fn counterfactual_reward_charges_our_own_impact() {
     // order in ~60 of 1,920 steps. Each fill must be charged against the
     // undisturbed mid: the first sale against the book mid (no impact yet),
     // a later sale against a mid higher than the impacted book's by ~I.
-    let lob_path = "TradeData/Bybit/BTCUSDT/book-2024-01-15.csv";
+    let lob_path = bybit_book!("2024-01-15");
     if !std::path::Path::new(lob_path).exists() {
         eprintln!("skipping: {lob_path} not present in this checkout");
         return;
@@ -675,8 +685,8 @@ fn regime_dims_separate_crash_from_calm_in_first_100_steps() {
     // held-out calm date -- the exact window in which a policy has to
     // decide how urgently to trade, per the standing-issues doc's
     // issue #6.
-    let crash_path = "TradeData/Bybit/BTCUSDT/book-2024-08-05.csv";
-    let calm_path = "TradeData/Bybit/BTCUSDT/book-2024-07-10.csv";
+    let crash_path = bybit_book!("2024-08-05");
+    let calm_path = bybit_book!("2024-07-10");
     if !std::path::Path::new(crash_path).exists() || !std::path::Path::new(calm_path).exists() {
         eprintln!("skipping: TradeData not present in this checkout");
         return;
@@ -749,7 +759,7 @@ fn training_horizon_episode_fits_within_day_no_stale_tail() {
     // (start_offset 0-19, <1% of a 2880-step episode), so the effect is
     // negligible, but bounding start_offset <= len - total_steps would remove
     // it entirely.
-    let lob_path = "TradeData/Bybit/BTCUSDT/book-2024-01-15.csv";
+    let lob_path = bybit_book!("2024-01-15");
     if !std::path::Path::new(lob_path).exists() {
         eprintln!("skipping: {lob_path} not present in this checkout");
         return;
@@ -1291,7 +1301,7 @@ fn forced_liquidation_is_not_reward_superior_to_trading() {
     // trading slippage never gets close to gamma=0.005 either way -- the loophole
     // only actually bites at realistic size-vs-depth ratios, which is exactly
     // what happened in the real v6 training run this test guards against.
-    let lob_path = "TradeData/Bybit/BTCUSDT/book-2024-01-15.csv";
+    let lob_path = bybit_book!("2024-01-15");
     if !std::path::Path::new(lob_path).exists() {
         eprintln!("skipping: {lob_path} not present in this checkout");
         return;
@@ -1360,7 +1370,7 @@ fn historical_price_factor_is_fixed_at_episode_start_not_recomputed_per_step() {
     // renormalises the rescaled book's mid back to ≈100 (== arrival) at every
     // step regardless of real price movement. The fix fixes price_factor once
     // at reset_historical and reuses it for the whole episode.
-    let lob_path = "TradeData/Bybit/BTCUSDT/book-2024-01-15.csv";
+    let lob_path = bybit_book!("2024-01-15");
     if !std::path::Path::new(lob_path).exists() {
         eprintln!("skipping: {lob_path} not present in this checkout");
         return;
@@ -1421,7 +1431,7 @@ fn forced_liquidation_is_pct_reflects_real_execution_not_pinned_zero() {
     // arrival -- so a fully-forced-liquidated episode scored total_IS_pct ≈ 0%
     // regardless of real market movement or spread cost. This is exactly what
     // produced the `-0.0000%` rows in the Phase 2 ablation.
-    let lob_path = "TradeData/Bybit/BTCUSDT/book-2024-01-15.csv";
+    let lob_path = bybit_book!("2024-01-15");
     if !std::path::Path::new(lob_path).exists() {
         eprintln!("skipping: {lob_path} not present in this checkout");
         return;
@@ -1567,7 +1577,7 @@ fn forced_liquidation_at_data_exhaustion_walks_the_last_real_book() {
     // to fill nothing and price 100% of the remainder by the punitive
     // fallback (mid - 5 * spread_ref) -- cheap enough that never trading
     // beat competent execution. The dump must consume the last real book.
-    let lob_path = "TradeData/Bybit/BTCUSDT/book-2024-01-15.csv";
+    let lob_path = bybit_book!("2024-01-15");
     if !std::path::Path::new(lob_path).exists() {
         eprintln!("skipping: {lob_path} not present in this checkout");
         return;
@@ -1604,7 +1614,7 @@ mod protocol_v3 {
     use crate::config::*;
     use crate::env::*;
 
-    const LOB: &str = "TradeData/Bybit/BTCUSDT/book-2024-01-15.csv";
+    const LOB: &str = bybit_book!("2024-01-15");
     const H: usize = 1920;
 
     fn args(list: &[&str]) -> Vec<String> {
@@ -1775,7 +1785,7 @@ mod twap_baseline {
     use crate::config::*;
     use crate::env::*;
 
-    const LOB: &str = "TradeData/Bybit/BTCUSDT/book-2024-04-15.csv";
+    const LOB: &str = bybit_book!("2024-04-15");
 
     fn env(baseline: &str) -> Option<RlEnv> {
         if !std::path::Path::new(LOB).exists() {
@@ -1869,5 +1879,25 @@ mod twap_baseline {
             .map(|s| s.to_string())
             .collect();
         assert!(parse_args(&bad).is_err());
+    }
+}
+
+/// Guard against silent skips: when the dataset is present, every book fixture the data tests
+/// use must exist (a missing one would make its test return early and pass).
+#[test]
+fn data_fixtures_exist_when_the_dataset_is_present() {
+    if !std::path::Path::new(BYBIT_DIR).exists() {
+        return; // CI: no market data in the checkout
+    }
+    for path in [
+        bybit_book!("2024-01-15"),
+        bybit_book!("2024-04-15"),
+        bybit_book!("2024-07-10"),
+        bybit_book!("2024-08-05"),
+    ] {
+        assert!(
+            std::path::Path::new(path).exists(),
+            "{path} missing although {BYBIT_DIR} exists: data tests would skip silently"
+        );
     }
 }

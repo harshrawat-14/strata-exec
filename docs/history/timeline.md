@@ -655,3 +655,21 @@ July audit (Phase −1/0) went back over it.
   noise. Decay is ruled out as a regime-aware edge.
 - **Lesson:** doc 29's "same sign on validation" hint did not survive 21× the data. Agreement in
   sign on 4 validation days is weak evidence.
+
+### 2026-11-25 · MISTAKE · gzip move left 14 Rust data tests skipping silently, and book_features broken
+- **What:** the .csv.gz change (2026-11-24) updated `market_data.py`, but two readers had their
+  own copies of the path. `src/bin/rl_env/tests.rs` named `book-<date>.csv` in 14 places, and its
+  data tests return early when the file is missing, so they passed without running (among them
+  the dim-4 counterfactual-units test and the protocol-v3 tests). `book_features.py` (doc 27)
+  hard-coded the same old path and could not read any day.
+- **Found by:** grepping for hard-coded data paths while preparing doc 32.
+- **Impact:** no result was affected. Doc 31 does not use these readers, and no test that ran
+  failed. But for one day the Rust "all pass" covered 14 tests that never ran.
+- **Fix / status:** FIXED. One `bybit_book!` macro defines the fixture path. A guard test fails
+  if the dataset folder exists but any fixture file is missing (mutation-checked against the old
+  `.csv` pattern). `book_features.py` reads through `market_data`, with unit tests for routing and
+  for `drawdown_z` (definition, causality), plus a real-data test. All 50 rl-env tests now run on
+  real data; 289 Rust and 136 Python tests pass.
+- **Lesson:** this is the recurring mirror-bug pattern (a value changes meaning and not every
+  reader follows). After changing where data lives, grep for every hard-coded copy of the path.
+  A test that can skip needs a guard that fails when the skip would be wrong.
