@@ -96,3 +96,10 @@ jobs:
           assert nearest_action(0.05, ACTION_FRACTIONS) == 9
           print('Python smoke test: PASSED')
           "
+
+      # Data-free part of the Python suite. Tests that need TradeData/ or rl/models/ skip here
+      # and must be run locally before pushing (golden fixtures, protocol, harness).
+      - name: Python tests (data-free)
+        env:
+          STRATAEXEC_RL_ENV_BIN: ${{ github.workspace }}/target/release/rl-env
+        run: python -m pytest rl/tests -q -rs

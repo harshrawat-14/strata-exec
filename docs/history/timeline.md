@@ -631,3 +631,17 @@ July audit (Phase −1/0) went back over it.
   more frequent in Apr–Sep (18.8% vs 12.7%), and the pool's median volatility is 27% below the
   event-picked V3 days'.
 - Training crash days go from 3 (V3) to 44; validation has 10 crash, 47 normal, 30 calm days.
+
+### 2026-11-25 · MISTAKE · CI never ran the Python test suite
+- **What:** the python-smoke job only imported `evaluate.py` and checked the action map. None
+  of `rl/tests` ran in CI, so Python regression tests (golden fixtures, splits, protocol) guarded
+  only what was run locally. CI also lacked `orjson`, which the downloader needs.
+- **Found by:** adding regression tests for the doc 30 downloader bugs, then checking where
+  they would run.
+- **Fix / status:** FIXED. CI runs `pytest rl/tests`: 94 data-free tests run, and 37 that need
+  TradeData/ or rl/models/ skip (they must be run locally before pushing; all 131 pass locally).
+  The downloader bugs now have unit tests (a local HTTP server that closes connections
+  mid-file, ignores Range, or never completes) and an integration test (fetch through flaky
+  connections equals a clean fetch). Each was mutation-checked: putting the bug back fails it.
+- **Lesson:** a regression test only protects if something runs it. Check where a new test
+  runs, not only that it passes.

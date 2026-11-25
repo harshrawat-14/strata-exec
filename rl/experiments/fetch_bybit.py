@@ -13,6 +13,7 @@ deleted after conversion.
 """
 import csv
 import gzip
+import http.client
 import io
 import os
 import sys
@@ -57,7 +58,7 @@ def _download(url: str, target: Path, attempts: int = 6) -> Path:
                 raise OSError(f"incomplete: {tmp.stat().st_size} of {total} bytes")
             tmp.rename(target)
             return target
-        except (OSError, urllib.error.URLError) as e:
+        except (OSError, urllib.error.URLError, http.client.HTTPException) as e:
             if attempt == attempts - 1:
                 raise
             print(f"retry {attempt + 1} for {url}: {e}", flush=True)
