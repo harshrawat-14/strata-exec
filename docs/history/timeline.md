@@ -645,3 +645,13 @@ July audit (Phase −1/0) went back over it.
   connections equals a clean fetch). Each was mutation-checked: putting the bug back fails it.
 - **Lesson:** a regression test only protects if something runs it. Check where a new test
   runs, not only that it passes.
+
+### 2026-11-25 · RESULT · Full-year decay: simulator shape wrong; no regime dependence (doc 31)
+- On 256 training days, real impact reverts ~35% within ~8 min and is then flat to 6 h
+  (G/G0: 0.65 at 30 min, 0.69 at 2 h, 0.68 at 6 h). The simulator has no fast reversion and
+  decays slowly over hours (0.965, 0.873, 0.707). At 2 h the simulator is outside the interval,
+  so criterion A triggers: recalibrate decay as a separate, pre-registered, tested change.
+- High − low volatility difference: −0.055 [−0.17, +0.07]. Criterion B fails; doc 29's +0.35 was
+  noise. Decay is ruled out as a regime-aware edge.
+- **Lesson:** doc 29's "same sign on validation" hint did not survive 21× the data. Agreement in
+  sign on 4 validation days is weak evidence.

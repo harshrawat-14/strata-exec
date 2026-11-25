@@ -78,6 +78,7 @@ findings were retracted and the retractions are preserved deliberately rather th
 | 30 | [full-year-data-predictions.md](experiments/30-full-year-data-predictions.md) | Full-year 2024 pool (256 train / 87 validation, out of time), Jan–Mar 2025 future held-out, drift-based regime rule fixed before download |
 | 30 | [full-year-data-result.md](experiments/30-full-year-data-result.md) | All 343 days complete; 54 crash / 180 normal / 109 calm; all 4 predictions met; training crash days 3 → 44 |
 | 31 | [impact-decay-full-year-predictions.md](experiments/31-impact-decay-full-year-predictions.md) | Doc 29's decay-by-volatility test rerun on 256 training / 87 validation days, with a minimum effect size added |
+| 31 | [impact-decay-full-year-result.md](experiments/31-impact-decay-full-year-result.md) | 35% of impact reverts within ~8 min, then flat (sim: slow decay over hours) → recalibrate; no volatility dependence (−0.055 [−0.17, +0.07]) |
 
 Predictions files are **pre-registered** — written and committed before the corresponding experiment
 was run, so the result cannot be retrofitted to the outcome.
