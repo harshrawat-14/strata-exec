@@ -79,23 +79,41 @@ def test_signflip_null_keeps_volatility_clustering_and_removes_bias():
     assert abs(d.mean()) < 3 * d.std(ddof=1) / np.sqrt(len(d))
 
 
+
 def _s(corr, excess):
     return {"corr": corr, "excess": excess}
 
 
+# (summary, lo, hi) for a momentum effect: deeper drawdown -> lower 2 h return, so corr > 0
+# (drawdown_z is negative) and the deep-drawdown excess is negative.
+MOM_T = (_s(0.05, -12.0), _s(0.02, -18.0), _s(0.08, -6.0))
+MOM_V = (_s(0.04, -11.0), _s(0.01, -20.0), _s(0.07, -2.0))
+
+
+def _flip(x):
+    return tuple(_s(-d["corr"], -d["excess"]) for d in (x[0], x[2], x[1]))
+
+
 def test_two_sided_accepts_momentum_and_bounce():
-    """Doc 34: a significant signal of either sign passes; the sign is reported."""
-    mom = ((_s(0.05, 8.0), _s(0.02, 3.0), _s(0.08, 12.0)), (_s(0.04, 7.0), _s(0.01, 1.0), _s(0.07, 13.0)))
-    assert bb.two_sided(*mom, _s(0.03, 0), 5.0) == (True, 1)
-    neg = tuple(tuple(_s(-d["corr"], -d["excess"]) for d in (a, c, b)) for a, b, c in mom)
-    assert bb.two_sided(*neg, _s(-0.03, 0), 5.0) == (True, -1)
+    """Doc 34: a significant effect in either direction passes; the corr sign is reported."""
+    assert bb.two_sided(MOM_T, MOM_V, _s(0.03, 0), 5.0) == (True, 1)
+    assert bb.two_sided(_flip(MOM_T), _flip(MOM_V), _s(-0.03, 0), 5.0) == (True, -1)
+
+
+def test_two_sided_bounce_matches_doc32_convention():
+    """Regression: doc 32 defines a bounce as corr < 0 AND deep excess >= +5 bp. two_sided once
+    required corr and excess to share a sign, so it could never pass a real effect."""
+    bounce_t = (_s(-0.05, 8.0), _s(-0.08, 6.0), _s(-0.02, 10.0))
+    bounce_v = (_s(-0.04, 7.0), _s(-0.07, 5.5), _s(-0.01, 9.0))
+    assert bb.two_sided(bounce_t, bounce_v, _s(-0.01, 0), 5.0) == (True, -1)
+    same_sign = (_s(-0.05, -8.0), _s(-0.08, -10.0), _s(-0.02, -6.0))  # not one coherent effect
+    assert not bb.two_sided(same_sign, bounce_v, _s(-0.01, 0), 5.0)[0]
 
 
 def test_two_sided_rejects_weak_or_inconsistent_signals():
-    good_t = (_s(0.05, 8.0), _s(0.02, 3.0), _s(0.08, 12.0))
-    good_v = (_s(0.04, 7.0), _s(0.01, 1.0), _s(0.07, 13.0))
     crash = _s(0.03, 0)
-    assert not bb.two_sided((_s(0.05, 8.0), _s(-0.01, 3.0), _s(0.08, 12.0)), good_v, crash, 5.0)[0]  # interval spans 0
-    assert not bb.two_sided(good_t, (_s(-0.04, 7.0), _s(-0.07, 1.0), _s(-0.01, 13.0)), crash, 5.0)[0]  # val flips
-    assert not bb.two_sided(good_t, good_v, crash, 10.0)[0]  # excess below the scaled floor
-    assert not bb.two_sided(good_t, good_v, _s(-0.03, 0), 5.0)[0]  # crash days reverse
+    assert not bb.two_sided((MOM_T[0], _s(-0.01, -18.0), MOM_T[2]), MOM_V, crash, 5.0)[0]  # corr interval spans 0
+    assert not bb.two_sided(MOM_T, _flip(MOM_V), crash, 5.0)[0]  # validation reverses
+    assert not bb.two_sided(MOM_T, MOM_V, crash, 15.0)[0]  # excess below the scaled floor
+    assert not bb.two_sided((MOM_T[0], MOM_T[1], _s(0.08, 1.0)), MOM_V, crash, 5.0)[0]  # excess interval spans 0
+    assert not bb.two_sided(MOM_T, MOM_V, _s(-0.03, 0), 5.0)[0]  # crash days reverse

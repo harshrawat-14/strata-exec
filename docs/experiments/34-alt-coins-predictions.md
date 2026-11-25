@@ -72,6 +72,21 @@ criterion: the simulator is not calibrated to these coins yet.
   re-scoring M0-e2b on the recalibrated simulator is due either way, and another asset class
   (equities, which the user raised) is the main open option.
 
+## Correction before the main run (2026-11-25)
+
+Test 3's wording "with that sign" was ambiguous, and the code (`two_sided`) read it wrongly.
+One effect moves the two statistics in **opposite** directions. drawdown_z is negative in a
+drawdown, so a bounce-back is correlation < 0 with deep-drawdown excess > 0 (doc 32), and
+momentum is correlation > 0 with excess < 0. The code required both to share a sign, so it
+could never pass a real effect. Corrected criterion: the excess has the sign opposite to the
+correlation. Everything else is unchanged.
+
+Found when the secondary shuffled-null run printed SOL training corr +0.055 with excess
+−16 bp. A broken shell loop meant that this run was the only one made. The main
+sign-flip run and tests 1–2 had not run yet; they are run after this correction is committed.
+Shuffled-null figures already seen (training / validation corrected corr): SOL +0.055 / +0.066,
+DOGE +0.065 / +0.015. On BTC this null gave +0.071 where the sign-flip null gave +0.013.
+
 ## Predictions
 
 1. **Data is complete** (≥ 99% full days) for both coins.

@@ -703,3 +703,18 @@ July audit (Phase −1/0) went back over it.
 - **Fix:** the fixture now calls `setenv` before `delenv`, so teardown restores the unset state.
 - **Lesson:** a fixture that guards global state must record the original value, not just
   clear it.
+
+### 2026-11-25 · MISTAKE · Doc 34's two-sided drawdown check could never pass a real effect
+- **What:** `bounce_back_test.two_sided` required the correlation and the deep-drawdown excess
+  to share a sign. One effect gives them opposite signs (bounce: corr < 0, excess > 0, as in
+  doc 32's own criteria). The unit test written with it encoded the same wrong convention, so
+  it passed.
+- **Found by:** reading the first (shuffled-null) SOL output: corr +0.055 and excess −16 bp,
+  one consistent momentum effect, could not satisfy the check. The main sign-flip run had not
+  run yet (a quoting error in the run loop skipped it).
+- **Fix:** the excess must have the opposite sign to the correlation. A regression test anchored to
+  doc 32's convention fails on the old code (mutation-checked). The correction is written into
+  the predictions doc before the main run.
+- **Lesson:** a test written from the same mental model as the code checks nothing about that
+  model. Anchor a new check's test to an independent statement of the convention: here,
+  doc 32's own criteria.

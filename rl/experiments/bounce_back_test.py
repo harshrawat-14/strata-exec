@@ -92,16 +92,19 @@ def boot(df, rng, n=N_BOOT):
 
 
 def two_sided(train, val, crash, min_excess_bp):
-    """Doc 34: (passes, sign). Each item is (summary, lo, hi) from summarise/boot; crash is a
-    summary. Passes if training and validation correlation intervals exclude 0 with the same
-    sign, the deep-drawdown excess has that sign with magnitude >= min_excess_bp in both and a
-    training interval excluding 0, and crash days do not show the opposite sign."""
+    """Doc 34: (passes, sign of the correlation). Each item is (summary, lo, hi) from
+    summarise/boot; crash is a summary. One effect moves the two statistics in OPPOSITE
+    directions: drawdown_z is negative in a drawdown, so a bounce-back is corr < 0 with deep
+    excess > 0 (doc 32), and momentum is corr > 0 with deep excess < 0. Passes if training and
+    validation correlation intervals exclude 0 with the same sign, the deep-drawdown excess has
+    the opposite sign with magnitude >= min_excess_bp in both and a training interval excluding
+    0, and crash days do not show the opposite correlation sign."""
     (st, lt, ht), (sv, lv, hv) = train, val
     sign = np.sign(st["corr"])
-    def excludes0(lo, hi, key):
-        return lo[key] * hi[key] > 0 and np.sign(lo[key]) == sign
-    c1 = excludes0(lt, ht, "corr") and excludes0(lv, hv, "corr")
-    c2 = (excludes0(lt, ht, "excess") and np.sign(sv["excess"]) == sign
+    def excludes0(lo, hi, key, s):
+        return lo[key] * hi[key] > 0 and np.sign(lo[key]) == s
+    c1 = excludes0(lt, ht, "corr", sign) and excludes0(lv, hv, "corr", sign)
+    c2 = (excludes0(lt, ht, "excess", -sign) and np.sign(sv["excess"]) == -sign
           and abs(st["excess"]) >= min_excess_bp and abs(sv["excess"]) >= min_excess_bp)
     c3 = np.sign(crash["corr"]) != -sign
     return bool(c1 and c2 and c3 and sign != 0), int(sign)
