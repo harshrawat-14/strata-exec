@@ -718,3 +718,16 @@ July audit (Phase −1/0) went back over it.
 - **Lesson:** a test written from the same mental model as the code checks nothing about that
   model. Anchor a new check's test to an independent statement of the convention: here,
   doc 32's own criteria.
+
+### 2026-11-25 · RESULT · BTC findings hold on SOL and DOGE (doc 34)
+- Same V4 pool, 343/343 days per coin. Local liquidity, decay-by-volatility and the drawdown
+  signal (sign-flip null) all fail on both coins. Pooled decay has BTC's shape (G(30 min)/G(0)
+  0.58 SOL, 0.65 DOGE).
+- The shuffled null again produces false momentum (+0.043 to +0.058 over the sign-flip null on
+  all three coins). On SOL it would have "passed": the pre-registered choice of the sign-flip
+  null is what kept it out.
+- Every route tested in docs 26–32 is now closed on three crypto perpetuals. Next step goes to
+  the user: re-score M0-e2b on the recalibrated simulator, and/or another asset class.
+- Process slip: the first run loop glued arguments to script names (zsh does not word-split),
+  so only the secondary null ran. Runs now go through an explicit bash script, and the log is
+  checked right after launch.
