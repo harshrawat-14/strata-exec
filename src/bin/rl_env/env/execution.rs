@@ -421,6 +421,10 @@ impl RlEnv {
             "fill_qty": fill.qty,
             "fill_price": fill.price,
             "book_mid": book_mid,
+            // The price this step's fill reward is charged against (the mid
+            // without our impact, or the arrival price under --reward-baseline
+            // twap); exposed for reward-accounting checks, not in the state.
+            "reward_reference_mid": undisturbed_mid,
             "interval_volume": self.interval_volume_at_step(),
             "btc_scale": self.cfg.btc_target / self.cfg.total_inventory.max(1.0),
             "is_contribution": is_contribution,

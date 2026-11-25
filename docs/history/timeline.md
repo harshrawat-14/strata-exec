@@ -757,3 +757,21 @@ July audit (Phase −1/0) went back over it.
   real-time regime signal in BTC, SOL or DOGE. Next: equities, together with the live-feed platform.
 - Process slip: a pool run fed via stdin hung (spawn workers cannot re-import `<stdin>`);
   multiprocessing runs now always go through a script file.
+
+### 2026-11-25 · METHOD · Training audit: the recipe cannot reward regime awareness (doc 37)
+- Verified on real episodes: cost parts (market + own impact + spread) sum to IS exactly, and
+  the default reward is exactly impact + spread. New integration test
+  `test_reward_accounting.py`, mutation-checked against doc 24's bug.
+- Own impact is nearly independent of pace (permanent √-impact; 26 s temporary half-life), so
+  the reward is flat in pace apart from spread and the waiting penalty. The waiting penalty
+  tips it to fast selling. The market move, which is what regime awareness changes, is excluded
+  by design.
+- Dim 6 (the only trend input) is still dead (flagged in doc 26, never fixed); inputs are not
+  normalised; actions are fractions of the remainder, which favour dumping.
+- Recorded, not changed: the impact model's σ and V are the whole day's realised values (a
+  hindsight element of the simulator).
+- `reward_reference_mid` added to step info; 37,487 golden steps identical apart from it; env
+  golden fixture regenerated deliberately.
+- **Lesson:** ten learner changes (docs 14–25) never touched the three things that decide
+  whether regime awareness can be learned: reward content, state content and action design.
+  Audit the objective before tuning the optimiser.

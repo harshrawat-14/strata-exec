@@ -89,6 +89,7 @@ findings were retracted and the retractions are preserved deliberately rather th
 | 35 | [m0-rescore-result.md](experiments/35-m0-rescore-result.md) | M0-e2b on corrected sim + 85 out-of-sample days: crash +0.67 (10/10), calm −0.79 (2/29), all −0.12 vs TWAP; sits between constant 3× and 5× paces in every regime (speed, not regime awareness) |
 | 36 | [m0-retrain-predictions.md](experiments/36-m0-retrain-predictions.md) | Pre-registered retrain of the M0 recipe on the corrected simulator (one change), scored as doc 35 |
 | 36 | [m0-retrain-result.md](experiments/36-m0-retrain-result.md) | Retrained M0 learns a constant ~10× TWAP pace (within 0.02 pp of pace 10 in every regime); oos crash +0.84, calm −0.92, all −0.14 vs TWAP; crypto ladder closed negative |
+| 37 | [training-audit.md](experiments/37-training-audit.md) | Audit: reward accounting exact (tested), but the reward excludes the market move, own impact is ~pace-independent so the wait penalty sets a fast constant pace, the only trend input (dim 6) is dead and inputs are unnormalised, actions favour dumping; impact σ/V use the whole day (hindsight) |
 
 Predictions files are **pre-registered** — written and committed before the corresponding experiment
 was run, so the result cannot be retrofitted to the outcome.

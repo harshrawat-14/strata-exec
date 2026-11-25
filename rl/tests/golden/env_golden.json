@@ -28,13 +28,14 @@
      "real_book_depth": 8703.820000000016,
      "regime": "normal/normal",
      "remaining": 0.0,
+     "reward_reference_mid": 101.16682846017665,
      "sigma_ref": 0.4999,
      "step": 119,
      "total_IS_pct": 5.954189464298055,
      "total_is_dollar": 5954189.464298055
     },
     "n_steps": 119,
-    "sha256": "1f957d8cdc1c71f47b80fe403d0878ef55679a9a4950728cdc7b2865d9415a51",
+    "sha256": "5c946f1486cc8a4d79129d2d8ec298148cf9c8923ca9f9c941a49f1bfa0c0a5c",
     "total_reward": -0.06772507479415987
    },
    "all_max/seed17": {
@@ -52,13 +53,14 @@
      "real_book_depth": 7843.780000000014,
      "regime": "normal/normal",
      "remaining": 9.094947017729282e-13,
+     "reward_reference_mid": 100.95481642418024,
      "sigma_ref": 0.4999,
      "step": 119,
      "total_IS_pct": 6.005572251148134,
      "total_is_dollar": 6005572.2511481345
     },
     "n_steps": 119,
-    "sha256": "c1f30767e20d9b494736fa7b092a230e0105d5f931e66aca8b5ec800ab4db01f",
+    "sha256": "70c4ad7ae17fdf5b65600b860fb59f2f32a63e57b09090a108f2ed4f3baf79f7",
     "total_reward": -0.06768291549739013
    },
    "all_wait/seed0": {
@@ -81,13 +83,14 @@
      "real_book_depth": 6307.760000000023,
      "regime": "normal/normal",
      "remaining": 0.0,
+     "reward_reference_mid": 101.76388840676681,
      "sigma_ref": 0.4999,
      "step": 2880,
      "total_IS_pct": 12.127036701511056,
      "total_is_dollar": 12127036.701511055
     },
     "n_steps": 2880,
-    "sha256": "c8a85bd3cf88538267516185950f86df23c90f176e54a0026c99ab1a03e21e27",
+    "sha256": "a07997b9e480a85b3166b6bc9df515757ec056b95c63a3e24f854710872c6a0e",
     "total_reward": -0.1462181927500711
    },
    "all_wait/seed17": {
@@ -110,13 +113,14 @@
      "real_book_depth": 6307.760000000023,
      "regime": "normal/normal",
      "remaining": 0.0,
+     "reward_reference_mid": 101.54485809736641,
      "sigma_ref": 0.4999,
      "step": 2863,
      "total_IS_pct": 12.316169041485473,
      "total_is_dollar": 12316169.041485474
     },
     "n_steps": 2863,
-    "sha256": "39d6cb0ed20405948af2560ff888aba3bbb4b6afb81b3b3094df66e1b96d14de",
+    "sha256": "505e47bb143352e44bb327059404e3af508df64c176527396cffceb91fdd4d84",
     "total_reward": -0.1458815765690418
    },
    "random/seed0": {
@@ -135,13 +139,14 @@
      "real_book_depth": 8126.340000000016,
      "regime": "normal/normal",
      "remaining": 0.0,
+     "reward_reference_mid": 101.21590515987631,
      "sigma_ref": 0.4999,
      "step": 176,
      "total_IS_pct": 3.0526912180124524,
      "total_is_dollar": 3052691.218012452
     },
     "n_steps": 176,
-    "sha256": "7916fb3fb81808c437c41509aae6ce9f106993356700bddc4a9ece9d842ae417",
+    "sha256": "278026b8a9757bcc5ebc85ba11a1d1ec13b6600d7ebee4b3dc5c3d0a83cb670f",
     "total_reward": -0.03957563885055695
    },
    "random/seed17": {
@@ -160,13 +165,14 @@
      "real_book_depth": 7255.240000000012,
      "regime": "normal/normal",
      "remaining": 0.0,
+     "reward_reference_mid": 100.84731895335685,
      "sigma_ref": 0.4999,
      "step": 164,
      "total_IS_pct": 2.6554170981666445,
      "total_is_dollar": 2655417.0981666446
     },
     "n_steps": 164,
-    "sha256": "f41dd4dfd01d37b1679293b09678716d5c64b06d7ea620ef5a0928f5128f7418",
+    "sha256": "6c7a36994a8fd49ccb3074fa04819bc1685fa5acfeffe9073e0d6b08eee8ca18",
     "total_reward": -0.034372211054501355
    }
   },
@@ -186,13 +192,14 @@
      "real_book_depth": 5794.15074411722,
      "regime": "high_vol/normal",
      "remaining": 2.2737367544323206e-13,
+     "reward_reference_mid": 100.62924775096512,
      "sigma_ref": 0.4999,
      "step": 140,
      "total_IS_pct": 9.955655099145892,
      "total_is_dollar": 7925838.055422962
     },
     "n_steps": 140,
-    "sha256": "61e6ca23fb47b2bceafc3dbc447eaf3e193064e3b15ec2f005f9d0ace67f8ffb",
+    "sha256": "f23719acc13fcd35144e621fef8e5c4803724fdf15c6efc0f98854202e441e70",
     "total_reward": -0.10100658338111884
    },
    "all_max/seed17": {
@@ -211,13 +218,14 @@
      "real_book_depth": 6790.825969723749,
      "regime": "high_vol/normal",
      "remaining": 0.0,
+     "reward_reference_mid": 100.3112483142907,
      "sigma_ref": 0.4999,
      "step": 140,
      "total_IS_pct": 9.920359542079224,
      "total_is_dollar": 8717543.829724938
     },
     "n_steps": 140,
-    "sha256": "def7a3b40ed5da2cbe741e4e93939d7a26c4e5c8013b264c45ddac11e10841f5",
+    "sha256": "c27bd4f3033a394116f6010c866146c1623c3dd7512aa65153db2271ad111ae8",
     "total_reward": -0.1009181017232727
    },
    "all_wait/seed0": {
@@ -240,13 +248,14 @@
      "real_book_depth": 5963.10209240832,
      "regime": "normal/normal",
      "remaining": 0.0,
+     "reward_reference_mid": 94.55814626066456,
      "sigma_ref": 0.4999,
      "step": 1107,
      "total_IS_pct": 14.621516049516867,
      "total_is_dollar": 11640396.054216519
     },
     "n_steps": 1107,
-    "sha256": "140cc3f9fe6b36b950f79708434f97e0a11fd78d78e3e3f5f867118a0d43916c",
+    "sha256": "a2686ebc6a17e86556ea6599f62b377694dd117c5d4e3f7c7c06aba500e8dde4",
     "total_reward": -0.10194450509068768
    },
    "all_wait/seed17": {
@@ -269,13 +278,14 @@
      "real_book_depth": 5154.500361112939,
      "regime": "high_vol/normal",
      "remaining": 0.0,
+     "reward_reference_mid": 95.16233194387365,
      "sigma_ref": 0.4999,
      "step": 521,
      "total_IS_pct": 18.81827696531103,
      "total_is_dollar": 16536613.773840979
     },
     "n_steps": 521,
-    "sha256": "1b8f95084ab69d592665d56957ae04ab2705f6d9cd5d243937cc0a1c30a4fff2",
+    "sha256": "5a98553579467a5adee9f2d91a1f15c692eaea4a473cdd3376db182142de52c0",
     "total_reward": -0.14899679544220504
    },
    "random/seed0": {
@@ -293,13 +303,14 @@
      "real_book_depth": 5379.1523517075275,
      "regime": "high_vol/normal",
      "remaining": 0.0,
+     "reward_reference_mid": 99.6194716246949,
      "sigma_ref": 0.4999,
      "step": 193,
      "total_IS_pct": 5.633109017931866,
      "total_is_dollar": 4484597.887335509
     },
     "n_steps": 193,
-    "sha256": "5f7db6d0b081fbea6497fa981427d85491e605230e6e46d4787cbdb0e5f9490d",
+    "sha256": "25b20e0e6687de4ba95306858197e4995baee6a9c651acc2cb0ab6ce77563a37",
     "total_reward": -0.0576105492276323
    },
    "random/seed17": {
@@ -318,13 +329,14 @@
      "real_book_depth": 6671.649513550713,
      "regime": "high_vol/normal",
      "remaining": 0.0,
+     "reward_reference_mid": 99.82194353191478,
      "sigma_ref": 0.4999,
      "step": 184,
      "total_IS_pct": 4.967047643342277,
      "total_is_dollar": 4364807.07695125
     },
     "n_steps": 184,
-    "sha256": "ed3ce9e0fe2e938a89acd8ddd72f7c0b91c21de04ab5e96395e206ef3b6cd78e",
+    "sha256": "d56cb8d457326917559e2efe4212221a816a51e879744d8210fa5a219877187c",
     "total_reward": -0.05085794663874503
    }
   },
@@ -344,13 +356,14 @@
      "real_book_depth": 7278.039999999992,
      "regime": "high_vol/normal",
      "remaining": 0.0,
+     "reward_reference_mid": 100.62924775096512,
      "sigma_ref": 0.4999,
      "step": 140,
      "total_IS_pct": 9.955655099145739,
      "total_is_dollar": 9955655.09914574
     },
     "n_steps": 140,
-    "sha256": "6040251c210df6548f88ae580d061f348527829d1e3c6a42f5d91807fcf1d976",
+    "sha256": "e4ed66eb4a89e916edbb2d76e44bb240c0902755686d08f62464837e9a4d9f69",
     "total_reward": -0.10100658338111802
    },
    "all_max/seed17": {
@@ -368,13 +381,14 @@
      "real_book_depth": 7727.8,
      "regime": "high_vol/normal",
      "remaining": 0.0,
+     "reward_reference_mid": 100.3112483142907,
      "sigma_ref": 0.4999,
      "step": 140,
      "total_IS_pct": 9.920359542079165,
      "total_is_dollar": 9920359.542079166
     },
     "n_steps": 140,
-    "sha256": "6a4a8701e294bd26fbdb806791c24d333b0be323bcb90f072d6f44b376e8fd8b",
+    "sha256": "7d9eccf312bed93f1cda1f8b29c948cb242d59d6ba7068883818f0139cb6d760",
     "total_reward": -0.10091810172327191
    },
    "all_wait/seed0": {
@@ -397,13 +411,14 @@
      "real_book_depth": 5536.020000000007,
      "regime": "normal/normal",
      "remaining": 0.0,
+     "reward_reference_mid": 99.20826961250432,
      "sigma_ref": 0.4999,
      "step": 2880,
      "total_IS_pct": 14.342960523428323,
      "total_is_dollar": 14342960.52342832
     },
     "n_steps": 2880,
-    "sha256": "9d7c9c8700ddee2a9aece0e72162c67f615a681c3e464f804468c378c218b31d",
+    "sha256": "bda4bb83c24af1956a3ccdf01293bf3ac4a135e9d9f3435a6ccdfab0b5f1fbae",
     "total_reward": -0.14971667802291766
    },
    "all_wait/seed17": {
@@ -426,13 +441,14 @@
      "real_book_depth": 5536.020000000007,
      "regime": "normal/normal",
      "remaining": 0.0,
+     "reward_reference_mid": 99.19383882559842,
      "sigma_ref": 0.4999,
      "step": 2863,
      "total_IS_pct": 14.35542015495336,
      "total_is_dollar": 14355420.15495336
     },
     "n_steps": 2863,
-    "sha256": "3b0a2fa9af0864b85bca36a693daec28d0eee719caaa81e306141c37c4738796",
+    "sha256": "2db7a6f65d273beea4aa4129a9a5e609a7c41e63816ee96b042f4baf6b2847a0",
     "total_reward": -0.14949070246940183
    },
    "random/seed0": {
@@ -450,13 +466,14 @@
      "real_book_depth": 6756.7600000000075,
      "regime": "high_vol/normal",
      "remaining": 9.094947017729282e-13,
+     "reward_reference_mid": 99.6194716246949,
      "sigma_ref": 0.4999,
      "step": 193,
      "total_IS_pct": 5.633109017931863,
      "total_is_dollar": 5633109.017931864
     },
     "n_steps": 193,
-    "sha256": "fc84f6a04b7dd81bd12e94c586caad224a0e2a7d05afdaee93fde4681524e46e",
+    "sha256": "84b470475ae007fbec1f22a29254f5ff097b5045875747c5086e9774aa99ed4b",
     "total_reward": -0.057610549227631744
    },
    "random/seed17": {
@@ -475,13 +492,14 @@
      "real_book_depth": 7592.180000000002,
      "regime": "high_vol/normal",
      "remaining": 0.0,
+     "reward_reference_mid": 99.82194353191478,
      "sigma_ref": 0.4999,
      "step": 184,
      "total_IS_pct": 4.967047643342301,
      "total_is_dollar": 4967047.643342301
     },
     "n_steps": 184,
-    "sha256": "af1ad6aa52b6d053c33ef7734b4c302ad9f38b32cb4175fe991223716f507c40",
+    "sha256": "7b7fe34835b9eaf594c954abcf8ab31d6639141f7ac68e47523ca275d4a70f23",
     "total_reward": -0.05085794663874423
    }
   },
@@ -502,13 +520,14 @@
      "real_book_depth": 7508.220000000001,
      "regime": "high_vol/normal",
      "remaining": 0.0,
+     "reward_reference_mid": 100.27560435658776,
      "sigma_ref": 0.4999,
      "step": 132,
      "total_IS_pct": 9.600850515778005,
      "total_is_dollar": 9600850.515778005
     },
     "n_steps": 132,
-    "sha256": "94f83682c6af21d40ed2b181be1bbd580f577af44bbaf6ecc4bc51cb5bd1c05f",
+    "sha256": "e940519ed1d975ad5f9720b386511b8a3da8d9903b4b733c44cf2ae2a96ec42f",
     "total_reward": -0.09783632796057741
    },
    "all_max/seed17": {
@@ -526,13 +545,14 @@
      "real_book_depth": 7786.960000000004,
      "regime": "high_vol/wide",
      "remaining": 9.094947017729282e-13,
+     "reward_reference_mid": 97.51979956765692,
      "sigma_ref": 0.4999,
      "step": 141,
      "total_IS_pct": 11.395302881444424,
      "total_is_dollar": 11395302.881444424
     },
     "n_steps": 141,
-    "sha256": "e7d0d36f24a3f5fddf05801ffd49108e1b6801cd0fe87d6d96b66f7d7d09c7eb",
+    "sha256": "ada94bfd368553f07a91b825b99462a1ba37002c5b0117b948f5564d47dc72a2",
     "total_reward": -0.09842570108863367
    },
    "all_wait/seed0": {
@@ -555,13 +575,14 @@
      "real_book_depth": 7405.740000000002,
      "regime": "normal/normal",
      "remaining": 0.0,
+     "reward_reference_mid": 99.80929162825403,
      "sigma_ref": 0.4999,
      "step": 1920,
      "total_IS_pct": 9.679389094261156,
      "total_is_dollar": 9679389.094261155
     },
     "n_steps": 1920,
-    "sha256": "29a214d96a18983c4ef47828110c63354d2db48e5449664be606813cceb670d3",
+    "sha256": "384f54873cdfe9c802a2eb4ca73840a5374cf823b50f5dfc3a240169b07b819d",
     "total_reward": -0.10762221523602372
    },
    "all_wait/seed17": {
@@ -584,13 +605,14 @@
      "real_book_depth": 7032.24,
      "regime": "high_vol/normal",
      "remaining": 0.0,
+     "reward_reference_mid": 99.68644993113003,
      "sigma_ref": 0.4999,
      "step": 1920,
      "total_IS_pct": 11.23304880945286,
      "total_is_dollar": 11233048.809452862
     },
     "n_steps": 1920,
-    "sha256": "c1e8416a8c211f0c3e6b07281b1b5c6de5ea57c45218c3b9d595beba4218ded5",
+    "sha256": "b9e7efa9bc190aeca92c6d891557927191ee1deee594b398b09721af14a2ac22",
     "total_reward": -0.12065437293488951
    },
    "random/seed0": {
@@ -609,13 +631,14 @@
      "real_book_depth": 4968.520000000003,
      "regime": "high_vol/normal",
      "remaining": 0.0,
+     "reward_reference_mid": 97.93173694900003,
      "sigma_ref": 0.4999,
      "step": 184,
      "total_IS_pct": 5.501688439526544,
      "total_is_dollar": 5501688.439526543
     },
     "n_steps": 184,
-    "sha256": "f8ea484349b9e4209eb20d31cd53261f9d6859ff4bf8bef466a5fea16f9099f8",
+    "sha256": "92164131f96a620973a5e97f6c5dbd75b8f427d480e6f6e1c6f1bf4d54fc8383",
     "total_reward": -0.0557457396325173
    },
    "random/seed17": {
@@ -634,13 +657,14 @@
      "real_book_depth": 7672.039999999995,
      "regime": "high_vol/normal",
      "remaining": 0.0,
+     "reward_reference_mid": 97.47274061971522,
      "sigma_ref": 0.4999,
      "step": 184,
      "total_IS_pct": 6.691654594071358,
      "total_is_dollar": 6691654.594071358
     },
     "n_steps": 184,
-    "sha256": "913a3b5b7bfc6db3e1b1d0cbb5bfa6cd98ce1e7c59445dc1aa91cfcdac713bab",
+    "sha256": "17fabe0d03eec402ca04c4c089dd42f95e563a785a5e4f0d86f63d83e939b57a",
     "total_reward": -0.04990271947175563
    }
   },
