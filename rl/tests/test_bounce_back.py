@@ -59,3 +59,21 @@ def test_rows_align_forward_return_with_its_start():
     dz, fwd = bb.rows(mid)
     k = np.arange(bb.WARMUP, len(mid) - bb.H)
     np.testing.assert_allclose(fwd, (mid[k + bb.H] / mid[k] - 1) * 1e4)
+
+
+def test_signflip_null_keeps_volatility_clustering_and_removes_bias():
+    rng = np.random.default_rng(3)
+    mid = 100 * np.exp(np.cumsum(rng.normal(0, 1e-3, 500)))
+    s = bb.signflip(mid, rng)
+    np.testing.assert_allclose(np.abs(np.diff(np.log(s))), np.abs(np.diff(np.log(mid))))  # sizes in order
+    recs = []
+    for _ in range(30):
+        # GARCH-like clustering: the case the shuffled null does not preserve
+        vol = 2e-4 * np.exp(np.cumsum(rng.normal(0, 0.05, 2880)))
+        m = 60_000 * np.exp(np.cumsum(rng.normal(0, 1, 2880) * vol))
+        real, null = bb.day_stats(m, -1.0, rng, n_null=8, null="signflip")
+        recs.append({**{f"{k}_real": v for k, v in zip(KEYS, real)},
+                     **{f"{k}_null": v for k, v in zip(KEYS, null)}})
+    df = pd.DataFrame(recs)
+    d = df.corr_real - df.corr_null
+    assert abs(d.mean()) < 3 * d.std(ddof=1) / np.sqrt(len(d))

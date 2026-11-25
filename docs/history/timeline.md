@@ -673,3 +673,15 @@ July audit (Phase −1/0) went back over it.
 - **Lesson:** this is the recurring mirror-bug pattern (a value changes meaning and not every
   reader follows). After changing where data lives, grep for every hard-coded copy of the path.
   A test that can skip needs a guard that fails when the skip would be wrong.
+
+### 2026-11-25 · RESULT · No bounce-back, no momentum; all four regime-aware routes closed (doc 32)
+- Doc 27's hint (drawdown_z vs 2 h return, raw −0.16) is weaker than the Stambaugh bias of a
+  random walk (−0.29 raw, 87% of days negative). Pre-registered shuffled-null test: FAIL. Its
+  corrected value (+0.071 [+0.046, +0.095]) suggested momentum.
+- A post-hoc sign-flip null, which keeps volatility clustering, gives +0.013 [−0.012, +0.038]
+  (training) and −0.002 (validation): zero. The momentum came from the shuffled null.
+- Direction forecasting (26, 27), liquidity timing (28), decay (29, 31) and drawdown
+  conditioning (32) are all closed. Next step to be discussed with the user.
+- **Lesson:** a null must preserve every property the statistic responds to. The shuffled null
+  dropped volatility clustering and nearly produced a false momentum finding in the opposite
+  direction. State a null's limitation in advance, then test it.

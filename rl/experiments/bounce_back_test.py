@@ -8,7 +8,12 @@ bias), with the same sign every day. Every statistic is therefore compared with 
 the same day's 30 s returns shuffled N_NULL times (same return distribution, no
 predictability). Held-out and future dates are not read.
 
-    python rl/experiments/bounce_back_test.py
+    python rl/experiments/bounce_back_test.py            # pre-registered: shuffled-returns null
+    python rl/experiments/bounce_back_test.py signflip   # post-hoc robustness: random-sign null
+
+The sign-flip null keeps every return's size in its original order (volatility clustering
+intact) and randomises only its sign. It was added after the pre-registered run, because the
+shuffled null also removes volatility clustering (a limitation the doc stated in advance).
 """
 import sys
 from pathlib import Path
@@ -46,7 +51,15 @@ def shuffled(mid, rng):
     return mid[0] * np.exp(np.concatenate([[0.0], np.cumsum(rng.permutation(r))]))
 
 
-def day_stats(mid, cut, rng, n_null=N_NULL):
+def signflip(mid, rng):
+    r = np.diff(np.log(mid))
+    return mid[0] * np.exp(np.concatenate([[0.0], np.cumsum(r * rng.choice([-1.0, 1.0], len(r)))]))
+
+
+NULLS = {"shuffle": shuffled, "signflip": signflip}
+
+
+def day_stats(mid, cut, rng, n_null=N_NULL, null="shuffle"):
     """Per-day correlation and deep-drawdown sums, real and averaged over shuffled nulls."""
     def one(m):
         dz, fwd = rows(m)
@@ -54,7 +67,7 @@ def day_stats(mid, cut, rng, n_null=N_NULL):
         c = np.corrcoef(dz, fwd)[0, 1] if dz.std() > 0 else 0.0
         return c, fwd[deep].sum(), deep.sum(), fwd.sum(), len(fwd)
     real = one(mid)
-    null = np.mean([one(shuffled(mid, rng)) for _ in range(n_null)], axis=0)
+    null = np.mean([one(NULLS[null](mid, rng)) for _ in range(n_null)], axis=0)
     return real, null
 
 
@@ -80,24 +93,25 @@ def load_mid(date):
 
 
 def _day(args):
-    date, cut, seed = args
-    real, null = day_stats(load_mid(date), cut, np.random.default_rng(seed))
+    date, cut, seed, null_name = args
+    real, null = day_stats(load_mid(date), cut, np.random.default_rng(seed), null=null_name)
     keys = ("corr", "deep_sum", "deep_n", "all_sum", "all_n")
     return dict(date=date, **{f"{k}_real": v for k, v in zip(keys, real)},
                 **{f"{k}_null": v for k, v in zip(keys, null)})
 
 
-def main():
+def main(null_name="shuffle"):
     from multiprocessing import Pool
     with Pool(8) as pool:
         mids = dict(zip(TRAINING_DATES_V4, pool.map(load_mid, TRAINING_DATES_V4)))
         cut = np.percentile(np.concatenate([rows(m)[0] for m in mids.values()]), DEEP_Q)
         dates = TRAINING_DATES_V4 + VALIDATION_DATES_V4
-        res = pd.DataFrame(pool.map(_day, [(d, cut, i) for i, d in enumerate(dates)]))
+        res = pd.DataFrame(pool.map(_day, [(d, cut, i, null_name) for i, d in enumerate(dates)]))
     labels = pd.read_csv("rl/results/v4_day_stats.csv").set_index("date").regime
     res["regime"] = res.date.map(labels)
     res["split"] = np.where(res.date.isin(TRAINING_DATES_V4), "train", "validation")
-    res.to_csv(OUT, index=False)
+    res.to_csv(OUT if null_name == "shuffle" else OUT.replace(".csv", f"_{null_name}.csv"), index=False)
+    print(f"null: {null_name}")
 
     rng = np.random.default_rng(0)
     print(f"deep-drawdown cut (training q{DEEP_Q}): drawdown_z <= {cut:.3f}")
@@ -125,4 +139,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    main(*sys.argv[1:])
