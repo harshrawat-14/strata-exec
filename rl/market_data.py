@@ -82,3 +82,26 @@ def trades_path(date: str) -> str:
 
 def has_date(date: str) -> bool:
     return os.path.exists(book_path(date)) and os.path.exists(trades_path(date))
+
+
+def results_tag() -> str:
+    """Suffix for result files: '' for the default dataset (BTC outputs keep their names),
+    else '_' + the lower-case symbol, e.g. '_solusdt' (doc 34)."""
+    d = dataset()
+    return "" if d.name == DEFAULT_DATASET else "_" + d.symbol.lower()
+
+
+def use_dataset_from_argv(argv: list) -> list:
+    """Remove '--dataset NAME' from argv, make NAME the active dataset (inherited by worker
+    processes) and return the remaining arguments."""
+    args = list(argv)
+    if "--dataset" in args:
+        i = args.index("--dataset")
+        if i + 1 >= len(args):
+            raise ValueError("--dataset needs a name")
+        name = args[i + 1]
+        if name not in DATASETS:
+            raise ValueError(f"unknown dataset {name!r}; known: {sorted(DATASETS)}")
+        os.environ["STRATAEXEC_DATASET"] = name
+        del args[i:i + 2]
+    return args

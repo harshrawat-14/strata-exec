@@ -83,6 +83,7 @@ findings were retracted and the retractions are preserved deliberately rather th
 | 32 | [bounce-back-result.md](experiments/32-bounce-back-result.md) | No bounce-back and no momentum: doc 27's hint was Stambaugh bias; the shuffled null nearly produced a false momentum finding; all four regime-aware routes closed |
 | 33 | [impact-decay-recalibration-predictions.md](experiments/33-impact-decay-recalibration-predictions.md) | Pre-registered refit of the simulator's permanent share π and decay rate ρ to doc 31's curve |
 | 33 | [impact-decay-recalibration-result.md](experiments/33-impact-decay-recalibration-result.md) | π 0.3→0.435, half-life 3.3 h→26 s (accepted; val RMSE 11% of old); TWAP 0.06 pp cheaper at 5% ADV; honest AC still = TWAP; faster paces ~40% cheaper in impact |
+| 34 | [alt-coins-predictions.md](experiments/34-alt-coins-predictions.md) | Pre-registered rerun of the local-liquidity, decay-by-volatility and drawdown tests on SOLUSDT and DOGEUSDT (V4 pool) |
 
 Predictions files are **pre-registered** — written and committed before the corresponding experiment
 was run, so the result cannot be retrofitted to the outcome.

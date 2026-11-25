@@ -46,3 +46,11 @@ def test_rule_reproduces_14_of_16_v3_labels():
     dates = list(TRAINING_DATES_V3) + list(VALIDATION_DATES_V3)
     agree = [day_stats(d)["regime"] == SEVERITY_RANK_V2[d][1] for d in dates]
     assert sum(agree) == 14
+
+
+@pytest.mark.parametrize("drift,scale,label", [(-1.9, 2.0, "normal"), (-2.0, 2.0, "crash"),
+                                               (1.09, 2.0, "normal"), (1.1, 2.0, "calm")])
+def test_regime_cuts_scale_with_volatility(drift, scale, label):
+    """Doc 34: a coin k times as volatile as BTC needs k times the drift for each label."""
+    from evaluation.dates import regime_v4
+    assert regime_v4(drift, scale) == label

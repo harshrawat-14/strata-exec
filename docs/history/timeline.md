@@ -694,3 +694,12 @@ July audit (Phase −1/0) went back over it.
   AC = TWAP. Faster paces cost ~40% less extra impact than before.
 - **Consequence:** all era-2 model results (M0-e2b, M1) were scored on the old decay; re-score
   and retrain on the recalibrated simulator before any comparison.
+
+### 2026-11-25 · MISTAKE · New test fixture leaked its dataset into later tests
+- **What:** `test_market_data.py` cleared STRATAEXEC_DATASET with `monkeypatch.delenv` on an
+  unset name, which records nothing to undo. The SOL dataset the test selected stayed set, and
+  `test_rule_reproduces_14_of_16_v3_labels` then read SOL books (8/16 instead of 14/16).
+- **Found by:** the full Python suite, before commit.
+- **Fix:** the fixture now calls `setenv` before `delenv`, so teardown restores the unset state.
+- **Lesson:** a fixture that guards global state must record the original value, not just
+  clear it.

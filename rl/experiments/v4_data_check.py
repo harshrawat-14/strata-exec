@@ -3,6 +3,10 @@ Doc 30: data completeness and regime labels for the V4 pool (343 days), scored a
 the doc's pre-registered predictions. Held-out and future dates are not read.
 
     python rl/experiments/v4_data_check.py
+    python rl/experiments/v4_data_check.py --dataset bybit_solusdt_perp   # doc 34
+
+For a coin other than BTC, the regime cuts are scaled by k = the coin's training-median
+daily vol / BTC's (doc 34), and results go to v4_day_stats_<symbol>.csv.
 """
 import sys
 from multiprocessing import Pool
@@ -12,11 +16,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # rl/
 
 import pandas as pd
 
+from evaluation.dates import BTC_TRAINING_SIGMA_PCT_V4, REGIME_DRIFT_CUTS_V4, regime_v4
 from evaluation.dates import TRAINING_DATES_V3, TRAINING_DATES_V4, VALIDATION_DATES_V3, VALIDATION_DATES_V4
 from evaluation.day_regime import day_stats
-from market_data import trades_path
+from market_data import results_tag, trades_path, use_dataset_from_argv
 
-OUT = "rl/results/v4_day_stats.csv"
+OUT = "rl/results/v4_day_stats{tag}.csv"
 
 
 def row(date):
@@ -30,7 +35,11 @@ def main():
     dates = TRAINING_DATES_V4 + VALIDATION_DATES_V4
     with Pool(8) as pool:
         df = pd.DataFrame(pool.map(row, dates))
-    df.to_csv(OUT, index=False)
+    if results_tag():
+        k = df[df.split == "train"].sigma_pct.median() / BTC_TRAINING_SIGMA_PCT_V4
+        df["regime"] = [regime_v4(d, k) for d in df.drift_pct]
+        print(f"0. volatility scale k = {k:.3f}; regime cuts {REGIME_DRIFT_CUTS_V4[0] * k:+.3f}% / {REGIME_DRIFT_CUTS_V4[1] * k:+.3f}%\n")
+    df.to_csv(OUT.format(tag=results_tag()), index=False)
     n = len(df)
 
     full = df.n_snapshots.between(2879, 2880)
@@ -61,4 +70,5 @@ def main():
 
 
 if __name__ == "__main__":
+    use_dataset_from_argv(sys.argv[1:])
     main()

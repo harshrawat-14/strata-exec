@@ -77,3 +77,25 @@ def test_signflip_null_keeps_volatility_clustering_and_removes_bias():
     df = pd.DataFrame(recs)
     d = df.corr_real - df.corr_null
     assert abs(d.mean()) < 3 * d.std(ddof=1) / np.sqrt(len(d))
+
+
+def _s(corr, excess):
+    return {"corr": corr, "excess": excess}
+
+
+def test_two_sided_accepts_momentum_and_bounce():
+    """Doc 34: a significant signal of either sign passes; the sign is reported."""
+    mom = ((_s(0.05, 8.0), _s(0.02, 3.0), _s(0.08, 12.0)), (_s(0.04, 7.0), _s(0.01, 1.0), _s(0.07, 13.0)))
+    assert bb.two_sided(*mom, _s(0.03, 0), 5.0) == (True, 1)
+    neg = tuple(tuple(_s(-d["corr"], -d["excess"]) for d in (a, c, b)) for a, b, c in mom)
+    assert bb.two_sided(*neg, _s(-0.03, 0), 5.0) == (True, -1)
+
+
+def test_two_sided_rejects_weak_or_inconsistent_signals():
+    good_t = (_s(0.05, 8.0), _s(0.02, 3.0), _s(0.08, 12.0))
+    good_v = (_s(0.04, 7.0), _s(0.01, 1.0), _s(0.07, 13.0))
+    crash = _s(0.03, 0)
+    assert not bb.two_sided((_s(0.05, 8.0), _s(-0.01, 3.0), _s(0.08, 12.0)), good_v, crash, 5.0)[0]  # interval spans 0
+    assert not bb.two_sided(good_t, (_s(-0.04, 7.0), _s(-0.07, 1.0), _s(-0.01, 13.0)), crash, 5.0)[0]  # val flips
+    assert not bb.two_sided(good_t, good_v, crash, 10.0)[0]  # excess below the scaled floor
+    assert not bb.two_sided(good_t, good_v, _s(-0.03, 0), 5.0)[0]  # crash days reverse

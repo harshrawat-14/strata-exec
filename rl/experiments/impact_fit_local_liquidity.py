@@ -7,7 +7,10 @@ either the date's daily values (current simulator) or trailing-window values tha
 before the bucket (causal), scaled to a daily rate. Y is frozen at the training-date
 median and scored out of sample on the validation dates. Held-out dates are not read.
 
-    python rl/experiments/impact_fit_local_liquidity.py
+    python rl/experiments/impact_fit_local_liquidity.py          # doc 28: V3 dates
+    python rl/experiments/impact_fit_local_liquidity.py v4 --dataset bybit_solusdt_perp   # doc 34
+
+On V4 the win counts become shares (doc 34: >= 75% validation, >= 83% training dates).
 """
 import sys
 from pathlib import Path
@@ -17,10 +20,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # rl/
 import numpy as np
 import pandas as pd
 
-from evaluation.dates import TRAINING_DATES_V3, VALIDATION_DATES_V3
-from market_data import book_path, trades_path
+from evaluation.dates import TRAINING_DATES_V3, TRAINING_DATES_V4, VALIDATION_DATES_V3, VALIDATION_DATES_V4
+from market_data import book_path, results_tag, trades_path, use_dataset_from_argv
 
-OUT = "rl/results/impact_fit_local_liquidity.csv"
+POOLS = {"v3": (TRAINING_DATES_V3, VALIDATION_DATES_V3, "rl/results/impact_fit_local_liquidity.csv"),
+         "v4": (TRAINING_DATES_V4, VALIDATION_DATES_V4, "rl/results/impact_fit_local_liquidity_v4{tag}.csv")}
 MODELS = ("day", "local_V", "local_sigma", "local_both")
 MAIN_WINDOW_MIN, MAIN_BUCKET = 60, "30s"
 
@@ -76,20 +80,20 @@ def _r2(r, x, y):
     return 1 - np.sum((r - y * x) ** 2) / np.sum((r - r.mean()) ** 2)
 
 
-def evaluate(window_min):
+def evaluate(window_min, train, val):
     from multiprocessing import Pool
-    dates = list(TRAINING_DATES_V3) + list(VALIDATION_DATES_V3)
+    dates = list(train) + list(val)
     with Pool(8) as pool:
         df = pd.concat(pool.starmap(date_rows, [(d, window_min) for d in dates]), ignore_index=True)
     rows = []
     for bucket, b in df.groupby("bucket"):
         for m in MODELS:
             per_y = {d: (g[m] @ g.r) / (g[m] @ g[m]) for d, g in b.groupby("date")}
-            y_frozen = np.median([per_y[d] for d in TRAINING_DATES_V3])
+            y_frozen = np.median([per_y[d] for d in train])
             ys = np.array(list(per_y.values()))
-            val = b[b.date.isin(VALIDATION_DATES_V3)]
+            vb = b[b.date.isin(val)]
             row = dict(window_min=window_min, bucket=bucket, model=m, Y_frozen=y_frozen,
-                       Y_cv=ys.std() / ys.mean(), pooled_val_r2=_r2(val.r, val[m], y_frozen))
+                       Y_cv=ys.std() / ys.mean(), pooled_val_r2=_r2(vb.r, vb[m], y_frozen))
             for d, g in b.groupby("date"):
                 row[f"r2_{d}"] = _r2(g.r, g[m], y_frozen)
                 row[f"Y_{d}"] = per_y[d]
@@ -97,26 +101,38 @@ def evaluate(window_min):
     return pd.DataFrame(rows)
 
 
-def main():
+def main(pool_name="v3"):
     from evaluation.dates import SEVERITY_RANK_V2
-    res = pd.concat([evaluate(w) for w in (MAIN_WINDOW_MIN, 15, 120)], ignore_index=True)
-    res.to_csv(OUT, index=False)
+    train, val, out = POOLS[pool_name]
+    res = pd.concat([evaluate(w, train, val) for w in (MAIN_WINDOW_MIN, 15, 120)], ignore_index=True)
+    res.to_csv(out.format(tag=results_tag()), index=False)
     for (w, bucket), g in res.groupby(["window_min", "bucket"], sort=False):
         tag = "MAIN" if (w, bucket) == (MAIN_WINDOW_MIN, MAIN_BUCKET) else "sensitivity"
         base = g[g.model == "day"].iloc[0]
         print(f"\n== window {w} min, bucket {bucket} ({tag})")
         for _, r in g.iterrows():
-            wins_v = sum(r[f"r2_{d}"] > base[f"r2_{d}"] for d in VALIDATION_DATES_V3)
-            wins_t = sum(r[f"r2_{d}"] > base[f"r2_{d}"] for d in TRAINING_DATES_V3)
+            wins_v = sum(r[f"r2_{d}"] > base[f"r2_{d}"] for d in val)
+            wins_t = sum(r[f"r2_{d}"] > base[f"r2_{d}"] for d in train)
             print(f"  {r.model:<12} Y {r.Y_frozen:.3f}  Y_cv {r.Y_cv:.3f}  pooled val R2 {r.pooled_val_r2:.4f}"
-                  f" ({r.pooled_val_r2 - base.pooled_val_r2:+.4f})  beats day: val {wins_v}/4, train {wins_t}/12")
+                  f" ({r.pooled_val_r2 - base.pooled_val_r2:+.4f})  beats day: val {wins_v}/{len(val)}, "
+                  f"train {wins_t}/{len(train)}")
+            if pool_name == "v4" and tag == "MAIN" and r.model in ("local_V", "local_both"):
+                ok = (r.pooled_val_r2 - base.pooled_val_r2 >= 0.01 and wins_v >= 0.75 * len(val)
+                      and wins_t >= 0.83 * len(train) and r.Y_cv < base.Y_cv)
+                print(f"      doc 34 criterion: {'PASS' if ok else 'FAIL'}")
     main_ = res[(res.window_min == MAIN_WINDOW_MIN) & (res.bucket == MAIN_BUCKET)]
-    print("\nper-date fitted Y (main setting), by regime:")
-    dates = list(TRAINING_DATES_V3) + list(VALIDATION_DATES_V3)
+    dates = list(train) + list(val)
     tab = pd.DataFrame({m: {d: main_[main_.model == m][f"Y_{d}"].iloc[0] for d in dates} for m in MODELS})
-    tab["regime"] = tab.index.map(lambda d: SEVERITY_RANK_V2[d][1])
-    print(tab.sort_values("regime").round(3).to_string())
+    if pool_name == "v3":
+        print("\nper-date fitted Y (main setting), by regime:")
+        tab["regime"] = tab.index.map(lambda d: SEVERITY_RANK_V2[d][1])
+        print(tab.sort_values("regime").round(3).to_string())
+    else:
+        print("\nmedian per-date fitted Y (main setting), by hindsight regime:")
+        tab["regime"] = tab.index.map(pd.read_csv(f"rl/results/v4_day_stats{results_tag()}.csv")
+                                      .set_index("date").regime)
+        print(tab.groupby("regime").median().round(3).to_string())
 
 
 if __name__ == "__main__":
-    main()
+    main(*use_dataset_from_argv(sys.argv[1:]))

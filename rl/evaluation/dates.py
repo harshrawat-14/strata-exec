@@ -286,6 +286,10 @@ assert set(TRAINING_DATES_V3 + VALIDATION_DATES_V3) <= set(_POOL_V4)
 REGIME_DRIFT_CUTS_V4 = (-1.0, 0.55)
 
 
-def regime_v4(drift_pct: float) -> str:
-    lo, hi = REGIME_DRIFT_CUTS_V4
+BTC_TRAINING_SIGMA_PCT_V4 = 2.4845  # median daily vol of BTC's V4 training days (doc 30)
+
+
+def regime_v4(drift_pct: float, scale: float = 1.0) -> str:
+    """scale multiplies both cuts: a coin's training-median daily vol / BTC's (doc 34)."""
+    lo, hi = (c * scale for c in REGIME_DRIFT_CUTS_V4)
     return "crash" if drift_pct <= lo else "calm" if drift_pct >= hi else "normal"

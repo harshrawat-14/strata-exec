@@ -8,6 +8,7 @@ unit of flow tau steps later is G(tau) = sum_{l <= tau} beta(l). Held-out dates 
 
     python rl/experiments/impact_decay_fit.py        # doc 29: V3 (12 training, 4 validation dates)
     python rl/experiments/impact_decay_fit.py v4     # doc 31: V4 (256 training, 87 validation dates)
+    python rl/experiments/impact_decay_fit.py v4 --dataset bybit_solusdt_perp   # doc 34
 """
 import sys
 from pathlib import Path
@@ -19,13 +20,13 @@ import pandas as pd
 
 from evaluation.dates import (SEVERITY_RANK_V2, TRAINING_DATES_V3, TRAINING_DATES_V4,
                               VALIDATION_DATES_V3, VALIDATION_DATES_V4)
-from market_data import book_path, trades_path
+from market_data import book_path, results_tag, trades_path, use_dataset_from_argv
 
 POOLS = {  # name: (training, validation, output, hindsight labels)
     "v3": (TRAINING_DATES_V3, VALIDATION_DATES_V3, "rl/results/impact_decay_fit.csv",
            lambda: {d: v[1] for d, v in SEVERITY_RANK_V2.items()}),
-    "v4": (TRAINING_DATES_V4, VALIDATION_DATES_V4, "rl/results/impact_decay_fit_v4.csv",
-           lambda: pd.read_csv("rl/results/v4_day_stats.csv").set_index("date").regime.to_dict()),
+    "v4": (TRAINING_DATES_V4, VALIDATION_DATES_V4, "rl/results/impact_decay_fit_v4{tag}.csv",
+           lambda: pd.read_csv(f"rl/results/v4_day_stats{results_tag()}.csv").set_index("date").regime.to_dict()),
 }
 MIN_EFFECT = 0.05  # doc 31: |high - low| in G(2h)/G(0) must be at least this to count
 BINS = [(0, 0), (1, 1), (2, 3), (4, 7), (8, 15), (16, 31), (32, 63), (64, 127),
@@ -197,8 +198,8 @@ def main(pool_name="v3"):
         c = curve(fit("pooled", ds))
         print(f"  {reg:>6} ({len(ds)}): " + "  ".join(f"{t} {v:.3f}" for t, v in c.items()))
         rows.append(dict(test="hindsight", tau=reg, **{f"G_{t}": v for t, v in c.items()}))
-    pd.DataFrame(rows).to_csv(OUT, index=False)
+    pd.DataFrame(rows).to_csv(OUT.format(tag=results_tag()), index=False)
 
 
 if __name__ == "__main__":
-    main(*sys.argv[1:])
+    main(*use_dataset_from_argv(sys.argv[1:]))

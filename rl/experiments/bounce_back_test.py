@@ -10,10 +10,14 @@ predictability). Held-out and future dates are not read.
 
     python rl/experiments/bounce_back_test.py            # pre-registered: shuffled-returns null
     python rl/experiments/bounce_back_test.py signflip   # post-hoc robustness: random-sign null
+    python rl/experiments/bounce_back_test.py signflip --dataset bybit_dogeusdt_perp   # doc 34
 
 The sign-flip null keeps every return's size in its original order (volatility clustering
 intact) and randomises only its sign. It was added after the pre-registered run, because the
 shuffled null also removes volatility clustering (a limitation the doc stated in advance).
+
+Doc 34 (other coins) counts a signal of either sign and scales the 5 bp floor by
+k = the coin's training-median daily vol / BTC's; see two_sided().
 """
 import sys
 from pathlib import Path
@@ -23,8 +27,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # rl/
 import numpy as np
 import pandas as pd
 
-from evaluation.dates import TRAINING_DATES_V4, VALIDATION_DATES_V4
-from market_data import book_path
+from evaluation.dates import BTC_TRAINING_SIGMA_PCT_V4, TRAINING_DATES_V4, VALIDATION_DATES_V4
+from market_data import book_path, results_tag, use_dataset_from_argv
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / "belief_precheck"))
 from book_features import drawdown_z  # noqa: E402
@@ -35,7 +39,7 @@ N_NULL = 20
 N_BOOT = 1000
 DEEP_Q = 10  # deep drawdown: at or below the training rows' 10th percentile
 MIN_EXCESS_BP = 5.0
-OUT = "rl/results/bounce_back_test.csv"
+OUT = "rl/results/bounce_back_test{tag}.csv"
 
 
 def rows(mid):
@@ -87,6 +91,22 @@ def boot(df, rng, n=N_BOOT):
     return s.quantile(0.05), s.quantile(0.95)
 
 
+def two_sided(train, val, crash, min_excess_bp):
+    """Doc 34: (passes, sign). Each item is (summary, lo, hi) from summarise/boot; crash is a
+    summary. Passes if training and validation correlation intervals exclude 0 with the same
+    sign, the deep-drawdown excess has that sign with magnitude >= min_excess_bp in both and a
+    training interval excluding 0, and crash days do not show the opposite sign."""
+    (st, lt, ht), (sv, lv, hv) = train, val
+    sign = np.sign(st["corr"])
+    def excludes0(lo, hi, key):
+        return lo[key] * hi[key] > 0 and np.sign(lo[key]) == sign
+    c1 = excludes0(lt, ht, "corr") and excludes0(lv, hv, "corr")
+    c2 = (excludes0(lt, ht, "excess") and np.sign(sv["excess"]) == sign
+          and abs(st["excess"]) >= min_excess_bp and abs(sv["excess"]) >= min_excess_bp)
+    c3 = np.sign(crash["corr"]) != -sign
+    return bool(c1 and c2 and c3 and sign != 0), int(sign)
+
+
 def load_mid(date):
     b = pd.read_csv(book_path(date), usecols=["b0_p", "a0_p"])
     return ((b.b0_p + b.a0_p) / 2).to_numpy()
@@ -107,10 +127,11 @@ def main(null_name="shuffle"):
         cut = np.percentile(np.concatenate([rows(m)[0] for m in mids.values()]), DEEP_Q)
         dates = TRAINING_DATES_V4 + VALIDATION_DATES_V4
         res = pd.DataFrame(pool.map(_day, [(d, cut, i, null_name) for i, d in enumerate(dates)]))
-    labels = pd.read_csv("rl/results/v4_day_stats.csv").set_index("date").regime
-    res["regime"] = res.date.map(labels)
+    stats = pd.read_csv(f"rl/results/v4_day_stats{results_tag()}.csv").set_index("date")
+    res["regime"] = res.date.map(stats.regime)
     res["split"] = np.where(res.date.isin(TRAINING_DATES_V4), "train", "validation")
-    res.to_csv(OUT if null_name == "shuffle" else OUT.replace(".csv", f"_{null_name}.csv"), index=False)
+    out_path = OUT.format(tag=results_tag())
+    res.to_csv(out_path if null_name == "shuffle" else out_path.replace(".csv", f"_{null_name}.csv"), index=False)
     print(f"null: {null_name}")
 
     rng = np.random.default_rng(0)
@@ -137,6 +158,11 @@ def main(null_name="shuffle"):
     print(f"4. crash days corrected corr <= 0: {c4}")
     print(f"PASS: {c1 and c2 and c3 and c4}")
 
+    k = stats.loc[TRAINING_DATES_V4].sigma_pct.median() / BTC_TRAINING_SIGMA_PCT_V4
+    ok, sign = two_sided(out["train"], out["validation"], sc, MIN_EXCESS_BP * k)
+    print(f"\ndoc 34, either sign (k = {k:.3f}, floor {MIN_EXCESS_BP * k:.2f} bp): "
+          f"{'PASS' if ok else 'FAIL'} (training sign {'+' if sign > 0 else '-'})")
+
 
 if __name__ == "__main__":
-    main(*sys.argv[1:])
+    main(*use_dataset_from_argv(sys.argv[1:]))
