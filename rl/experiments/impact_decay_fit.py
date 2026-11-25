@@ -6,7 +6,8 @@ Propagator-style regression on 30 s buckets: r_t = sum_b beta_b * sum_{l in bin 
 x = sigma_d * sign(Q) * sqrt(|Q| / V) (doc 28's daily normalisation). The response to one
 unit of flow tau steps later is G(tau) = sum_{l <= tau} beta(l). Held-out dates are not read.
 
-    python rl/experiments/impact_decay_fit.py
+    python rl/experiments/impact_decay_fit.py        # doc 29: V3 (12 training, 4 validation dates)
+    python rl/experiments/impact_decay_fit.py v4     # doc 31: V4 (256 training, 87 validation dates)
 """
 import sys
 from pathlib import Path
@@ -16,10 +17,17 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # rl/
 import numpy as np
 import pandas as pd
 
-from evaluation.dates import SEVERITY_RANK_V2, TRAINING_DATES_V3, VALIDATION_DATES_V3
+from evaluation.dates import (SEVERITY_RANK_V2, TRAINING_DATES_V3, TRAINING_DATES_V4,
+                              VALIDATION_DATES_V3, VALIDATION_DATES_V4)
 from market_data import book_path, trades_path
 
-OUT = "rl/results/impact_decay_fit.csv"
+POOLS = {  # name: (training, validation, output, hindsight labels)
+    "v3": (TRAINING_DATES_V3, VALIDATION_DATES_V3, "rl/results/impact_decay_fit.csv",
+           lambda: {d: v[1] for d, v in SEVERITY_RANK_V2.items()}),
+    "v4": (TRAINING_DATES_V4, VALIDATION_DATES_V4, "rl/results/impact_decay_fit_v4.csv",
+           lambda: pd.read_csv("rl/results/v4_day_stats.csv").set_index("date").regime.to_dict()),
+}
+MIN_EFFECT = 0.05  # doc 31: |high - low| in G(2h)/G(0) must be at least this to count
 BINS = [(0, 0), (1, 1), (2, 3), (4, 7), (8, 15), (16, 31), (32, 63), (64, 127),
         (128, 255), (256, 511), (512, 720)]
 MAX_LAG = 720
@@ -100,16 +108,24 @@ def split_beta(beta, model):
     return [np.array(p) for p in per]
 
 
-def main():
+def main(pool_name="v3"):
     from multiprocessing import Pool
-    dates = list(TRAINING_DATES_V3) + list(VALIDATION_DATES_V3)
+    TRAIN, VAL, OUT, labels = POOLS[pool_name]
+    dates = list(TRAIN) + list(VAL)
     with Pool(8) as pool:
         data = {d["date"]: d for d in pool.map(date_data, dates)}
-    tv_train = np.concatenate([data[d]["tv"][MAX_LAG:] for d in TRAINING_DATES_V3])
+    tv_train = np.concatenate([data[d]["tv"][MAX_LAG:] for d in TRAIN])
     cuts = np.nanpercentile(tv_train, [100 / 3, 200 / 3])
 
-    mats = {m: {d: design(data[d], cuts, m) for d in dates} for m in ("pooled", "shared", "tercile")}
-    gram = {m: {d: (X.T @ X, X.T @ y) for d, (X, y) in mats[m].items()} for m in mats}
+    # Gram matrices for every date; design matrices kept only for validation scoring
+    mats, gram = {}, {}
+    for m in ("pooled", "shared", "tercile"):
+        mats[m], gram[m] = {}, {}
+        for d in dates:
+            X, y = design(data[d], cuts, m)
+            gram[m][d] = (X.T @ X, X.T @ y)
+            if d in VAL:
+                mats[m][d] = (X, y)
 
     def fit(m, ds):
         A = sum(gram[m][d][0] for d in ds)
@@ -122,7 +138,7 @@ def main():
         return 1 - np.sum((y - X @ beta) ** 2) / np.sum((y - y.mean()) ** 2)
 
     rng = np.random.default_rng(0)
-    train = list(TRAINING_DATES_V3)
+    train = list(TRAIN)
     boots = [list(rng.choice(train, len(train))) for _ in range(N_BOOT)]
     rows = []
 
@@ -136,14 +152,14 @@ def main():
         print(f"  {name:>6}: {point[name]:.3f}  [{lo:.3f}, {hi:.3f}]  simulator {SIM[name]:.3f} "
               f"{'inside' if inside else 'OUTSIDE'}")
         rows.append(dict(test="A", tau=name, point=point[name], lo=lo, hi=hi, sim=SIM[name]))
-    vpoint = curve(fit("pooled", VALIDATION_DATES_V3))
+    vpoint = curve(fit("pooled", VAL))
     print("  validation dates:", {k: round(v, 3) for k, v in vpoint.items()})
     print("  kernel per lag (training):", np.round(fit("pooled", train) * 1e4, 3).tolist(), "x1e-4")
 
     # B: does decay depend on the trailing-vol tercile?
     print(f"\nB. decay by trailing 2 h vol tercile (cuts {cuts[0]:.2e}, {cuts[1]:.2e} per 30 s)")
     per = split_beta(fit("tercile", train), "tercile")
-    pv = split_beta(fit("tercile", VALIDATION_DATES_V3), "tercile")
+    pv = split_beta(fit("tercile", VAL), "tercile")
     bdiff = []
     for s in boots:
         p = split_beta(fit("tercile", s), "tercile")
@@ -155,23 +171,29 @@ def main():
     diff = curve(per[2])["2h"] - curve(per[0])["2h"]
     lo, hi = np.quantile(bdiff, [0.05, 0.95])
     vdiff = curve(pv[2])["2h"] - curve(pv[0])["2h"]
-    r2_shared = r2("shared", fit("shared", train), VALIDATION_DATES_V3)
-    r2_terc = r2("tercile", fit("tercile", train), VALIDATION_DATES_V3)
-    r2_pool = r2("pooled", fit("pooled", train), VALIDATION_DATES_V3)
+    r2_shared = r2("shared", fit("shared", train), VAL)
+    r2_terc = r2("tercile", fit("tercile", train), VAL)
+    r2_pool = r2("pooled", fit("pooled", train), VAL)
     c1 = lo > 0 or hi < 0
     c2 = np.sign(vdiff) == np.sign(diff)
     c3 = r2_terc >= r2_shared
+    c4 = abs(diff) >= MIN_EFFECT
     print(f"  high - low, G(2h)/G(0): {diff:+.3f}  [{lo:+.3f}, {hi:+.3f}]  -> excludes 0: {c1}")
     print(f"  validation high - low: {vdiff:+.3f}  -> same sign: {c2}")
     print(f"  validation R2: pooled {r2_pool:.5f}  shared {r2_shared:.5f}  tercile {r2_terc:.5f}  -> tercile >= shared: {c3}")
-    print(f"  criterion B: {'PASS' if (c1 and c2 and c3) else 'FAIL'}")
+    if pool_name == "v4":  # doc 31 adds a minimum effect size
+        print(f"  |high - low| >= {MIN_EFFECT}: {c4}")
+        print(f"  criterion B: {'PASS' if (c1 and c2 and c3 and c4) else 'FAIL'}")
+    else:
+        print(f"  criterion B: {'PASS' if (c1 and c2 and c3) else 'FAIL'}")
     rows.append(dict(test="B", tau="2h", point=diff, lo=lo, hi=hi, validation=vdiff,
                      r2_pooled=r2_pool, r2_shared=r2_shared, r2_tercile=r2_terc))
 
     # descriptive: hindsight day labels, all 16 dates
-    print("\ndescriptive (hindsight labels, all 16 dates; not a criterion):")
+    print(f"\ndescriptive (hindsight labels, all {len(dates)} dates; not a criterion):")
+    lab = labels()
     for reg in ("calm", "normal", "crash"):
-        ds = [d for d in dates if SEVERITY_RANK_V2[d][1] == reg]
+        ds = [d for d in dates if lab[d] == reg]
         c = curve(fit("pooled", ds))
         print(f"  {reg:>6} ({len(ds)}): " + "  ".join(f"{t} {v:.3f}" for t, v in c.items()))
         rows.append(dict(test="hindsight", tau=reg, **{f"G_{t}": v for t, v in c.items()}))
@@ -179,4 +201,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    main(*sys.argv[1:])
