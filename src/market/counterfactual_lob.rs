@@ -6,8 +6,11 @@
 //     I_t = Y * sigma_d * sqrt(D_t / V)
 //     D_t = pi * Q_t + (1 - pi) * sum_s q_s * exp(-rho * (t - s))
 //
-// Q_t is everything sold so far, q_s each sale; pi (0.3) is the share of impact
-// that never recovers, the rest decays at rho (half-life ~400 steps at 30 s).
+// Q_t is everything sold so far, q_s each sale; pi (0.435) is the share of impact
+// that never recovers, the rest decays at rho (2284/day: half-life ~26 s, under one
+// 30 s step). Both are fitted to the measured response of price to taker flow
+// (doc 33, rl/experiments/impact_decay_calibrate.py); until 2026-11-25 they were
+// era-1 guesses (0.3, 5/day: a 3.3 h half-life the data does not show).
 // sigma_d is the date's daily volatility and V its daily volume. Impact is a
 // concave function of the accumulated (decayed) quantity -- the square-root law
 // for a metaorder -- not a sum of per-slice square roots, which would make
@@ -29,11 +32,12 @@ use crate::market::order_book::OrderBook;
 // ---------------------------------------------------------------------------
 
 pub struct CounterfactualLobConfig {
-    /// Fraction of impact that is permanent (OW-style temporal split: 0.3).
+    /// Fraction of impact that is permanent (`CALIBRATED_PERMANENT_FRACTION`).
     pub permanent_fraction: f64,
     /// Fraction of impact that is temporary (= 1 - permanent_fraction).
     pub temporary_fraction: f64,
-    /// Recovery speed for temporary impact. rho=5 with dt=1/2880 → half-life ≈ 400 steps.
+    /// Recovery speed for temporary impact, per day (`CALIBRATED_DECAY_RHO`). With
+    /// dt = 1/2880 the half-life is ln 2 / (rho * dt) steps (~0.87 steps, 26 s).
     pub rho: f64,
     /// Time per step (1.0 / total_steps).
     pub dt: f64,
@@ -52,9 +56,9 @@ pub struct CounterfactualLobConfig {
 impl Default for CounterfactualLobConfig {
     fn default() -> Self {
         Self {
-            permanent_fraction: 0.3,
-            temporary_fraction: 0.7,
-            rho: 5.0,
+            permanent_fraction: CALIBRATED_PERMANENT_FRACTION,
+            temporary_fraction: 1.0 - CALIBRATED_PERMANENT_FRACTION,
+            rho: CALIBRATED_DECAY_RHO,
             dt: 1.0 / 2880.0,
             btc_scale: 0.05,
             adv_btc: 240_000.0,
@@ -68,6 +72,14 @@ impl Default for CounterfactualLobConfig {
 /// signed-flow fit at 30 s (range 0.91-1.14; all 25 dates 0.91-1.33), on
 /// Bybit BTCUSDT 2024 (rl/results/impact_fit_signed_flow.csv). Frozen.
 pub const CALIBRATED_IMPACT_Y: f64 = 1.0715;
+
+/// Permanent share pi of impact: fitted to the propagator response curve on the 256 V4
+/// training days (doc 33; 90% interval 0.392-0.486). Frozen.
+pub const CALIBRATED_PERMANENT_FRACTION: f64 = 0.435;
+
+/// Decay rate rho of the temporary share, per day (doc 33; 90% interval 1771-3050).
+/// Half-life ln 2 / rho = 26 s. Frozen.
+pub const CALIBRATED_DECAY_RHO: f64 = 2284.0;
 
 impl CounterfactualLobConfig {
     /// The base config with the date's own daily volatility (from the
@@ -642,9 +654,11 @@ timestamp,b0_p,b0_q,b1_p,b1_q,a0_p,a0_q,a1_p,a1_q
 
     #[test]
     fn slicing_an_order_does_not_multiply_its_impact() {
-        // Selling 40k units in 40 back-to-back slices must cost about the same
-        // impact as one 40k sale (the temporary part decays a little between
-        // slices), never ~sqrt(40) times more.
+        // Selling 40k units in 40 back-to-back slices must never cost more impact
+        // than one 40k sale (let alone ~sqrt(40) times more), and never less than
+        // the permanent impact of 40k: earlier slices' temporary part may have
+        // decayed, their permanent part has not. (Until doc 33 the lower bound was
+        // 0.95 x one sale, which only held for the old 3.3 h half-life.)
         let mut one = make_cf_lob();
         one.record_trade_and_advance(40_000.0);
         let mut sliced = make_cf_lob();
@@ -652,9 +666,10 @@ timestamp,b0_p,b0_q,b1_p,b1_q,a0_p,a0_q,a1_p,a1_q
             sliced.record_trade_and_advance(1_000.0);
         }
         let (i1, i40) = (one.total_residual_impact(), sliced.total_residual_impact());
+        let floor = one.impact_of(one.config.permanent_fraction * 40_000.0 * one.config.btc_scale);
         assert!(
-            i40 <= i1 * 1.0001 && i40 > 0.95 * i1,
-            "one={i1} sliced={i40}"
+            i40 <= i1 * 1.0001 && i40 >= floor * (1.0 - 1e-9),
+            "one={i1} sliced={i40} permanent floor={floor}"
         );
     }
 
@@ -687,10 +702,51 @@ timestamp,b0_p,b0_q,b1_p,b1_q,a0_p,a0_q,a1_p,a1_q
     }
 
     #[test]
+    fn single_sale_response_follows_the_decay_kernel() {
+        // One small sale: the impact k steps later relative to its instant impact is
+        // sqrt(pi + (1 - pi) exp(-rho k dt)), the curve doc 33 fits to market data.
+        let mut cf = make_cf_lob();
+        let c = &cf.config;
+        let (pi, rho, dt) = (c.permanent_fraction, c.rho, c.dt);
+        let q_btc = 1_000.0 * c.btc_scale;
+        let instant = cf.impact_of(q_btc);
+        cf.record_trade_and_advance(1_000.0);
+        for k in 1..=120 {
+            let expected = (pi + (1.0 - pi) * (-rho * k as f64 * dt).exp()).sqrt();
+            let got = cf.total_residual_impact() / instant;
+            assert!(
+                (got - expected).abs() < 1e-9,
+                "step {k}: response {got:.6}, kernel {expected:.6}"
+            );
+            cf.advance_without_trade();
+        }
+    }
+
+    #[test]
+    fn default_decay_matches_the_measured_response() {
+        // Doc 31's training 90% bands for G(tau)/G(0) at 30 min, 2 h, 6 h. The era-1
+        // constants (0.3, 5/day) gave 0.965 / 0.873 / 0.707: outside at 30 min and 2 h.
+        let c = CounterfactualLobConfig::default();
+        assert!((c.permanent_fraction + c.temporary_fraction - 1.0).abs() < 1e-12);
+        for (steps, lo, hi) in [
+            (60.0, 0.621, 0.677),
+            (240.0, 0.629, 0.758),
+            (720.0, 0.587, 0.774),
+        ] {
+            let g = (c.permanent_fraction + c.temporary_fraction * (-c.rho * steps * c.dt).exp())
+                .sqrt();
+            assert!(
+                (lo..=hi).contains(&g),
+                "G({steps} steps)/G(0) = {g:.3} outside the measured band [{lo}, {hi}]"
+            );
+        }
+    }
+
+    #[test]
     fn impact_decays_monotonically_toward_permanent_level() {
         // "Impact decays monotonically toward the permanent level over time."
-        // rho=5, dt=1/2880 -> half-life = ln(2)/rho/dt ~= 400 steps, so
-        // convergence needs several thousand steps, not a few hundred.
+        // The loop runs far longer than the calibrated half-life (~1 step) needs, so
+        // it also holds for any slower decay.
         let mut cf = make_cf_lob();
         cf.record_trade_and_advance(150_000.0);
         let perm = cf.permanent_impact();
@@ -719,9 +775,8 @@ timestamp,b0_p,b0_q,b1_p,b1_q,a0_p,a0_q,a1_p,a1_q
 
     #[test]
     fn temporary_component_vanishes_as_decay_time_grows() {
-        // "Temporary component -> 0 as decay time -> infinity." Half-life ~400
-        // steps (see above), so 30000 steps (~75 half-lives) drives it to
-        // numerical zero with comfortable margin.
+        // "Temporary component -> 0 as decay time -> infinity." 30000 steps is
+        // thousands of calibrated half-lives (and ~75 of the old 400-step one).
         let mut cf = make_cf_lob();
         cf.record_trade_and_advance(150_000.0);
         for _ in 0..30_000 {

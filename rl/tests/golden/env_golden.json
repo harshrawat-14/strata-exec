@@ -2,7 +2,7 @@
  "batched": {
   "counterfactual_crash": {
    "n_steps": 400,
-   "sha256": "fd66919f16de2a854ac7835ae6230968dd2eba755a399c1d9d1844c164198742"
+   "sha256": "9d0c5f04b2a5cbe7600f411d31f77216077dd4ba84ca499c3eb90c5c1c5de0d1"
   },
   "synthetic": {
    "n_steps": 400,
@@ -10,56 +10,56 @@
   }
  },
  "print_action_fractions": "[0.0,0.001,0.003,0.005,0.008,0.01,0.015,0.02,0.03,0.05,0.07,0.1,0.15,0.2,0.3,0.4,0.5,0.7,0.9,1.0]\n",
- "print_calibration": "{\"adv_btc\":240355.5569988435,\"btc_scale\":0.06280506256580717,\"dt\":0.00034722222222222224,\"impact_coefficient\":1.0715,\"permanent_fraction\":0.3,\"rho\":5.0,\"sigma\":0.04661652210949576,\"temporary_fraction\":0.7}\n",
+ "print_calibration": "{\"adv_btc\":240355.5569988435,\"btc_scale\":0.06280506256580717,\"dt\":0.00034722222222222224,\"impact_coefficient\":1.0715,\"permanent_fraction\":0.435,\"rho\":2284.0,\"sigma\":0.04661652210949576,\"temporary_fraction\":0.565}\n",
  "stdio": {
   "counterfactual_calm_16d_fixed": {
    "all_max/seed0": {
     "final_info": {
      "adjusted_book_depth": 9426.82000000001,
-     "book_mid": 88.82838021698839,
+     "book_mid": 92.6384065811848,
      "btc_scale": 0.05,
-     "current_sigma": 0.5776273232959881,
-     "depth_reduction_pct": 12.189438514183248,
-     "fill_price": 88.78050990718471,
+     "current_sigma": 0.5693924662455615,
+     "depth_reduction_pct": 8.429708088747676,
+     "fill_price": 92.58848301833316,
      "fill_qty": 3459.19999999751,
      "interval_volume": 53.94999999999993,
-     "is_contribution": -0.0005562038320098454,
-     "permanent_impact_pct": 6.999860299883463,
+     "is_contribution": -0.0005562038320111153,
+     "permanent_impact_pct": 8.428947983938013,
      "real_book_depth": 8703.820000000016,
      "regime": "normal/normal",
      "remaining": 0.0,
      "sigma_ref": 0.4999,
      "step": 119,
-     "total_IS_pct": 9.059535718064472,
-     "total_is_dollar": 9059535.718064472
+     "total_IS_pct": 5.954189464298055,
+     "total_is_dollar": 5954189.464298055
     },
     "n_steps": 119,
-    "sha256": "f55876ffcef8244987a9a67dd7bfda25bcdee3d98f8f3e26fa4c58c65d3b0771",
-    "total_reward": -0.09877853733182389
+    "sha256": "1f957d8cdc1c71f47b80fe403d0878ef55679a9a4950728cdc7b2865d9415a51",
+    "total_reward": -0.06772507479415987
    },
    "all_max/seed17": {
     "final_info": {
      "adjusted_book_depth": 7865.24000000001,
-     "book_mid": 88.60506163255711,
+     "book_mid": 92.42017847436472,
      "btc_scale": 0.05,
-     "current_sigma": 0.5508233826178853,
-     "depth_reduction_pct": 12.226399144322388,
-     "fill_price": 88.54778259580128,
+     "current_sigma": 0.536906065861718,
+     "depth_reduction_pct": 8.453658413539012,
+     "fill_price": 92.36043314263907,
      "fill_qty": 4976.999999997622,
      "interval_volume": 12.35599999999999,
-     "is_contribution": -0.0006713383255827236,
-     "permanent_impact_pct": 7.019641140158852,
+     "is_contribution": -0.0006713383255821595,
+     "permanent_impact_pct": 8.45276726984042,
      "real_book_depth": 7843.780000000014,
      "regime": "normal/normal",
      "remaining": 9.094947017729282e-13,
      "sigma_ref": 0.4999,
      "step": 119,
-     "total_IS_pct": 9.106220068234533,
-     "total_is_dollar": 9106220.068234533
+     "total_IS_pct": 6.005572251148134,
+     "total_is_dollar": 6005572.2511481345
     },
     "n_steps": 119,
-    "sha256": "63c1454bc58abea745b4128c41fc2cb0b11278791ca0f21aa18445018e2e6c3a",
-    "total_reward": -0.09868939366825373
+    "sha256": "c1f30767e20d9b494736fa7b092a230e0105d5f931e66aca8b5ec800ab4db01f",
+    "total_reward": -0.06768291549739013
    },
    "all_wait/seed0": {
     "final_info": {
@@ -122,103 +122,103 @@
    "random/seed0": {
     "final_info": {
      "adjusted_book_depth": 7991.26000000002,
-     "book_mid": 94.14235394936256,
+     "book_mid": 96.20411384753339,
      "btc_scale": 0.05,
-     "current_sigma": 0.4321864105590346,
-     "depth_reduction_pct": 6.984697518085444,
+     "current_sigma": 0.43129631335378743,
+     "depth_reduction_pct": 4.95166464715811,
      "dust_liquidated_qty": 993.7983455034437,
-     "fill_price": 94.13066894934629,
+     "fill_price": 96.19217294076067,
      "fill_qty": 425.9135766443328,
      "interval_volume": 1.6689999999999983,
-     "is_contribution": -0.00012625011008420085,
-     "permanent_impact_pct": 4.112106469727447,
+     "is_contribution": -0.0001262501100842142,
+     "permanent_impact_pct": 4.951631897328674,
      "real_book_depth": 8126.340000000016,
      "regime": "normal/normal",
      "remaining": 0.0,
      "sigma_ref": 0.4999,
      "step": 176,
-     "total_IS_pct": 4.8262982301107495,
-     "total_is_dollar": 4826298.23011075
+     "total_IS_pct": 3.0526912180124524,
+     "total_is_dollar": 3052691.218012452
     },
     "n_steps": 176,
-    "sha256": "a3f9ccfb1838f0bf1d48a289dfa04c9dda90493b317c7973246a77b6599166c4",
-    "total_reward": -0.057311715968491585
+    "sha256": "7916fb3fb81808c437c41509aae6ce9f106993356700bddc4a9ece9d842ae417",
+    "total_reward": -0.03957563885055695
    },
    "random/seed17": {
     "final_info": {
      "adjusted_book_depth": 7382.720000000015,
-     "book_mid": 94.54626221877277,
+     "book_mid": 96.41559987670622,
      "btc_scale": 0.05,
-     "current_sigma": 0.40894871409871125,
-     "depth_reduction_pct": 6.246023838732021,
+     "current_sigma": 0.4086954202800906,
+     "depth_reduction_pct": 4.395764291378795,
      "dust_liquidated_qty": 739.945052606141,
-     "fill_price": 94.46333062582607,
+     "fill_price": 96.33102858752942,
      "fill_qty": 6659.505473455313,
      "interval_volume": 10.76400000000001,
-     "is_contribution": -0.0009104511133524699,
-     "permanent_impact_pct": 3.6499172419574,
+     "is_contribution": -0.0009104511133528942,
+     "permanent_impact_pct": 4.3950823673794766,
      "real_book_depth": 7255.240000000012,
      "regime": "normal/normal",
      "remaining": 0.0,
      "sigma_ref": 0.4999,
      "step": 164,
-     "total_IS_pct": 4.189892308062449,
-     "total_is_dollar": 4189892.308062449
+     "total_IS_pct": 2.6554170981666445,
+     "total_is_dollar": 2655417.0981666446
     },
     "n_steps": 164,
-    "sha256": "b7c7171dcbe499dee72ef564857db708d20c1c150e54f0d090e6d58b9537196c",
-    "total_reward": -0.049719569919559226
+    "sha256": "f41dd4dfd01d37b1679293b09678716d5c64b06d7ea620ef5a0928f5128f7418",
+    "total_reward": -0.034372211054501355
    }
   },
   "counterfactual_crash_12d_random_horizon": {
    "all_max/seed0": {
     "final_info": {
      "adjusted_book_depth": 5358.724062210079,
-     "book_mid": 82.34138821912335,
+     "book_mid": 87.89206529123406,
      "btc_scale": 0.06280506256580717,
-     "current_sigma": 1.0777800775377289,
-     "depth_reduction_pct": 18.163294136402968,
-     "fill_price": 82.3160811060964,
+     "current_sigma": 1.0794748540716126,
+     "depth_reduction_pct": 12.656999023958704,
+     "fill_price": 87.8650522121664,
      "fill_qty": 1584.9996152084948,
      "interval_volume": 47.092000000000056,
-     "is_contribution": -0.00031729837418551453,
-     "permanent_impact_pct": 10.510417468450655,
+     "is_contribution": -0.0003172983741865329,
+     "permanent_impact_pct": 12.656218600893924,
      "real_book_depth": 5794.15074411722,
      "regime": "high_vol/normal",
      "remaining": 2.2737367544323206e-13,
      "sigma_ref": 0.4999,
      "step": 140,
-     "total_IS_pct": 14.57533250522709,
-     "total_is_dollar": 11603628.680375129
+     "total_IS_pct": 9.955655099145892,
+     "total_is_dollar": 7925838.055422962
     },
     "n_steps": 140,
-    "sha256": "149ebdecab74135678b61ad713244d6e5a066786c8d407fbb7a6cce1594ae71d",
-    "total_reward": -0.14720335744193078
+    "sha256": "61e6ca23fb47b2bceafc3dbc447eaf3e193064e3b15ec2f005f9d0ace67f8ffb",
+    "total_reward": -0.10100658338111884
    },
    "all_max/seed17": {
     "final_info": {
      "adjusted_book_depth": 6896.944159131337,
-     "book_mid": 82.11789509732813,
+     "book_mid": 87.63825089635525,
      "btc_scale": 0.05689882228210282,
-     "current_sigma": 0.7817844351036528,
-     "depth_reduction_pct": 18.126710316941804,
+     "current_sigma": 0.7687123263875323,
+     "depth_reduction_pct": 12.633128040299052,
      "dust_liquidated_qty": 1.1368683772161603e-12,
-     "fill_price": 82.09743324219474,
+     "fill_price": 87.61641349791901,
      "fill_qty": 1711.9335004336524,
      "interval_volume": 35.79599999999998,
-     "is_contribution": -0.00025891726631527815,
-     "permanent_impact_pct": 10.490591581694893,
+     "is_contribution": -0.00025891726631530027,
+     "permanent_impact_pct": 12.632345071846132,
      "real_book_depth": 6790.825969723749,
      "regime": "high_vol/normal",
      "remaining": 0.0,
      "sigma_ref": 0.4999,
      "step": 140,
-     "total_IS_pct": 14.538629802356882,
-     "total_is_dollar": 12775861.801035836
+     "total_IS_pct": 9.920359542079224,
+     "total_is_dollar": 8717543.829724938
     },
     "n_steps": 140,
-    "sha256": "bf3766239daff4af8566537d38770e37a9a2e6bbf7461e35c5466756eedc7cbe",
-    "total_reward": -0.1471008043260494
+    "sha256": "def7a3b40ed5da2cbe741e4e93939d7a26c4e5c8013b264c45ddac11e10841f5",
+    "total_reward": -0.1009181017232727
    },
    "all_wait/seed0": {
     "final_info": {
@@ -281,101 +281,101 @@
    "random/seed0": {
     "final_info": {
      "adjusted_book_depth": 5548.836125031277,
-     "book_mid": 89.50527973843748,
+     "book_mid": 92.4113153645466,
      "btc_scale": 0.06280506256580717,
-     "current_sigma": 0.9599912390028446,
-     "depth_reduction_pct": 10.14837447583879,
-     "fill_price": 89.4427421917969,
+     "current_sigma": 0.9583689864520695,
+     "depth_reduction_pct": 7.236848582444846,
+     "fill_price": 92.34674736407082,
      "fill_qty": 3961.7929777376544,
      "interval_volume": 40.479,
-     "is_contribution": -0.000723584385975991,
-     "permanent_impact_pct": 6.009445939123641,
+     "is_contribution": -0.0007235843859769113,
+     "permanent_impact_pct": 7.236331164209661,
      "real_book_depth": 5379.1523517075275,
      "regime": "high_vol/normal",
      "remaining": 0.0,
      "sigma_ref": 0.4999,
      "step": 193,
-     "total_IS_pct": 8.211215859232937,
-     "total_is_dollar": 6537065.264945179
+     "total_IS_pct": 5.633109017931866,
+     "total_is_dollar": 4484597.887335509
     },
     "n_steps": 193,
-    "sha256": "48ffee8f4a9bc8b8a13f1385665c52e2bc89feddd1b1c4f53467a67d444680d2",
-    "total_reward": -0.0833916110069847
+    "sha256": "5f7db6d0b081fbea6497fa981427d85491e605230e6e46d4787cbdb0e5f9490d",
+    "total_reward": -0.0576105492276323
    },
    "random/seed17": {
     "final_info": {
      "adjusted_book_depth": 6888.0687557443025,
-     "book_mid": 90.56382434499136,
+     "book_mid": 93.2697980502948,
      "btc_scale": 0.05689882228210282,
-     "current_sigma": 0.9840440258225498,
-     "depth_reduction_pct": 9.270498629467957,
+     "current_sigma": 0.9782135712063185,
+     "depth_reduction_pct": 6.564776079842854,
      "dust_liquidated_qty": 395.4556188432507,
-     "fill_price": 90.51588612021428,
+     "fill_price": 93.2204274701963,
      "fill_qty": 3559.1005695892154,
      "interval_volume": 46.29900000000005,
-     "is_contribution": -0.0005495816982533034,
-     "permanent_impact_pct": 5.451298334871517,
+     "is_contribution": -0.0005495816982535769,
+     "permanent_impact_pct": 6.564232447656831,
      "real_book_depth": 6671.649513550713,
      "regime": "high_vol/normal",
      "remaining": 0.0,
      "sigma_ref": 0.4999,
      "step": 184,
-     "total_IS_pct": 7.24066882833162,
-     "total_is_dollar": 6362758.083491236
+     "total_IS_pct": 4.967047643342277,
+     "total_is_dollar": 4364807.07695125
     },
     "n_steps": 184,
-    "sha256": "da1808446e8583b857be321d0a329866fec467658756ad4ab51e8cbdbd5c5015",
-    "total_reward": -0.07359762936101659
+    "sha256": "ed3ce9e0fe2e938a89acd8ddd72f7c0b91c21de04ab5e96395e206ef3b6cd78e",
+    "total_reward": -0.05085794663874503
    }
   },
   "counterfactual_crash_16d_fixed": {
    "all_max/seed0": {
     "final_info": {
      "adjusted_book_depth": 6731.099999999999,
-     "book_mid": 82.34138821912335,
+     "book_mid": 87.89206529123406,
      "btc_scale": 0.05,
-     "current_sigma": 1.0777800775377278,
-     "depth_reduction_pct": 18.163294136402968,
-     "fill_price": 82.3160811060963,
+     "current_sigma": 1.0794748540716126,
+     "depth_reduction_pct": 12.656999023958704,
+     "fill_price": 87.86505221216639,
      "fill_qty": 1990.9199999995483,
      "interval_volume": 47.092000000000056,
-     "is_contribution": -0.0003172983741867253,
-     "permanent_impact_pct": 10.510417468450655,
+     "is_contribution": -0.0003172983741866973,
+     "permanent_impact_pct": 12.656218600893924,
      "real_book_depth": 7278.039999999992,
      "regime": "high_vol/normal",
      "remaining": 0.0,
      "sigma_ref": 0.4999,
      "step": 140,
-     "total_IS_pct": 14.57533250522703,
-     "total_is_dollar": 14575332.50522703
+     "total_IS_pct": 9.955655099145739,
+     "total_is_dollar": 9955655.09914574
     },
     "n_steps": 140,
-    "sha256": "10cacd5847879b16685b7b38e5306264a53e91469d7d73cdbd50b4d2818eb14c",
-    "total_reward": -0.14720335744193
+    "sha256": "6040251c210df6548f88ae580d061f348527829d1e3c6a42f5d91807fcf1d976",
+    "total_reward": -0.10100658338111802
    },
    "all_max/seed17": {
     "final_info": {
      "adjusted_book_depth": 7848.560000000002,
-     "book_mid": 82.11789509732813,
+     "book_mid": 87.63825089635523,
      "btc_scale": 0.05,
-     "current_sigma": 0.7817844351036833,
-     "depth_reduction_pct": 18.126710316941814,
-     "fill_price": 82.0974332421947,
+     "current_sigma": 0.7687123263875306,
+     "depth_reduction_pct": 12.633128040299058,
+     "fill_price": 87.61641349791894,
      "fill_qty": 1948.13999999992,
      "interval_volume": 35.79599999999998,
-     "is_contribution": -0.00025891726631580166,
-     "permanent_impact_pct": 10.490591581694897,
+     "is_contribution": -0.00025891726631595323,
+     "permanent_impact_pct": 12.632345071846137,
      "real_book_depth": 7727.8,
      "regime": "high_vol/normal",
      "remaining": 0.0,
      "sigma_ref": 0.4999,
      "step": 140,
-     "total_IS_pct": 14.538629802356795,
-     "total_is_dollar": 14538629.802356794
+     "total_IS_pct": 9.920359542079165,
+     "total_is_dollar": 9920359.542079166
     },
     "n_steps": 140,
-    "sha256": "8f45f93cb527bf359719b330ae716e170684987cd5a60fa81cb436d6ccec4884",
-    "total_reward": -0.1471008043260486
+    "sha256": "6a4a8701e294bd26fbdb806791c24d333b0be323bcb90f072d6f44b376e8fd8b",
+    "total_reward": -0.10091810172327191
    },
    "all_wait/seed0": {
     "final_info": {
@@ -438,102 +438,102 @@
    "random/seed0": {
     "final_info": {
      "adjusted_book_depth": 6969.900000000017,
-     "book_mid": 89.50527973843748,
+     "book_mid": 92.4113153645466,
      "btc_scale": 0.05,
-     "current_sigma": 0.959991239002848,
-     "depth_reduction_pct": 10.148374475838791,
-     "fill_price": 89.44274219179694,
+     "current_sigma": 0.9583689864520815,
+     "depth_reduction_pct": 7.236848582444849,
+     "fill_price": 92.34674736407098,
      "fill_qty": 4976.413116792033,
      "interval_volume": 40.479,
-     "is_contribution": -0.0007235843859755159,
-     "permanent_impact_pct": 6.009445939123642,
+     "is_contribution": -0.0007235843859752211,
+     "permanent_impact_pct": 7.236331164209661,
      "real_book_depth": 6756.7600000000075,
      "regime": "high_vol/normal",
      "remaining": 9.094947017729282e-13,
      "sigma_ref": 0.4999,
      "step": 193,
-     "total_IS_pct": 8.211215859232798,
-     "total_is_dollar": 8211215.859232798
+     "total_IS_pct": 5.633109017931863,
+     "total_is_dollar": 5633109.017931864
     },
     "n_steps": 193,
-    "sha256": "6a9a460116c76d9b05c2cc7178f35e032b34afe06f2b972306a68a09c257193c",
-    "total_reward": -0.08339161100698401
+    "sha256": "fc84f6a04b7dd81bd12e94c586caad224a0e2a7d05afdaee93fde4681524e46e",
+    "total_reward": -0.057610549227631744
    },
    "random/seed17": {
     "final_info": {
      "adjusted_book_depth": 7838.460000000003,
-     "book_mid": 90.56382434499136,
+     "book_mid": 93.2697980502948,
      "btc_scale": 0.05,
-     "current_sigma": 0.9840440258225553,
-     "depth_reduction_pct": 9.270498629467957,
+     "current_sigma": 0.9782135712063185,
+     "depth_reduction_pct": 6.564776079842854,
      "dust_liquidated_qty": 450.01917954042756,
-     "fill_price": 90.51588612021423,
+     "fill_price": 93.2204274701962,
      "fill_qty": 4050.1726158638126,
      "interval_volume": 46.29900000000005,
-     "is_contribution": -0.0005495816982537744,
-     "permanent_impact_pct": 5.451298334871517,
+     "is_contribution": -0.0005495816982546436,
+     "permanent_impact_pct": 6.564232447656831,
      "real_book_depth": 7592.180000000002,
      "regime": "high_vol/normal",
      "remaining": 0.0,
      "sigma_ref": 0.4999,
      "step": 184,
-     "total_IS_pct": 7.240668828331589,
-     "total_is_dollar": 7240668.82833159
+     "total_IS_pct": 4.967047643342301,
+     "total_is_dollar": 4967047.643342301
     },
     "n_steps": 184,
-    "sha256": "811df999833cd37b53a4a473e55e594135c0d6aa4ea808bb4e162f97838fa39f",
-    "total_reward": -0.07359762936101587
+    "sha256": "af1ad6aa52b6d053c33ef7734b4c302ad9f38b32cb4175fe991223716f507c40",
+    "total_reward": -0.05085794663874423
    }
   },
   "counterfactual_v3_crash": {
    "all_max/seed0": {
     "final_info": {
      "adjusted_book_depth": 6970.139999999999,
-     "book_mid": 82.53081340597228,
+     "book_mid": 87.95428713185694,
      "btc_scale": 0.05,
-     "current_sigma": 1.2783201080734647,
-     "depth_reduction_pct": 17.686600292733036,
+     "current_sigma": 1.2692285393275409,
+     "depth_reduction_pct": 12.287217537175003,
      "dust_liquidated_qty": 6.366462912410498e-12,
-     "fill_price": 82.47425637130398,
+     "fill_price": 87.89401347816015,
      "fill_qty": 5659.659999999186,
      "interval_volume": 202.633,
-     "is_contribution": -0.0007135821634958699,
-     "permanent_impact_pct": 10.202997203505108,
+     "is_contribution": -0.0007135821634964652,
+     "permanent_impact_pct": 12.286035581316005,
      "real_book_depth": 7508.220000000001,
      "regime": "high_vol/normal",
      "remaining": 0.0,
      "sigma_ref": 0.4999,
      "step": 132,
-     "total_IS_pct": 14.09048012557669,
-     "total_is_dollar": 14090480.12557669
+     "total_IS_pct": 9.600850515778005,
+     "total_is_dollar": 9600850.515778005
     },
     "n_steps": 132,
-    "sha256": "dd968247584e0f030e5c72292f1c1711a42d116b91bc65c00562237ceff73296",
-    "total_reward": -0.14273262405856413
+    "sha256": "94f83682c6af21d40ed2b181be1bbd580f577af44bbaf6ecc4bc51cb5bd1c05f",
+    "total_reward": -0.09783632796057741
    },
    "all_max/seed17": {
     "final_info": {
      "adjusted_book_depth": 6161.1200000000035,
-     "book_mid": 79.74435678220436,
+     "book_mid": 85.13954734240754,
      "btc_scale": 0.05,
-     "current_sigma": 0.9378424505761795,
-     "depth_reduction_pct": 18.217819465031777,
-     "fill_price": 79.6892462629375,
+     "current_sigma": 0.9224409271537359,
+     "depth_reduction_pct": 12.694948885259805,
+     "fill_price": 85.08070826145546,
      "fill_qty": 5778.999999999263,
      "interval_volume": 97.88400000000046,
-     "is_contribution": -0.0007199848963970275,
-     "permanent_impact_pct": 10.541655425174415,
+     "is_contribution": -0.0007199848963961885,
+     "permanent_impact_pct": 12.693834081927664,
      "real_book_depth": 7786.960000000004,
      "regime": "high_vol/wide",
      "remaining": 9.094947017729282e-13,
      "sigma_ref": 0.4999,
      "step": 141,
-     "total_IS_pct": 15.88219405255562,
-     "total_is_dollar": 15882194.05255562
+     "total_IS_pct": 11.395302881444424,
+     "total_is_dollar": 11395302.881444424
     },
     "n_steps": 141,
-    "sha256": "a0bda32d42be440efbaf40a1d53559e0bd898ecf492b4df2a9532763abbcfca5",
-    "total_reward": -0.14329461279974556
+    "sha256": "e7d0d36f24a3f5fddf05801ffd49108e1b6801cd0fe87d6d96b66f7d7d09c7eb",
+    "total_reward": -0.09842570108863367
    },
    "all_wait/seed0": {
     "final_info": {
@@ -596,52 +596,52 @@
    "random/seed0": {
     "final_info": {
      "adjusted_book_depth": 6511.02,
-     "book_mid": 88.20306230746563,
+     "book_mid": 91.02325379897061,
      "btc_scale": 0.05,
-     "current_sigma": 1.9077893712635263,
-     "depth_reduction_pct": 9.929598922913287,
+     "current_sigma": 1.9091982208042189,
+     "depth_reduction_pct": 7.055380087674161,
      "dust_liquidated_qty": 460.2906250658598,
-     "fill_price": 88.10930933558872,
+     "fill_price": 90.92650318362557,
      "fill_qty": 4142.61562559275,
      "interval_volume": 473.964999999988,
-     "is_contribution": -0.0010836350382533156,
-     "permanent_impact_pct": 5.858810447004406,
+     "is_contribution": -0.0010836350382539214,
+     "permanent_impact_pct": 7.054942011681993,
      "real_book_depth": 4968.520000000003,
      "regime": "high_vol/normal",
      "remaining": 0.0,
      "sigma_ref": 0.4999,
      "step": 184,
-     "total_IS_pct": 8.007390089909286,
-     "total_is_dollar": 8007390.089909285
+     "total_IS_pct": 5.501688439526544,
+     "total_is_dollar": 5501688.439526543
     },
     "n_steps": 184,
-    "sha256": "3a8cd21e83bb2366be4884dc76f6f8bdd8de3f19ba5876a95a48edcdfba44824",
-    "total_reward": -0.08080275608831324
+    "sha256": "f8ea484349b9e4209eb20d31cd53261f9d6859ff4bf8bef466a5fea16f9099f8",
+    "total_reward": -0.0557457396325173
    },
    "random/seed17": {
     "final_info": {
      "adjusted_book_depth": 7230.339999999998,
-     "book_mid": 88.37639215588771,
+     "book_mid": 91.03883660140717,
      "btc_scale": 0.05,
-     "current_sigma": 0.7791541863801836,
-     "depth_reduction_pct": 9.328011420660214,
+     "current_sigma": 0.7762410626141072,
+     "depth_reduction_pct": 6.601649024278895,
      "dust_liquidated_qty": 446.7015436329243,
-     "fill_price": 88.32115926524249,
+     "fill_price": 90.98193975391418,
      "fill_qty": 4020.313892696325,
      "interval_volume": 63.26400000000005,
-     "is_contribution": -0.0006450749282740923,
-     "permanent_impact_pct": 5.48192312754709,
+     "is_contribution": -0.0006450749282741074,
+     "permanent_impact_pct": 6.601109581402715,
      "real_book_depth": 7672.039999999995,
      "regime": "high_vol/normal",
      "remaining": 0.0,
      "sigma_ref": 0.4999,
      "step": 184,
-     "total_IS_pct": 8.912285368137285,
-     "total_is_dollar": 8912285.368137285
+     "total_IS_pct": 6.691654594071358,
+     "total_is_dollar": 6691654.594071358
     },
     "n_steps": 184,
-    "sha256": "4af31e58fa65125150bfd1e734b392076c9a0e8a2db004ffc5b9487b3f9f49cb",
-    "total_reward": -0.07211659002854451
+    "sha256": "913a3b5b7bfc6db3e1b1d0cbb5bfa6cd98ce1e7c59445dc1aa91cfcdac713bab",
+    "total_reward": -0.04990271947175563
    }
   },
   "historical_calm": {
