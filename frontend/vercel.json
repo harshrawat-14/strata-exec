@@ -1,8 +1,24 @@
 {
   "rewrites": [
-    { "source": "/api/:path*",      "destination": "https://strataexec-api.onrender.com/api/:path*" },
-    { "source": "/progress/:path*", "destination": "https://strataexec-api.onrender.com/progress/:path*" },
-    { "source": "/ws/:path*",       "destination": "https://strataexec-api.onrender.com/ws/:path*" },
-    { "source": "/(.*)",            "destination": "/index.html" }
+    {
+      "source": "/health",
+      "destination": "https://strataexec-api.onrender.com/health"
+    },
+    {
+      "source": "/api/:path*",
+      "destination": "https://strataexec-api.onrender.com/api/:path*"
+    },
+    {
+      "source": "/progress/:path*",
+      "destination": "https://strataexec-api.onrender.com/progress/:path*"
+    },
+    {
+      "source": "/ws/:path*",
+      "destination": "https://strataexec-api.onrender.com/ws/:path*"
+    },
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
+    }
   ]
 }

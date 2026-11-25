@@ -8,6 +8,9 @@ import RLEvaluation from './pages/RLEvaluation'
 import DataUpload from './pages/DataUpload'
 import ParameterSweep from './pages/ParameterSweep'
 import Login from './pages/Login'
+import ResultsTour from './pages/ResultsTour'
+import { SystemDownBanner } from './components/SystemDownBanner'
+import { useBackendStatus } from './hooks/useBackendStatus'
 import { Menu } from 'lucide-react'
 
 const queryClient = new QueryClient({
@@ -30,6 +33,7 @@ function AppLayout() {
   })
   const [mobileOpen, setMobileOpen] = useState(false)
   const location = useLocation()
+  const backend = useBackendStatus()
 
   // Auto-close sidebar on mobile when navigating to a new route
   useEffect(() => {
@@ -107,6 +111,9 @@ function AppLayout() {
         }}
       >
         <div className="max-w-7xl mx-auto">
+          {backend === 'offline' && location.pathname !== '/results' && (
+            <div className="mb-6"><SystemDownBanner /></div>
+          )}
           <Outlet />
         </div>
       </main>
@@ -121,6 +128,9 @@ export default function App() {
         <Routes>
           {/* Public Route */}
           <Route path="/login" element={<Login />} />
+          <Route element={<AppLayout />}>
+            <Route path="/results" element={<ResultsTour />} />
+          </Route>
 
           {/* Protected Routes */}
           <Route element={<ProtectedRoute />}>

@@ -3,11 +3,12 @@ import { NavLink } from 'react-router-dom'
 import {
   LayoutDashboard, FlaskConical, BrainCircuit,
   Upload, BarChart3, Sun, Moon, LogOut,
-  ChevronLeft, ChevronRight, X
+  ChevronLeft, ChevronRight, X, Compass
 } from 'lucide-react'
 import { clsx } from 'clsx'
 
 const NAV_ITEMS = [
+  { to: '/results',   icon: Compass,         label: 'Results Tour' },
   { to: '/',          icon: LayoutDashboard, label: 'Dashboard'   },
   { to: '/simulator', icon: FlaskConical,    label: 'Simulator'   },
   { to: '/evaluate',  icon: BrainCircuit,    label: 'RL Eval'     },

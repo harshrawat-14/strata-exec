@@ -1,6 +1,8 @@
 import React, { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { loginUser } from '../api/client'
+import { useBackendStatus } from '../hooks/useBackendStatus'
+import { SystemDownBanner } from '../components/SystemDownBanner'
 import './Login.css'
 
 export default function Login() {
@@ -9,6 +11,7 @@ export default function Login() {
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const navigate = useNavigate()
+  const backend = useBackendStatus()
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -48,6 +51,10 @@ export default function Login() {
           <h1 className="brand-title">StrataExec</h1>
           <p className="brand-subtitle">Quantitative Strategy Execution Platform</p>
         </div>
+
+        {backend === 'offline' && (
+          <div style={{ marginBottom: 20 }}><SystemDownBanner stacked /></div>
+        )}
 
         <form onSubmit={handleSubmit} className="login-form">
           {error && (
@@ -96,6 +103,12 @@ export default function Login() {
             )}
           </button>
         </form>
+
+        <button type="button" onClick={() => navigate('/results')}
+          className="w-full mt-4 py-2.5 rounded-lg text-xs font-semibold"
+          style={{ border: '1px solid rgba(255,255,255,0.18)', color: 'rgba(255,255,255,0.85)', background: 'transparent' }}>
+          Explore the results without signing in →
+        </button>
 
         <div className="login-footer">
           <p>Seeded credentials: <code>admin@strataexec.com</code> / <code>strataexec</code></p>
