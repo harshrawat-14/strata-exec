@@ -85,6 +85,7 @@ findings were retracted and the retractions are preserved deliberately rather th
 | 33 | [impact-decay-recalibration-result.md](experiments/33-impact-decay-recalibration-result.md) | π 0.3→0.435, half-life 3.3 h→26 s (accepted; val RMSE 11% of old); TWAP 0.06 pp cheaper at 5% ADV; honest AC still = TWAP; faster paces ~40% cheaper in impact |
 | 34 | [alt-coins-predictions.md](experiments/34-alt-coins-predictions.md) | Pre-registered rerun of the local-liquidity, decay-by-volatility and drawdown tests on SOLUSDT and DOGEUSDT (V4 pool) |
 | 34 | [alt-coins-result.md](experiments/34-alt-coins-result.md) | All three tests fail on SOL and DOGE as on BTC: no liquidity-timing, decay-by-volatility or drawdown signal; shuffled-null 'momentum' is the doc 32 artefact again |
+| 35 | [m0-rescore-predictions.md](experiments/35-m0-rescore-predictions.md) | Pre-registered re-score of M0-e2b on the recalibrated simulator, plus 85 out-of-sample V4 validation days by regime |
 
 Predictions files are **pre-registered** — written and committed before the corresponding experiment
 was run, so the result cannot be retrofitted to the outcome.
