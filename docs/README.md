@@ -87,6 +87,7 @@ findings were retracted and the retractions are preserved deliberately rather th
 | 34 | [alt-coins-result.md](experiments/34-alt-coins-result.md) | All three tests fail on SOL and DOGE as on BTC: no liquidity-timing, decay-by-volatility or drawdown signal; shuffled-null 'momentum' is the doc 32 artefact again |
 | 35 | [m0-rescore-predictions.md](experiments/35-m0-rescore-predictions.md) | Pre-registered re-score of M0-e2b on the recalibrated simulator, plus 85 out-of-sample V4 validation days by regime |
 | 35 | [m0-rescore-result.md](experiments/35-m0-rescore-result.md) | M0-e2b on corrected sim + 85 out-of-sample days: crash +0.67 (10/10), calm −0.79 (2/29), all −0.12 vs TWAP; sits between constant 3× and 5× paces in every regime (speed, not regime awareness) |
+| 36 | [m0-retrain-predictions.md](experiments/36-m0-retrain-predictions.md) | Pre-registered retrain of the M0 recipe on the corrected simulator (one change), scored as doc 35 |
 
 Predictions files are **pre-registered** — written and committed before the corresponding experiment
 was run, so the result cannot be retrofitted to the outcome.

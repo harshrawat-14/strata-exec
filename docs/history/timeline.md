@@ -740,3 +740,11 @@ July audit (Phase −1/0) went back over it.
 - In every regime M0-e2b sits between constant 3× and 5× TWAP paces. A constant 5× pace beats
   it overall and on crash days. Its "crash win" is a speed bet, not regime awareness.
 - Next: retrain the M0 recipe on the corrected simulator (doc 36), then equities.
+
+### 2026-11-25 · MISTAKE · Re-score report crashed on its own saved CSV
+- **What:** `m0_rescore.py` stored `forced` as a bool for model rows and a float for pace rows;
+  pandas reloads the mixed column as strings, and `report()` failed on `.4f` formatting. The
+  live run printed correctly because it reported from memory.
+- **Found by:** re-running the report from the CSV while parametrising the script for doc 36.
+- **Fix:** model rows store a float; `report()` normalises the column. Regression test
+  `test_m0_rescore.py` round-trips a CSV (mutation-checked).

@@ -9,7 +9,9 @@ Two date sets:
 Honest-lambda AC is TWAP on this simulator (doc 33, lambda -> 0), so TWAP stands for both.
 Held-out dates are not read.
 
-    python rl/experiments/m0_rescore.py
+    python rl/experiments/m0_rescore.py                     # doc 35: M0-e2b
+    python rl/experiments/m0_rescore.py --model rl/models/checkpoints/m0_e2c/ckpt_N_steps \
+        --name M0-e2c --out rl/results/m0_e2c_rescore_doc36.csv   # doc 36: retrain
 """
 import sys
 from multiprocessing import Pool
@@ -58,51 +60,60 @@ def _paces(date):
     return rows
 
 
-def _model(date):
+def _model(date, model=MODEL, name="M0-e2b"):
     from select_checkpoint_v3 import _evaluate
-    return [dict(date=r["date"], strategy="M0-e2b", episode=i, IS=r["IS"], forced=r["forced"], steps=r["steps"])
-            for i, r in enumerate(_evaluate(("m0_e2b", MODEL, date, "raw", SHARE)))]
+    return [dict(date=r["date"], strategy=name, episode=i, IS=r["IS"], forced=float(r["forced"]),
+                 steps=r["steps"])
+            for i, r in enumerate(_evaluate((name, model, date, "raw", SHARE)))]
 
 
 def _job(args):
-    kind, date = args
-    rows = _model(date) if kind == "model" else _paces(date)
+    kind, date, model, name = args
+    rows = _model(date, model, name) if kind == "model" else _paces(date)
     print(f"  {date} {kind} done", flush=True)
     return rows
 
 
-def main():
+def main(argv=None):
+    import argparse
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--model", default=MODEL)
+    ap.add_argument("--name", default="M0-e2b")
+    ap.add_argument("--out", default=OUT)
+    args = ap.parse_args(argv)
     dates = V3 + OOS
     with Pool(8) as pool:
-        rows = pool.map(_job, [(k, d) for d in dates for k in ("model", "paces")], chunksize=1)
+        rows = pool.map(_job, [(k, d, args.model, args.name) for d in dates for k in ("model", "paces")],
+                        chunksize=1)
     df = pd.DataFrame([r for rs in rows for r in rs])
     df["set"] = np.where(df.date.isin(V3), "v3", "oos")
     df["regime"] = df.date.map(pd.read_csv("rl/results/v4_day_stats.csv").set_index("date").regime)
-    df.to_csv(OUT, index=False)
-    report(df)
+    df.to_csv(args.out, index=False)
+    report(df, args.name)
 
 
-def report(df):
+def report(df, name="M0-e2b"):
+    df = df.assign(forced=df.forced.map(lambda v: float(v == "True") if isinstance(v, str) else float(v)))
     per = df.pivot_table(index=["set", "regime", "date"], columns="strategy", values="IS").reset_index()
-    per["vs TWAP"] = per["M0-e2b"] - per["pace 1.0"]
+    per["vs TWAP"] = per[name] - per["pace 1.0"]
     for s in ("v3", "oos"):
         p = per[per.set == s]
         print(f"\n=== {s} ({len(p)} dates), mean IS % by regime (doc 30 drift labels)")
-        cols = ["M0-e2b"] + [f"pace {x}" for x in PACES] + ["vs TWAP"]
+        cols = [name] + [f"pace {x}" for x in PACES] + ["vs TWAP"]
         t = p.groupby("regime")[cols].mean()
         t["n"] = p.groupby("regime").size()
-        t["M0 beats TWAP (days)"] = p.groupby("regime")["vs TWAP"].apply(lambda x: f"{(x > 0).sum()}/{len(x)}")
+        t["model beats TWAP (days)"] = p.groupby("regime")["vs TWAP"].apply(lambda x: f"{(x > 0).sum()}/{len(x)}")
         print(t.round(3).to_string())
-        print(f"  all: M0-e2b {p['M0-e2b'].mean():+.3f}  TWAP {p['pace 1.0'].mean():+.3f}  "
+        print(f"  all: {name} {p[name].mean():+.3f}  TWAP {p['pace 1.0'].mean():+.3f}  "
               f"vs TWAP {p['vs TWAP'].mean():+.3f}")
         rng = np.random.default_rng(0)
         for reg, g in p.groupby("regime"):
             v = g["vs TWAP"].to_numpy()
             bs = [v[rng.integers(0, len(v), len(v))].mean() for _ in range(2000)]
             lo, hi = np.quantile(bs, [0.05, 0.95])
-            print(f"  {reg:>6}: M0-e2b - TWAP {v.mean():+.3f}  90% [{lo:+.3f}, {hi:+.3f}]")
-    m = df[df.strategy == "M0-e2b"]
-    print(f"\nM0-e2b forced-liquidation share: max {m.forced.max():.4f}; median steps to finish "
+            print(f"  {reg:>6}: model - TWAP {v.mean():+.3f}  90% [{lo:+.3f}, {hi:+.3f}]")
+    m = df[df.strategy == name]
+    print(f"\n{name} forced-liquidation share: max {m.forced.max():.4f}; median steps to finish "
           f"{m.steps.median():.0f} (TWAP 1,918)")
 
 
