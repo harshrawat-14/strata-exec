@@ -731,3 +731,12 @@ July audit (Phase −1/0) went back over it.
 - Process slip: the first run loop glued arguments to script names (zsh does not word-split),
   so only the secondary null ran. Runs now go through an explicit bash script, and the log is
   checked right after launch.
+
+### 2026-11-25 · RESULT · M0-e2b out of sample: a fast constant seller (doc 35)
+- On the corrected simulator, doc 23's split stands (v3 crash +0.53, calm −0.77 vs TWAP).
+- On 85 V4 validation days never used for training or selection: crash +0.67 (10/10 days),
+  normal +0.13, calm −0.79 (2/29), overall −0.12 vs TWAP. Goal (beat TWAP = honest AC in
+  every regime) not met.
+- In every regime M0-e2b sits between constant 3× and 5× TWAP paces. A constant 5× pace beats
+  it overall and on crash days. Its "crash win" is a speed bet, not regime awareness.
+- Next: retrain the M0 recipe on the corrected simulator (doc 36), then equities.
