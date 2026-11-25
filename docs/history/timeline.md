@@ -748,3 +748,12 @@ July audit (Phase −1/0) went back over it.
 - **Found by:** re-running the report from the CSV while parametrising the script for doc 36.
 - **Fix:** model rows store a float; `report()` normalises the column. Regression test
   `test_m0_rescore.py` round-trips a CSV (mutation-checked).
+
+### 2026-11-25 · RESULT · Retrained M0 is a constant 10× pace; crypto ladder closed (doc 36)
+- One change (corrected simulator): the recipe now sells at about 10× TWAP (median 173 steps);
+  out of sample it is within 0.02 pp of a fixed 10× pace in every regime. Crash +0.84, calm
+  −0.92, overall −0.14 vs TWAP. Goal not met.
+- The learned pace follows impact cost, not the regime, as docs 26–34 predicted: there is no
+  real-time regime signal in BTC, SOL or DOGE. Next: equities, together with the live-feed platform.
+- Process slip: a pool run fed via stdin hung (spawn workers cannot re-import `<stdin>`);
+  multiprocessing runs now always go through a script file.
