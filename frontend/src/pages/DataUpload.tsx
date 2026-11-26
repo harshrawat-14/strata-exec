@@ -8,7 +8,7 @@ import { useMutation, useQuery } from '@tanstack/react-query'
 import { FileText, Brain } from 'lucide-react'
 import { clsx } from 'clsx'
 
-import { useBackendStatus } from '../hooks/useBackendStatus'
+import { useBackendStatus, useShowcase } from '../hooks/useBackendStatus'
 import { uploadLobFile, uploadAggFile, uploadModel, fetchLobDepthPreview, fetchUploadedFiles, fetchUploadedModels } from '../api/client'
 import { OrderBookViz, SpreadChart } from '../components/OrderBookViz'
 import { Skeleton } from '../components/ui'
@@ -108,6 +108,7 @@ function DropZone({ type, accept, label, description, icon, onDrop, isLoading, r
 
 export default function DataUpload() {
   const backend = useBackendStatus()
+  const showcase = useShowcase()
   const [lobResult, setLobResult] = useState<UploadedFileInfo | null>(null)
   const [aggResult, setAggResult] = useState<UploadedFileInfo | null>(null)
   const [modelResult, setModelResult] = useState<UploadedModelInfo | null>(null)
@@ -185,6 +186,11 @@ export default function DataUpload() {
           {backend === 'offline' && (
             <span className="block mt-1 font-semibold" style={{ color: 'var(--text)' }}>
               Uploads need the engine, which is offline right now.
+            </span>
+          )}
+          {backend === 'online' && showcase && (
+            <span className="block mt-1 font-semibold" style={{ color: 'var(--text)' }}>
+              Uploads need an account. Sign in to try it.
             </span>
           )}
         </div>

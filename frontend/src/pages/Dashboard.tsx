@@ -11,7 +11,7 @@ import {
 import { fetchDashboard } from '../api/client'
 import { JobStatusBadge, MetricTile, Skeleton, EmptyState } from '../components/ui'
 import type { RecentJob } from '../types'
-import { useBackendStatus } from '../hooks/useBackendStatus'
+import { useShowcase } from '../hooks/useBackendStatus'
 import { DashboardShowcase } from '../components/DashboardShowcase'
 
 export default function Dashboard() {
@@ -21,8 +21,8 @@ export default function Dashboard() {
     queryFn: fetchDashboard,
     refetchInterval: 10_000,
   })
-  const backend = useBackendStatus()
-  if (backend === 'offline') return <DashboardShowcase />
+  const showcase = useShowcase()
+  if (showcase) return <DashboardShowcase />
 
   return (
     <div className="space-y-8 animate-fade-in">

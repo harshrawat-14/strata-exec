@@ -36,3 +36,20 @@ export function useBackendStatus(): BackendStatus {
   if (isPending) return 'checking'
   return data ? 'online' : 'offline'
 }
+
+function hasSession(): boolean {
+  try {
+    return !!localStorage.getItem('strataexec_token')
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Show the pinned, precomputed views. True while the engine is offline, and for visitors without a
+ * session even when it is up: the live API answers them with 401s and empty lists.
+ */
+export function useShowcase(): boolean {
+  const backend = useBackendStatus()
+  return backend === 'offline' || !hasSession()
+}

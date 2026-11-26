@@ -109,3 +109,23 @@ describe("guided tour", () => {
     expect(screen.getByTestId("path").textContent).toBe("/results");
   });
 });
+
+describe("visitors with the engine up but no session", () => {
+  // The live API answers /health, but every data endpoint refuses a visitor or has nothing.
+  beforeEach(() => {
+    vi.stubGlobal("fetch", vi.fn(async (url: string) =>
+      String(url).endsWith("/health")
+        ? new Response(JSON.stringify({ status: "ok" }), { status: 200 })
+        : new Response(JSON.stringify({ detail: "Not authenticated" }), { status: 401 }),
+    ));
+  });
+
+  it.each([
+    ["/", "Explore"],
+    ["/sweep", "precomputed GARCH sweep, 500 paths per point"],
+    ["/upload", "Uploads need an account. Sign in to try it."],
+  ])("%s still shows the pinned content, not an empty live view", async (path, text) => {
+    renderAt(path);
+    expect(await screen.findByText(text, { exact: false })).toBeInTheDocument();
+  });
+});

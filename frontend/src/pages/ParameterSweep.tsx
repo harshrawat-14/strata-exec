@@ -12,7 +12,7 @@ import {
 } from 'recharts'
 import { startSweep, fetchSweepResult, cancelJob } from '../api/client'
 import { pinnedSweepResult } from '../api/offline'
-import { useBackendStatus } from '../hooks/useBackendStatus'
+import { useShowcase } from '../hooks/useBackendStatus'
 import { useWebSocket } from '../hooks/useWebSocket'
 import { JobStatusBadge, ProgressBar, Skeleton, EmptyState } from '../components/ui'
 import type { JobStatusValue, WsMessage } from '../types'
@@ -45,9 +45,9 @@ export default function ParameterSweep() {
     }
   }, [jobId])
 
-  const backend = useBackendStatus()
-  // While the engine is offline, show the pinned GARCH sweep for the chosen dimension.
-  const result = liveResult ?? (backend === 'offline' ? pinnedSweepResult(dimension) : null)
+  const showcase = useShowcase()
+  // Until someone runs a live sweep, show the pinned GARCH sweep for the chosen dimension.
+  const result = liveResult ?? (showcase ? pinnedSweepResult(dimension) : null)
 
   const selectedDim = DIMENSION_OPTIONS.find(d => d.id === dimension)
 
