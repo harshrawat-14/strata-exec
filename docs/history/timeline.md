@@ -775,3 +775,15 @@ July audit (Phase −1/0) went back over it.
 - **Lesson:** ten learner changes (docs 14–25) never touched the three things that decide
   whether regime awareness can be learned: reward content, state content and action design.
   Audit the objective before tuning the optimiser.
+
+### 2026-11-26 · RESULT · Learnability: price levels do not say when to sell faster (doc 38)
+- Supervised test of the user's idea: from round numbers, support/resistance (today's, 4 h and
+  previous-day highs and lows, touches), past returns, volatility and book imbalance, predict
+  whether selling the next 2 h faster pays. Ridge and boosting are fit on 256 V4 training days
+  and scored on 87 validation days against a sign-flipped null.
+- Both pre-registered hypotheses fail: the corrected timing gain is −0.6 bp in every model
+  (floor +3 bp), and the models lose on crash days. The corrected IC is at most +0.035, and its
+  interval includes 0. Support/resistance carries what little ranking there is. Round numbers
+  carry none.
+- With docs 26, 27, 32 and 34, this closes regime awareness from BTC price history. The doc 37
+  retrain is not run. Next: equities and the live-feed platform.
